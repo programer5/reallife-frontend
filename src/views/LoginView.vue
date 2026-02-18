@@ -8,17 +8,18 @@ const auth = useAuthStore()
 
 const email = ref('')
 const password = ref('')
-const error = ref('')
 const loading = ref(false)
+const error = ref('')
+const showPw = ref(false)
 
-const onLogin = async () => {
+const submit = async () => {
   error.value = ''
   loading.value = true
   try {
-    await auth.login(email.value, password.value)
-    router.push('/inbox')
+    await auth.login(email.value.trim(), password.value)
+    router.replace('/home')
   } catch (e) {
-    error.value = e?.response?.data?.message || e?.message || '로그인 실패'
+    error.value = e?.response?.data?.message || '로그인에 실패했어요. 이메일/비밀번호를 확인해 주세요.'
   } finally {
     loading.value = false
   }
@@ -28,54 +29,91 @@ const onLogin = async () => {
 <template>
   <div class="page">
     <div class="card">
+      <!-- Brand -->
       <div class="brand">
-        <div class="logo">R</div>
-        <div>
+        <div class="logo">RL</div>
+        <div class="brandText">
           <div class="title">RealLife</div>
-          <div class="subtitle">인박스에서 모든 소통을 한 번에</div>
+          <div class="subtitle">사람을 중심으로, 지금을 연결합니다.</div>
         </div>
       </div>
 
-      <div class="form">
-        <label class="field">
-          <div class="label">이메일</div>
-          <input v-model="email" class="input" placeholder="seed@test.com" autocomplete="username" />
-        </label>
+      <div class="divider"></div>
 
-        <label class="field">
-          <div class="label">비밀번호</div>
-          <input v-model="password" class="input" type="password" placeholder="••••••••" autocomplete="current-password" />
-        </label>
+      <!-- Form -->
+      <form class="form" @submit.prevent="submit">
+        <label class="label">이메일</label>
+        <div class="field">
+          <span class="ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M4 6h16v12H4V6Z" stroke="currentColor" stroke-width="1.7"/>
+              <path d="M4 7l8 6 8-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <input
+              v-model="email"
+              class="input"
+              type="email"
+              autocomplete="email"
+              placeholder="seed@test.com"
+              required
+          />
+        </div>
 
-        <button class="btn" :disabled="loading" @click="onLogin">
-          <span v-if="!loading">로그인</span>
-          <span v-else>로그인 중...</span>
-        </button>
+        <label class="label">비밀번호</label>
+        <div class="field">
+          <span class="ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M7 11V8a5 5 0 0110 0v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M6 11h12v9H6v-9Z" stroke="currentColor" stroke-width="1.7"/>
+              <path d="M12 15v2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </span>
+
+          <input
+              v-model="password"
+              class="input"
+              :type="showPw ? 'text' : 'password'"
+              autocomplete="current-password"
+              placeholder="비밀번호"
+              required
+          />
+
+          <button class="pwBtn" type="button" @click="showPw = !showPw">
+            <span v-if="!showPw">보기</span>
+            <span v-else>숨김</span>
+          </button>
+        </div>
 
         <p v-if="error" class="err">{{ error }}</p>
-      </div>
 
-      <div class="divider">
-        <span>또는</span>
-      </div>
+        <button class="cta" type="submit" :disabled="loading">
+          <span v-if="!loading">로그인</span>
+          <span v-else>로그인 중…</span>
+        </button>
 
-      <!-- 소셜 로그인은 "나중에" 붙이기 좋게 버튼만 미리 마련 -->
+        <div class="hintRow">
+          <span class="hint">계정이 없나요?</span>
+          <span class="link">회원가입(추가 예정)</span>
+        </div>
+      </form>
+
+      <div class="divider soft"></div>
+
+      <!-- Social (placeholder) -->
       <div class="social">
-        <button class="socialBtn" disabled title="추후 구현">
-          Google로 계속하기
-        </button>
-        <button class="socialBtn" disabled title="추후 구현">
-          Naver로 계속하기
-        </button>
-        <button class="socialBtn" disabled title="추후 구현">
-          Kakao로 계속하기
-        </button>
-      </div>
-
-      <div class="foot">
-        <a class="link" href="http://localhost/docs" target="_blank" rel="noreferrer">API 문서</a>
-        <span class="dot">•</span>
-        <span class="hint">개발중</span>
+        <div class="socialTitle">간편 로그인 (추가 예정)</div>
+        <div class="socialBtns">
+          <button class="sbtn" type="button" disabled>
+            <span class="sico">G</span> Google
+          </button>
+          <button class="sbtn" type="button" disabled>
+            <span class="sico">N</span> Naver
+          </button>
+          <button class="sbtn" type="button" disabled>
+            <span class="sico">K</span> Kakao
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -83,7 +121,7 @@ const onLogin = async () => {
 
 <style scoped>
 .page{
-  min-height: calc(100vh - 56px - 64px);
+  min-height: calc(100vh - 56px - 72px);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -91,117 +129,160 @@ const onLogin = async () => {
 }
 
 .card{
-  width: min(520px, 100%);
-  background: radial-gradient(1200px 500px at 10% 0%, rgba(255,255,255,0.10), transparent 50%),
-  rgba(255,255,255,0.04);
+  width: min(420px, 100%);
+  border-radius: 22px;
   border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 20px;
-  padding: 16px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  background: radial-gradient(900px 240px at 20% 0%, rgba(255,255,255,0.10), transparent 55%),
+  rgba(255,255,255,0.04);
+  padding: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
 }
 
 .brand{
   display:flex;
-  gap: 12px;
   align-items:center;
-  margin-bottom: 14px;
+  gap: 12px;
 }
 
 .logo{
-  width: 48px;
-  height: 48px;
-  border-radius: 18px;
-  background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.14);
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
   display:flex;
   align-items:center;
   justify-content:center;
-  font-weight: 900;
-  font-size: 18px;
-}
-
-.title{
+  color: white;
   font-weight: 950;
-  letter-spacing: 0.2px;
-  font-size: 18px;
+  font-size: 16px;
+  letter-spacing: 1px;
+  background: radial-gradient(40px 30px at 30% 20%, rgba(255,255,255,0.25), transparent 60%),
+  linear-gradient(135deg, #7c9cff, #4b5cff 55%, #2b2d8f);
+  box-shadow: 0 16px 36px rgba(75,92,255,0.22);
 }
 
-.subtitle{
-  font-size: 12px;
-  opacity: 0.75;
-  margin-top: 2px;
-}
-
-.form{ display:grid; gap: 12px; margin-top: 10px; }
-
-.field{ display:grid; gap: 6px; }
-.label{ font-size: 12px; opacity: 0.78; }
-
-.input{
-  width: 100%;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(0,0,0,0.18);
-  color: #e8e8ea;
-  outline: none;
-}
-
-.btn{
-  width: 100%;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.08);
-  color: #e8e8ea;
-  font-weight: 900;
-  cursor: pointer;
-}
-.btn:disabled{ opacity: 0.6; cursor: not-allowed; }
-
-.err{
-  margin: 0;
-  color: #ff6b6b;
-  font-size: 13px;
-}
+.brandText{ line-height: 1.15; }
+.title{ font-size: 18px; font-weight: 950; }
+.subtitle{ margin-top: 3px; font-size: 12px; opacity: 0.7; }
 
 .divider{
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+  margin: 14px 0;
+}
+.divider.soft{ opacity: .6; }
+
+.form{ display:grid; gap: 10px; }
+.label{ font-size: 12px; opacity: .75; }
+
+.field{
   display:flex;
   align-items:center;
   gap: 10px;
-  margin: 14px 0;
-  opacity: 0.7;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.18);
+}
+
+.field:focus-within{
+  border-color: rgba(124,156,255,0.55);
+  box-shadow: 0 0 0 4px rgba(124,156,255,0.12);
+}
+
+.ico{
+  width: 20px;
+  height: 20px;
+  display:flex;
+  opacity: .85;
+}
+.ico svg{ width: 20px; height: 20px; }
+
+.input{
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #e8e8ea;
+  font-size: 14px;
+}
+
+.pwBtn{
+  border: 0;
+  background: rgba(255,255,255,0.06);
+  color: rgba(232,232,234,0.9);
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.err{
+  margin: 2px 0 0;
+  color: #ff6b6b;
   font-size: 12px;
 }
-.divider::before,
-.divider::after{
-  content:'';
-  height: 1px;
-  flex: 1;
-  background: rgba(255,255,255,0.10);
+
+.cta{
+  margin-top: 4px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: radial-gradient(600px 200px at 20% 0%, rgba(255,255,255,0.16), transparent 60%),
+  rgba(255,255,255,0.08);
+  color: #e8e8ea;
+  font-weight: 950;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+.cta:hover{ transform: translateY(-1px); }
+.cta:disabled{ opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.hintRow{
+  display:flex;
+  justify-content:space-between;
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: .8;
+}
+.link{ opacity: .95; font-weight: 900; }
+
+.socialTitle{
+  font-size: 12px;
+  opacity: .75;
+  font-weight: 900;
 }
 
-.social{ display:grid; gap: 10px; }
-.socialBtn{
-  width: 100%;
-  padding: 12px;
+.socialBtns{
+  display:flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.sbtn{
+  flex: 1;
+  padding: 10px 10px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(0,0,0,0.12);
-  color: rgba(232,232,234,0.65);
+  background: rgba(255,255,255,0.05);
+  color: rgba(232,232,234,0.8);
+  font-weight: 900;
   cursor: not-allowed;
-}
-
-.foot{
+  opacity: .7;
   display:flex;
   align-items:center;
   justify-content:center;
   gap: 8px;
-  margin-top: 14px;
-  font-size: 12px;
-  opacity: 0.75;
 }
-.link{ color: inherit; }
-.dot{ opacity: 0.6; }
-.hint{ opacity: 0.7; }
+.sico{
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.10);
+  font-size: 12px;
+}
 </style>
