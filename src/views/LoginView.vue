@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import LogoMark from '../components/LogoMark.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -31,7 +32,7 @@ const submit = async () => {
     <div class="card">
       <!-- Brand -->
       <div class="brand">
-        <div class="logo">RL</div>
+        <LogoMark :size="48" :rounded="18" />
         <div class="brandText">
           <div class="title">RealLife</div>
           <div class="subtitle">사람을 중심으로, 지금을 연결합니다.</div>
@@ -40,7 +41,6 @@ const submit = async () => {
 
       <div class="divider"></div>
 
-      <!-- Form -->
       <form class="form" @submit.prevent="submit">
         <label class="label">이메일</label>
         <div class="field">
@@ -50,14 +50,7 @@ const submit = async () => {
               <path d="M4 7l8 6 8-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
             </svg>
           </span>
-          <input
-              v-model="email"
-              class="input"
-              type="email"
-              autocomplete="email"
-              placeholder="seed@test.com"
-              required
-          />
+          <input v-model="email" class="input" type="email" autocomplete="email" placeholder="seed@test.com" required />
         </div>
 
         <label class="label">비밀번호</label>
@@ -70,18 +63,10 @@ const submit = async () => {
             </svg>
           </span>
 
-          <input
-              v-model="password"
-              class="input"
-              :type="showPw ? 'text' : 'password'"
-              autocomplete="current-password"
-              placeholder="비밀번호"
-              required
-          />
+          <input v-model="password" class="input" :type="showPw ? 'text' : 'password'" autocomplete="current-password" placeholder="비밀번호" required />
 
           <button class="pwBtn" type="button" @click="showPw = !showPw">
-            <span v-if="!showPw">보기</span>
-            <span v-else>숨김</span>
+            <span v-if="!showPw">보기</span><span v-else>숨김</span>
           </button>
         </div>
 
@@ -97,24 +82,6 @@ const submit = async () => {
           <span class="link">회원가입(추가 예정)</span>
         </div>
       </form>
-
-      <div class="divider soft"></div>
-
-      <!-- Social (placeholder) -->
-      <div class="social">
-        <div class="socialTitle">간편 로그인 (추가 예정)</div>
-        <div class="socialBtns">
-          <button class="sbtn" type="button" disabled>
-            <span class="sico">G</span> Google
-          </button>
-          <button class="sbtn" type="button" disabled>
-            <span class="sico">N</span> Naver
-          </button>
-          <button class="sbtn" type="button" disabled>
-            <span class="sico">K</span> Kakao
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -144,22 +111,6 @@ const submit = async () => {
   gap: 12px;
 }
 
-.logo{
-  width: 46px;
-  height: 46px;
-  border-radius: 16px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  color: white;
-  font-weight: 950;
-  font-size: 16px;
-  letter-spacing: 1px;
-  background: radial-gradient(40px 30px at 30% 20%, rgba(255,255,255,0.25), transparent 60%),
-  linear-gradient(135deg, #7c9cff, #4b5cff 55%, #2b2d8f);
-  box-shadow: 0 16px 36px rgba(75,92,255,0.22);
-}
-
 .brandText{ line-height: 1.15; }
 .title{ font-size: 18px; font-weight: 950; }
 .subtitle{ margin-top: 3px; font-size: 12px; opacity: 0.7; }
@@ -169,7 +120,6 @@ const submit = async () => {
   background: rgba(255,255,255,0.10);
   margin: 14px 0;
 }
-.divider.soft{ opacity: .6; }
 
 .form{ display:grid; gap: 10px; }
 .label{ font-size: 12px; opacity: .75; }
@@ -189,12 +139,7 @@ const submit = async () => {
   box-shadow: 0 0 0 4px rgba(124,156,255,0.12);
 }
 
-.ico{
-  width: 20px;
-  height: 20px;
-  display:flex;
-  opacity: .85;
-}
+.ico{ width: 20px; height: 20px; display:flex; opacity: .85; }
 .ico svg{ width: 20px; height: 20px; }
 
 .input{
@@ -216,11 +161,7 @@ const submit = async () => {
   cursor: pointer;
 }
 
-.err{
-  margin: 2px 0 0;
-  color: #ff6b6b;
-  font-size: 12px;
-}
+.err{ margin: 2px 0 0; color: #ff6b6b; font-size: 12px; }
 
 .cta{
   margin-top: 4px;
@@ -246,43 +187,4 @@ const submit = async () => {
   opacity: .8;
 }
 .link{ opacity: .95; font-weight: 900; }
-
-.socialTitle{
-  font-size: 12px;
-  opacity: .75;
-  font-weight: 900;
-}
-
-.socialBtns{
-  display:flex;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.sbtn{
-  flex: 1;
-  padding: 10px 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.05);
-  color: rgba(232,232,234,0.8);
-  font-weight: 900;
-  cursor: not-allowed;
-  opacity: .7;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap: 8px;
-}
-.sico{
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background: rgba(0,0,0,0.22);
-  border: 1px solid rgba(255,255,255,0.10);
-  font-size: 12px;
-}
 </style>

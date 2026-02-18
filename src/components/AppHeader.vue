@@ -1,13 +1,15 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import LogoMark from './LogoMark.vue'
+
 const route = useRoute()
 
 const title = computed(() => {
   const p = route.path
-  if (p.startsWith('/inbox')) return 'Inbox'
+  if (p.startsWith('/inbox')) return 'Connect'
   if (p.startsWith('/home')) return 'Home'
-  if (p.startsWith('/search')) return 'Search'
+  if (p.startsWith('/search')) return 'Explore'
   if (p.startsWith('/me')) return 'Me'
   return 'RealLife'
 })
@@ -16,7 +18,7 @@ const title = computed(() => {
 <template>
   <header class="header">
     <div class="brand">
-      <div class="logo">RL</div>
+      <LogoMark :size="34" :rounded="12" />
       <div class="brandText">
         <div class="brandName">RealLife</div>
         <div class="brandSub">{{ title }}</div>
@@ -48,18 +50,6 @@ const title = computed(() => {
 }
 
 .brand{ display:flex; align-items:center; gap:10px; }
-.logo{
-  width: 34px; height: 34px;
-  border-radius: 12px;
-  display:flex; align-items:center; justify-content:center;
-  color: white;
-  font-weight: 950;
-  font-size: 13px;
-  letter-spacing: .8px;
-  background: radial-gradient(40px 30px at 30% 20%, rgba(255,255,255,0.25), transparent 60%),
-  linear-gradient(135deg, #7c9cff, #4b5cff 55%, #2b2d8f);
-  box-shadow: 0 10px 30px rgba(75,92,255,0.20);
-}
 
 .brandText{ display:flex; flex-direction:column; line-height:1.1; }
 .brandName{ font-weight: 950; letter-spacing: .2px; }
@@ -73,6 +63,8 @@ const title = computed(() => {
   color: rgba(232,232,234,0.95);
   display:flex; align-items:center; justify-content:center;
   cursor:pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
 }
+.iconBtn:hover{ transform: translateY(-1px); }
 .iconBtn svg{ width: 20px; height: 20px; }
 </style>
