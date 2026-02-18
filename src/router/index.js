@@ -23,3 +23,16 @@ export const router = createRouter({
     history: createWebHistory(),
     routes,
 })
+
+import { useAuthStore } from '../stores/auth'
+
+router.beforeEach((to) => {
+    const auth = useAuthStore()
+
+    // 로그인 화면은 예외
+    if (to.path === '/login') return true
+
+    // 앱 내부는 토큰 없으면 로그인으로
+    if (!auth.accessToken) return '/login'
+    return true
+})
