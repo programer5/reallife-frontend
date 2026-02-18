@@ -6,9 +6,11 @@ export const useAuthStore = defineStore('auth', {
         accessToken: localStorage.getItem('accessToken') || '',
         me: null,
     }),
+
     getters: {
         isAuthed: (s) => !!s.accessToken,
     },
+
     actions: {
         setToken(token) {
             this.accessToken = token || ''
@@ -22,24 +24,36 @@ export const useAuthStore = defineStore('auth', {
 
         async login(email, password) {
             const res = await api.post('/api/auth/login', { email, password })
-            // 이전 대화(Postman tests) 흐름상 accessToken JSON을 기대
             const token = res?.data?.accessToken
             if (!token) throw new Error('login response에 accessToken이 없습니다.')
+
             this.setToken(token)
             await this.fetchMe()
         },
 
         async logoutAll() {
-            // 프로젝트에 logout-all이 있던 흐름(이전 대화) 기준
-            await api.post('/api/auth/logout-all', null, { headers: this.authHeader() })
-            this.setToken('')
-            this.me = null
+            // ✅ 핵심: 서버 요청 실패(401 포함)해도 프론트는 무조건 로그아웃 상태로 정리
+            try {
+                await api.post('/api/auth/logout-all', null, { headers: this.authHeader() })
+            } catch (e) {
+                // 토큰 만료/무효 등으로 401 나와도 UX 깨지지 않게 무시
+                console.warn('logout-all failed (ignored):', e?.response?.status || e?.message)
+            } finally {
+                this.setToken('')
+                this.me = null
+            }
         },
 
         async fetchMe() {
             const res = await api.get('/api/me', { headers: this.authHeader() })
             this.me = res.data
             return this.me
+        },
+
+        // 필요하면 어디서든 강제 초기화 가능
+        forceResetAuth() {
+            this.setToken('')
+            this.me = null
         },
     },
 })
