@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import api from "@/lib/api.js";
 import { useAuthStore } from "@/stores/auth.js";
 
@@ -10,7 +10,7 @@ const auth = useAuthStore();
 
 // ===== composer =====
 const content = ref("");
-const visibility = ref("ALL"); // PUBLIC | FOLLOWERS | PRIVATE (백엔드 enum)
+const visibility = ref("ALL"); // ALL | FOLLOWERS | PRIVATE
 const pickedFiles = ref([]);      // File[]
 const uploading = ref(false);
 const posting = ref(false);
@@ -23,10 +23,19 @@ const items = ref([]);
 const nextCursor = ref(null);
 const hasNext = ref(false);
 
+// comments UI state by postId
+const commentsOpen = reactive({});        // postId -> boolean
+const commentsLoading = reactive({});     // postId -> boolean
+const commentsError = reactive({});       // postId -> string
+const commentsItems = reactive({});       // postId -> array
+const commentInput = reactive({});        // postId -> string
+const commentNext = reactive({});         // postId -> cursor
+const commentHasNext = reactive({});      // postId -> boolean
+const commentSending = reactive({});      // postId -> boolean
+
 const canPost = computed(() => content.value.trim().length > 0 && !posting.value);
 
 function fmt(ts) {
-  // ts can be ISO string or LocalDateTime serialized
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return "";
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -69,7 +78,6 @@ async function fetchFeed({ reset = true } = {}) {
 
 function onPickImages(e) {
   const files = Array.from(e.target.files || []);
-  // UX: 최대 4장
   pickedFiles.value = files.slice(0, 4);
   e.target.value = "";
 }
@@ -110,21 +118,95 @@ async function createPost() {
 
     await api.post("/api/posts", {
       content: text,
-      imageUrls: [],          // 구버전 호환 (비워둠)
-      imageFileIds,           // ✅ 정석
+      imageUrls: [],
+      imageFileIds,
       visibility: visibility.value,
     });
 
-    // reset composer
     content.value = "";
     pickedFiles.value = [];
 
-    // refresh feed (최신 상단)
     await fetchFeed({ reset: true });
   } catch (e) {
     composerError.value = e?.response?.data?.message || "게시글 작성에 실패했어요.";
   } finally {
     posting.value = false;
+  }
+}
+
+// ===== likes =====
+async function toggleLike(p) {
+  const postId = p.postId;
+  const liked = !!p.likedByMe;
+
+  // optimistic UI
+  p.likedByMe = !liked;
+  p.likeCount = Math.max(0, Number(p.likeCount || 0) + (liked ? -1 : 1));
+
+  try {
+    if (!liked) await api.post(`/api/posts/${postId}/likes`);
+    else await api.delete(`/api/posts/${postId}/likes`);
+  } catch (e) {
+    // rollback
+    p.likedByMe = liked;
+    p.likeCount = Math.max(0, Number(p.likeCount || 0) + (liked ? 1 : -1));
+  }
+}
+
+// ===== comments =====
+async function loadComments(postId, { reset = true } = {}) {
+  commentsLoading[postId] = true;
+  commentsError[postId] = "";
+
+  try {
+    const params = { size: 20 };
+    if (!reset && commentNext[postId]) params.cursor = commentNext[postId];
+
+    const res = await api.get(`/api/posts/${postId}/comments`, { params });
+    const data = res.data || {};
+
+    const newItems = Array.isArray(data.items) ? data.items : [];
+
+    if (reset) commentsItems[postId] = newItems;
+    else commentsItems[postId] = [...(commentsItems[postId] || []), ...newItems];
+
+    commentNext[postId] = data.nextCursor ?? null;
+    commentHasNext[postId] = !!data.hasNext;
+  } catch (e) {
+    commentsError[postId] = e?.response?.data?.message || "댓글을 불러오지 못했어요.";
+  } finally {
+    commentsLoading[postId] = false;
+  }
+}
+
+async function toggleComments(p) {
+  const postId = p.postId;
+  commentsOpen[postId] = !commentsOpen[postId];
+
+  if (commentsOpen[postId] && !commentsItems[postId]) {
+    await loadComments(postId, { reset: true });
+  }
+}
+
+async function sendComment(p) {
+  const postId = p.postId;
+  const text = String(commentInput[postId] || "").trim();
+  if (!text) return;
+
+  commentSending[postId] = true;
+  commentsError[postId] = "";
+
+  try {
+    await api.post(`/api/posts/${postId}/comments`, { content: text });
+    commentInput[postId] = "";
+    // refresh comments
+    await loadComments(postId, { reset: true });
+    // optimistic count
+    p.commentCount = Math.max(0, Number(p.commentCount || 0) + 1);
+  } catch (e) {
+    commentsError[postId] = e?.response?.data?.message || "댓글 작성에 실패했어요.";
+  } finally {
+    commentSending[postId] = false;
   }
 }
 
@@ -154,12 +236,7 @@ onMounted(async () => {
         </div>
 
         <div class="pad">
-          <textarea
-            v-model="content"
-            class="composer"
-            placeholder="무슨 일이 있었나요?"
-            rows="3"
-          />
+          <textarea v-model="content" class="composer" placeholder="무슨 일이 있었나요?" rows="3" />
 
           <div class="composerRow">
             <label class="fileBtn">
@@ -215,10 +292,7 @@ onMounted(async () => {
                 <div class="avatar" aria-hidden="true">
                   <span v-if="pickInitial(p.authorName, p.authorHandle)">{{ pickInitial(p.authorName, p.authorHandle) }}</span>
                   <svg v-else viewBox="0 0 24 24" width="18" height="18">
-                    <path
-                      fill="currentColor"
-                      d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2-8 4.5V21h16v-2.5C20 16 16.42 14 12 14Z"
-                    />
+                    <path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2-8 4.5V21h16v-2.5C20 16 16.42 14 12 14Z"/>
                   </svg>
                 </div>
 
@@ -236,6 +310,69 @@ onMounted(async () => {
 
               <div v-if="p.imageUrls && p.imageUrls.length" class="imgs">
                 <img v-for="(u, i) in p.imageUrls" :key="i" :src="u" class="img" alt="post image" />
+              </div>
+
+              <!-- actions -->
+              <div class="actions">
+                <button class="iconBtn" @click="toggleLike(p)" :aria-pressed="!!p.likedByMe">
+                  <svg viewBox="0 0 24 24" width="18" height="18" class="ico" :class="{ on: !!p.likedByMe }">
+                    <path
+                      fill="currentColor"
+                      d="M12 21s-7-4.35-9.33-8.28C.87 9.62 2.02 6.5 5.2 5.5A5.4 5.4 0 0 1 12 8a5.4 5.4 0 0 1 6.8-2.5c3.18 1 4.33 4.12 2.53 7.22C19 16.65 12 21 12 21Z"
+                    />
+                  </svg>
+                  <span class="cnt">{{ Number(p.likeCount ?? 0) }}</span>
+                </button>
+
+                <button class="iconBtn" @click="toggleComments(p)">
+                  <svg viewBox="0 0 24 24" width="18" height="18" class="ico">
+                    <path fill="currentColor" d="M20 2H4a2 2 0 0 0-2 2v14l4-3h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Z"/>
+                  </svg>
+                  <span class="cnt">{{ Number(p.commentCount ?? 0) }}</span>
+                </button>
+              </div>
+
+              <!-- comments -->
+              <div v-if="commentsOpen[p.postId]" class="comments">
+                <div v-if="commentsError[p.postId]" class="err">{{ commentsError[p.postId] }}</div>
+
+                <div v-if="commentsLoading[p.postId] && !(commentsItems[p.postId] || []).length" class="emptySmall">
+                  댓글 불러오는 중…
+                </div>
+
+                <div v-else class="commentList">
+                  <div v-for="c in (commentsItems[p.postId] || [])" :key="c.commentId" class="commentItem">
+                    <div class="cHead">
+                      <div class="cName">{{ c.authorName || c.authorHandle || "User" }}</div>
+                      <div class="cTime">{{ fmt(c.createdAt) }}</div>
+                    </div>
+                    <div class="cBody">{{ c.content }}</div>
+                  </div>
+
+                  <div class="moreRow">
+                    <RlButton
+                      v-if="commentHasNext[p.postId]"
+                      size="sm"
+                      variant="soft"
+                      @click="loadComments(p.postId, { reset: false })"
+                      :loading="commentsLoading[p.postId]"
+                    >
+                      댓글 더 보기
+                    </RlButton>
+                  </div>
+                </div>
+
+                <div class="commentComposer">
+                  <input
+                    v-model="commentInput[p.postId]"
+                    class="commentInput"
+                    placeholder="댓글을 입력하세요…"
+                    @keydown.enter.prevent="sendComment(p)"
+                  />
+                  <RlButton size="sm" variant="primary" :loading="commentSending[p.postId]" @click="sendComment(p)">
+                    등록
+                  </RlButton>
+                </div>
               </div>
             </article>
 
@@ -257,6 +394,7 @@ onMounted(async () => {
 .headerRight{ display:flex; align-items:center; gap: 10px; }
 .err{ color: #ff6b6b; font-size: 12.5px; margin: 6px 0 0; }
 .empty{ opacity:.7; font-size: 13px; padding: 6px 2px; }
+.emptySmall{ opacity:.75; font-size: 12.5px; padding: 6px 2px; }
 
 .composer{
   width: 100%;
@@ -384,6 +522,62 @@ onMounted(async () => {
   background: rgba(0,0,0,.10);
   object-fit: cover;
   max-height: 280px;
+}
+
+/* actions */
+.actions{
+  display:flex;
+  gap: 12px;
+  margin-top: 10px;
+  align-items:center;
+}
+.iconBtn{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.86);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.ico{ opacity: .9; }
+.ico.on{ filter: saturate(1.2); opacity: 1; }
+.cnt{ font-weight: 950; font-size: 12.5px; }
+
+/* comments */
+.comments{
+  margin-top: 10px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  padding-top: 10px;
+}
+.commentList{ display:flex; flex-direction:column; gap: 10px; margin-bottom: 10px; }
+.commentItem{
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.12);
+  border-radius: 16px;
+  padding: 10px 10px;
+}
+.cHead{ display:flex; justify-content:space-between; align-items:baseline; gap: 10px; }
+.cName{ font-weight: 950; font-size: 12.8px; opacity: .95; }
+.cTime{ font-size: 12px; opacity: .65; }
+.cBody{ margin-top: 6px; font-size: 13px; white-space: pre-wrap; word-break: break-word; opacity: .9; }
+
+.commentComposer{ display:flex; gap: 10px; align-items:center; }
+.commentInput{
+  flex: 1 1 auto;
+  height: 38px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+  color: rgba(255,255,255,.92);
+  padding: 0 12px;
+  outline: none;
+}
+.commentInput:focus{
+  border-color: rgba(124,156,255,.45);
+  box-shadow: 0 0 0 4px rgba(124,156,255,.12);
 }
 
 .moreRow{ display:flex; justify-content:center; margin-top: 12px; }
