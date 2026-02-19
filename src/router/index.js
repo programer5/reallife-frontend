@@ -1,38 +1,46 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from "vue-router";
+import { useAuthStore } from "../stores/auth";
 
 const routes = [
-    { path: '/', redirect: '/inbox' },
+  // ✅ Explore 탭이 /search를 쓰는 프로젝트가 많아서 /search를 공식 경로로 둠
+  { path: "/", redirect: "/inbox" },
 
-    // 로그인은 별도 화면
-    { path: '/login', component: () => import('../views/LoginView.vue') },
+  { path: "/login", component: () => import("../views/LoginView.vue") },
 
-    // 앱 내부(탭 포함) 화면들은 AppShell 안에 렌더링
-    {
-        path: '/',
-        component: () => import('../layouts/AppShell.vue'),
-        children: [
-            { path: 'inbox', component: () => import('../views/InboxView.vue') },
-            { path: 'home', component: () => import('../views/HomeView.vue') },
-            { path: 'search', component: () => import('../views/SearchView.vue') },
-            { path: 'me', component: () => import('../views/MeView.vue') },
-        ],
-    },
-]
+  {
+    path: "/",
+    component: () => import("../layouts/AppShell.vue"),
+    children: [
+      { path: "inbox", component: () => import("../views/InboxView.vue") },
+      { path: "home", component: () => import("../views/HomeView.vue") },
+
+      // ✅ Explore: /search (BottomTabs에서 /search로 이동하는 경우가 있음)
+      { path: "search", component: () => import("../views/SearchView.vue") },
+
+      // ✅ 호환: /explore 로 들어오면 /search로 보내기
+      { path: "explore", redirect: "/search" },
+
+      { path: "me", component: () => import("../views/MeView.vue") },
+
+      // Chat detail
+      { path: "chat/:id", component: () => import("../views/ChatView.vue") },
+    ],
+  },
+];
 
 export const router = createRouter({
-    history: createWebHistory(),
-    routes,
-})
+  history: createWebHistory(),
+  routes,
+});
 
-import { useAuthStore } from '../stores/auth'
+router.beforeEach(async (to) => {
+  const auth = useAuthStore();
 
-router.beforeEach((to) => {
-    const auth = useAuthStore()
+  if (to.path === "/login") return true;
 
-    // 로그인 화면은 예외
-    if (to.path === '/login') return true
+  if (auth.isAuthed) return true;
 
-    // 앱 내부는 토큰 없으면 로그인으로
-    if (!auth.accessToken) return '/login'
-    return true
-})
+  const ok = await auth.ensureSession();
+  if (!ok) return "/login";
+  return true;
+});

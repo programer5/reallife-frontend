@@ -1,191 +1,337 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
-import { useAuthStore } from '../stores/auth'
-import { connectSse } from '../lib/sse'
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import api from "@/lib/api.js";
 
-const auth = useAuthStore()
+import RlRow from "@/components/ui/RlRow.vue";
+import RlBadge from "@/components/ui/RlBadge.vue";
+import RlButton from "@/components/ui/RlButton.vue";
 
-// ===== SSE 상태 =====
-const sseStatus = ref('disconnected') // connecting | connected | error
-const events = ref([])
+const router = useRouter();
 
-let disconnect = null
+// SSE events
+const sseConnected = ref(false);
+const events = ref([]);
 
-onMounted(() => {
-  sseStatus.value = 'connecting'
+// notifications
+const notiLoading = ref(false);
+const notifications = ref([]);
 
-  disconnect = connectSse({
-    url: '/api/sse/subscribe', // 필요하면 백엔드 경로에 맞게 수정
-    token: auth.accessToken,
+// conversations
+const convLoading = ref(false);
+const conversations = ref([]);
 
-    onOpen: () => {
-      sseStatus.value = 'connected'
-    },
+function pushEvent({ event, data }) {
+  events.value.unshift({ event, data, at: Date.now() });
+  if (events.value.length > 20) events.value.length = 20;
+}
 
-    onMessage: (ev) => {
-      events.value.unshift({
-        t: new Date().toLocaleTimeString(),
-        type: ev.event || 'message',
-        data: ev.data,
-      })
+function fmtTime(ts) {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
 
-      // 최대 30개만 유지
-      if (events.value.length > 30) events.value.pop()
-    },
+async function fetchNotifications() {
+  notiLoading.value = true;
+  try {
+    const res = await api.get("/api/notifications");
+    notifications.value = res.data?.items ?? res.data ?? [];
+  } finally {
+    notiLoading.value = false;
+  }
+}
 
-    onError: () => {
-      sseStatus.value = 'error'
-    },
-  })
-})
+async function fetchConversations() {
+  convLoading.value = true;
+  try {
+    const res = await api.get("/api/conversations");
+    conversations.value = res.data?.items ?? res.data ?? [];
+  } finally {
+    convLoading.value = false;
+  }
+}
 
-onUnmounted(() => {
-  disconnect?.()
-})
+async function markAllRead() {
+  await api.post("/api/notifications/read-all");
+  await fetchNotifications();
+}
+async function deleteRead() {
+  await api.delete("/api/notifications/read");
+  await fetchNotifications();
+}
+async function markNotiRead(id) {
+  await api.post(`/api/notifications/${id}/read`);
+  await fetchNotifications();
+}
 
-// ===== 목업 알림/대화 목록 (나중에 API 연결 예정) =====
-const notifications = [
-  { id: 1, title: '새 알림', body: '누군가 회원님 게시글을 좋아합니다.', time: '방금' },
-  { id: 2, title: '댓글', body: '“이거 좋아요!”', time: '5분 전' },
-]
+async function openConversation(conv) {
+  const id = conv?.conversationId || conv?.id;
+  if (!id) return;
+  try { await api.post(`/api/conversations/${id}/read`); } catch {}
+  router.push(`/chat/${id}`);
+}
 
-const conversations = [
-  { id: 1, name: '민수', last: '오늘 저녁 어때?', unread: 2 },
-  { id: 2, name: '지연', last: '파일 보냈어!', unread: 0 },
-  { id: 3, name: '팀 채팅', last: '내일 10시 가능?', unread: 5 },
-]
+let es = null;
+function connectSse() {
+  sseConnected.value = false;
+  try { es?.close?.(); } catch {}
+  events.value = [];
+
+  es = new EventSource("/api/sse/subscribe", { withCredentials: true });
+
+  const onMsg = async (ev) => {
+    const type = (ev?.type || ev?.event || "").toLowerCase();
+    if (type === "ping") return;
+
+    let data = ev?.data;
+    try { data = JSON.parse(ev?.data); } catch {}
+
+    if (type === "connected") sseConnected.value = true;
+
+    pushEvent({ event: type || "message", data });
+    await Promise.allSettled([fetchNotifications(), fetchConversations()]);
+  };
+
+  es.addEventListener("connected", onMsg);
+  es.addEventListener("ping", () => {});
+  es.onmessage = onMsg;
+  es.onerror = () => { sseConnected.value = false; };
+}
+
+function clearEvents() { events.value = []; }
+
+onMounted(async () => {
+  await Promise.allSettled([fetchNotifications(), fetchConversations()]);
+  connectSse();
+});
+
+onUnmounted(() => { try { es?.close?.(); } catch {} });
+
+const notiEmpty = computed(() => !notifications.value?.length && !notiLoading.value);
+const convEmpty = computed(() => !conversations.value?.length && !convLoading.value);
+
+function pickInitial(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  const ch = raw[0];
+  if (ch === "." || ch === "-" || ch === "_") return "";
+  return ch.toUpperCase();
+}
 </script>
 
 <template>
-  <div class="wrap">
+  <div class="rl-page">
+    <div class="rl-section">
+      <section class="rl-card">
+        <div class="rl-card__header">
+          <div>
+            <div class="rl-card__title">실시간 이벤트</div>
+            <div class="rl-card__sub">서버에서 들어오는 이벤트 스트림</div>
+          </div>
 
-    <!-- ===== 실시간 이벤트 ===== -->
-    <section class="card">
-      <div class="card__head">
-        <div class="card__title">실시간 이벤트</div>
-        <div class="pill" :class="sseStatus">{{ sseStatus }}</div>
-      </div>
-
-      <div class="list">
-        <div v-if="events.length === 0" class="empty">이벤트 대기 중...</div>
-
-        <div class="row" v-for="(e, idx) in events" :key="idx">
-          <div class="row__main">
-            <div class="row__title">{{ e.type }}</div>
-            <div class="row__body">{{ e.data }}</div>
-            <div class="row__time">{{ e.t }}</div>
+          <div class="headerRight">
+            <RlBadge :tone="sseConnected ? 'success' : 'neutral'">
+              {{ sseConnected ? "connected" : "disconnected" }}
+            </RlBadge>
           </div>
         </div>
-      </div>
-    </section>
 
-    <!-- ===== 알림 ===== -->
-    <section class="card">
-      <div class="card__head">
-        <div class="card__title">알림</div>
-        <div class="card__hint">모아보기</div>
-      </div>
-
-      <div class="list">
-        <div class="row" v-for="n in notifications" :key="n.id">
-          <div class="dot"></div>
-          <div class="row__main">
-            <div class="row__title">{{ n.title }}</div>
-            <div class="row__body">{{ n.body }}</div>
+        <div class="pad">
+          <div class="btnRow">
+            <RlButton size="sm" variant="soft" @click="connectSse">다시 연결</RlButton>
+            <RlButton size="sm" variant="ghost" @click="clearEvents">비우기</RlButton>
           </div>
-          <div class="row__time">{{ n.time }}</div>
-        </div>
-      </div>
-    </section>
 
-    <!-- ===== 메시지 ===== -->
-    <section class="card">
-      <div class="card__head">
-        <div class="card__title">메시지</div>
-        <div class="card__hint">실시간</div>
-      </div>
-
-      <div class="list">
-        <div class="row clickable" v-for="c in conversations" :key="c.id">
-          <div class="avatar">{{ c.name.slice(0,1) }}</div>
-          <div class="row__main">
-            <div class="row__title">
-              {{ c.name }}
-              <span v-if="c.unread" class="badge">{{ c.unread }}</span>
+          <div v-if="events.length" class="eventList">
+            <div v-for="(e, i) in events" :key="i" class="eventItem">
+              <div class="eventHead">
+                <div class="eventName">{{ e.event }}</div>
+                <div class="eventTime">{{ fmtTime(e.at) }}</div>
+              </div>
+              <pre class="eventBody">{{ e.data }}</pre>
             </div>
-            <div class="row__body">{{ c.last }}</div>
+          </div>
+
+          <div v-else class="empty">아직 이벤트가 없어요.</div>
+        </div>
+      </section>
+
+      <section class="rl-card">
+        <div class="rl-card__header">
+          <div>
+            <div class="rl-card__title">알림</div>
+            <div class="rl-card__sub">새 소식과 상호작용</div>
+          </div>
+
+          <div class="headerRight">
+            <RlButton size="sm" variant="soft" @click="fetchNotifications">새로고침</RlButton>
+            <RlButton size="sm" variant="ghost" @click="markAllRead">모두 읽음</RlButton>
+            <RlButton size="sm" variant="ghost" @click="deleteRead">읽은 것 삭제</RlButton>
           </div>
         </div>
-      </div>
-    </section>
 
+        <div class="pad">
+          <div v-if="notiLoading" class="empty">불러오는 중…</div>
+          <div v-else-if="notiEmpty" class="empty">알림이 없어요.</div>
+
+          <div v-else class="list">
+            <RlRow
+              v-for="n in notifications"
+              :key="n.id || n.notificationId"
+              class="item"
+              clickable
+              @click="markNotiRead(n.id || n.notificationId)"
+            >
+              <template #left>
+                <div class="iconPill" :class="{ on: !(n.read || n.isRead) }" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path
+                      fill="currentColor"
+                      d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm6-6V11a6 6 0 1 0-12 0v5L4 18v1h16v-1l-2-2Z"
+                    />
+                  </svg>
+                </div>
+              </template>
+
+              <template #default>
+                <div class="main">
+                  <div class="title">{{ n.title || n.type || "Notification" }}</div>
+                  <div class="sub">{{ n.body || n.message || n.content || "" }}</div>
+                </div>
+              </template>
+
+              <template #right>
+                <RlBadge tone="neutral">{{ (n.read || n.isRead) ? "read" : "new" }}</RlBadge>
+              </template>
+            </RlRow>
+          </div>
+        </div>
+      </section>
+
+      <section class="rl-card">
+        <div class="rl-card__header">
+          <div>
+            <div class="rl-card__title">메시지</div>
+            <div class="rl-card__sub">대화방 업데이트</div>
+          </div>
+
+          <div class="headerRight">
+            <RlButton size="sm" variant="soft" @click="fetchConversations">새로고침</RlButton>
+          </div>
+        </div>
+
+        <div class="pad">
+          <div v-if="convLoading" class="empty">불러오는 중…</div>
+          <div v-else-if="convEmpty" class="empty">대화가 없어요.</div>
+
+          <div v-else class="list">
+            <RlRow
+              v-for="c in conversations"
+              :key="c.conversationId"
+              class="item"
+              clickable
+              @click="openConversation(c)"
+            >
+              <template #left>
+                <div class="avatar" aria-hidden="true">
+                  <span v-if="pickInitial(c.peerUser?.nickname)">{{ pickInitial(c.peerUser?.nickname) }}</span>
+                  <svg v-else viewBox="0 0 24 24" width="18" height="18">
+                    <path
+                      fill="currentColor"
+                      d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2-8 4.5V21h16v-2.5C20 16 16.42 14 12 14Z"
+                    />
+                  </svg>
+                </div>
+              </template>
+
+              <template #default>
+                <div class="main">
+                  <div class="title">
+                    {{ c.peerUser?.nickname || "User" }}
+                    <span v-if="Number(c.unreadCount) > 0" class="unread">{{ c.unreadCount }}</span>
+                  </div>
+                  <div class="sub">{{ c.lastMessagePreview || " " }}</div>
+                </div>
+              </template>
+
+              <template #right>
+                <RlBadge tone="neutral">열기</RlBadge>
+              </template>
+            </RlRow>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.wrap { display: grid; gap: 14px; }
+.pad{ padding: 14px 16px 16px; }
+.headerRight{ display:flex; align-items:center; gap: 10px; }
+.btnRow{ display:flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.empty{ opacity: .7; font-size: 13px; padding: 6px 2px; }
 
-.card {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+.eventList{ display:flex; flex-direction:column; gap: 10px; }
+.eventItem{
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.14);
   border-radius: 16px;
-  overflow: hidden;
+  padding: 10px 12px;
 }
-
-.card__head {
-  display:flex; align-items:center; justify-content:space-between;
-  padding: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-
-.card__title { font-weight: 800; }
-.card__hint { font-size: 12px; opacity: 0.7; }
-
-.pill {
+.eventHead{ display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px; }
+.eventName{ font-weight: 900; font-size: 13px; }
+.eventTime{ opacity: .65; font-size: 12px; }
+.eventBody{
+  margin:0;
   font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.14);
+  opacity: .8;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.pill.connecting { opacity: 0.6; }
-.pill.connected { }
-.pill.error { border-color: #ff6b6b; color: #ff6b6b; }
 
-.list { display: grid; }
+.list{ display:flex; flex-direction:column; gap: 10px; }
+.item{ padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.10); }
 
-.row {
-  display:flex; gap: 10px; align-items:flex-start;
-  padding: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+.main{ display:flex; flex-direction:column; gap: 2px; min-width: 0; }
+.title{
+  display:flex; align-items:center; gap: 8px;
+  font-weight: 900; font-size: 13.5px;
 }
-.row:last-child { border-bottom: none; }
+.sub{
+  opacity: .7; font-size: 12.5px;
+  overflow:hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
-.row__main { flex: 1; }
-.row__title { font-weight: 700; }
-.row__body { font-size: 13px; opacity: 0.85; margin-top: 2px; }
-.row__time { font-size: 11px; opacity: 0.6; margin-top: 6px; }
-
-.empty { padding: 12px; font-size: 12px; opacity: 0.7; }
-
-.dot {
-  width: 10px; height: 10px; border-radius: 999px;
-  background: rgba(255,255,255,0.18);
-  margin-top: 4px;
+.iconPill{
+  width: 34px; height: 34px; border-radius: 14px;
+  display:grid; place-items:center;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.75);
+}
+.iconPill.on{
+  border-color: rgba(124,156,255,.22);
+  background: rgba(124,156,255,.12);
+  color: rgba(255,255,255,.85);
 }
 
 .avatar{
-  width: 36px; height: 36px; border-radius: 14px;
-  background: rgba(255,255,255,0.10);
-  display:flex; align-items:center; justify-content:center;
-  font-weight: 800;
+  width: 34px; height: 34px; border-radius: 14px;
+  display:grid; place-items:center;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+  font-weight: 900;
+  color: rgba(255,255,255,.82);
 }
 
-.badge{
-  font-size: 12px;
-  padding: 2px 8px;
+.unread{
+  margin-left: 6px;
+  padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.14);
+  background: rgba(124,156,255,.20);
+  border: 1px solid rgba(124,156,255,.25);
+  font-size: 12px;
 }
-
-.clickable { cursor: pointer; }
 </style>

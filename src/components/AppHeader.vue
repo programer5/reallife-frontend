@@ -1,70 +1,158 @@
-<script setup>
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import LogoMark from './LogoMark.vue'
-
-const route = useRoute()
-
-const title = computed(() => {
-  const p = route.path
-  if (p.startsWith('/inbox')) return 'Connect'
-  if (p.startsWith('/home')) return 'Home'
-  if (p.startsWith('/search')) return 'Explore'
-  if (p.startsWith('/me')) return 'Me'
-  return 'RealLife'
-})
-</script>
-
 <template>
   <header class="header">
-    <div class="brand">
-      <LogoMark :size="34" :rounded="12" />
+    <div class="left" @click="goHome" role="button" tabindex="0">
+      <div class="brandMark" aria-hidden="true">
+        <img :src="logo" alt="RealLife" class="brandImg" />
+      </div>
+
       <div class="brandText">
         <div class="brandName">RealLife</div>
-        <div class="brandSub">{{ title }}</div>
+        <div class="brandSub">{{ subtitle }}</div>
       </div>
     </div>
 
-    <button class="iconBtn" type="button" aria-label="search">
-      <svg viewBox="0 0 24 24" fill="none">
-        <path d="M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z" stroke="currentColor" stroke-width="1.7"/>
-        <path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-      </svg>
-    </button>
+    <div class="right">
+      <button class="iconBtn" @click="goInbox" title="Connect" aria-label="Connect">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+              fill="currentColor"
+              d="M20 3H4a2 2 0 0 0-2 2v13a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V5a2 2 0 0 0-2-2Zm0 15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6h16v12Z"
+          />
+          <path fill="currentColor" d="M7 9h10v2H7z" opacity=".9" />
+        </svg>
+      </button>
+
+      <button class="iconBtn" @click="goMe" title="Me" aria-label="Me">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+              fill="currentColor"
+              d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2-8 4.5V21h16v-2.5C20 16 16.42 14 12 14Z"
+          />
+        </svg>
+      </button>
+    </div>
   </header>
 </template>
 
+<script setup>
+import { computed } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import logo from "@/assets/brand/logo.png";
+
+const route = useRoute();
+const router = useRouter();
+
+/**
+ * ✅ Explore만 안 바뀌는 케이스:
+ * - Explore 탭 라우트가 /explore가 아니라 "/" 또는 "/discover" 등일 수 있음
+ * - 그래서 path를 폭 넓게 매칭
+ */
+const subtitle = computed(() => {
+  const path = (route.path || "/").toLowerCase();
+
+  // login
+  if (path.startsWith("/login")) return "Sign in";
+
+  // ✅ Explore 후보들: /, /explore, /discover, /search, /feed
+  if (
+      path === "/" ||
+      path.startsWith("/explore") ||
+      path.startsWith("/discover") ||
+      path.startsWith("/search") ||
+      path.startsWith("/feed")
+  ) {
+    return "Explore";
+  }
+
+  if (path.startsWith("/inbox") || path.startsWith("/connect")) return "Connect";
+  if (path.startsWith("/me")) return "Me";
+  if (path.startsWith("/home")) return "Home";
+
+  // 기본값
+  return "Home";
+});
+
+function goHome() {
+  router.push("/home");
+}
+function goInbox() {
+  router.push("/inbox");
+}
+function goMe() {
+  router.push("/me");
+}
+</script>
+
 <style scoped>
 .header{
-  height: 56px;
-  padding: 0 14px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
   position: sticky;
   top: 0;
   z-index: 50;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  background: rgba(0,0,0,0.55);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(15,17,21,.55);
   backdrop-filter: blur(14px);
 }
 
-.brand{ display:flex; align-items:center; gap:10px; }
+.left{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  cursor: pointer;
+  user-select:none;
+}
 
-.brandText{ display:flex; flex-direction:column; line-height:1.1; }
-.brandName{ font-weight: 950; letter-spacing: .2px; }
-.brandSub{ font-size: 12px; opacity: .65; margin-top: 2px; }
+.brandMark{
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  display:grid;
+  place-items:center;
+}
+.brandImg{
+  width: 100%;
+  height: 100%;
+  display:block;
+  object-fit: cover;
+}
+
+.brandText{
+  display:flex;
+  flex-direction:column;
+  gap: 1px;
+  line-height: 1.05;
+}
+.brandName{
+  font-weight: 800;
+  letter-spacing: .2px;
+  font-size: 14px;
+}
+.brandSub{
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.right{ display:flex; align-items:center; gap: 10px; }
 
 .iconBtn{
-  width: 40px; height: 40px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.06);
-  color: rgba(232,232,234,0.95);
-  display:flex; align-items:center; justify-content:center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.82);
+  display:grid;
+  place-items:center;
   cursor:pointer;
-  transition: transform 120ms ease, opacity 120ms ease;
+  transition: transform .08s ease, background .12s ease, border-color .12s ease;
 }
-.iconBtn:hover{ transform: translateY(-1px); }
-.iconBtn svg{ width: 20px; height: 20px; }
+.iconBtn:hover{ background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.14); }
+.iconBtn:active{ transform: translateY(1px); }
 </style>
