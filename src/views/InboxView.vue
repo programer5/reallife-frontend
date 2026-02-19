@@ -33,6 +33,25 @@ function fmtTime(ts) {
   return `${hh}:${mm}`;
 }
 
+function fmt(ts) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}.${dd} ${hh}:${mi}`;
+}
+
+function notiMeta(n) {
+  const t = String(n.type || "").toUpperCase();
+  if (t === "MESSAGE_RECEIVED") return { emoji: "💬", title: "새 메시지", tone: "primary" };
+  if (t === "POST_LIKE") return { emoji: "❤️", title: "좋아요", tone: "success" };
+  if (t === "POST_COMMENT") return { emoji: "💬", title: "댓글", tone: "success" };
+  if (t === "FOLLOW") return { emoji: "👤", title: "팔로우", tone: "neutral" };
+  return { emoji: "🔔", title: t || "알림", tone: "neutral" };
+}
+
 async function fetchNotifications() {
   notiLoading.value = true;
   try {
@@ -91,7 +110,10 @@ function connectSse() {
     if (type === "connected") sseConnected.value = true;
 
     pushEvent({ event: type || "message", data });
-    await Promise.allSettled([fetchNotifications(), fetchConversations()]);
+
+    // ✅ notification-created / message-created 가 오면 즉시 리스트 갱신
+    if (type === "notification-created") await fetchNotifications();
+    if (type === "message-created" || type === "message-deleted") await fetchConversations();
   };
 
   es.addEventListener("connected", onMsg);
@@ -162,7 +184,7 @@ function pickInitial(name) {
         <div class="rl-card__header">
           <div>
             <div class="rl-card__title">알림</div>
-            <div class="rl-card__sub">새 소식과 상호작용</div>
+            <div class="rl-card__sub">좋아요 · 댓글 · 팔로우 · 메시지</div>
           </div>
 
           <div class="headerRight">
@@ -185,25 +207,26 @@ function pickInitial(name) {
               @click="markNotiRead(n.id || n.notificationId)"
             >
               <template #left>
-                <div class="iconPill" :class="{ on: !(n.read || n.isRead) }" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="16" height="16">
-                    <path
-                      fill="currentColor"
-                      d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm6-6V11a6 6 0 1 0-12 0v5L4 18v1h16v-1l-2-2Z"
-                    />
-                  </svg>
+                <div class="notiIcon" :class="{ on: !(n.read || n.isRead) }" aria-hidden="true">
+                  <div class="emoji">{{ notiMeta(n).emoji }}</div>
                 </div>
               </template>
 
               <template #default>
                 <div class="main">
-                  <div class="title">{{ n.title || n.type || "Notification" }}</div>
-                  <div class="sub">{{ n.body || n.message || n.content || "" }}</div>
+                  <div class="titleRow">
+                    <div class="title">{{ notiMeta(n).title }}</div>
+                    <RlBadge :tone="(n.read || n.isRead) ? 'neutral' : notiMeta(n).tone">
+                      {{ (n.read || n.isRead) ? "read" : "new" }}
+                    </RlBadge>
+                  </div>
+                  <div class="body">{{ n.body || "" }}</div>
+                  <div class="time">{{ fmt(n.createdAt) }}</div>
                 </div>
               </template>
 
               <template #right>
-                <RlBadge tone="neutral">{{ (n.read || n.isRead) ? "read" : "new" }}</RlBadge>
+                <RlBadge tone="neutral">열기</RlBadge>
               </template>
             </RlRow>
           </div>
@@ -294,28 +317,28 @@ function pickInitial(name) {
 .list{ display:flex; flex-direction:column; gap: 10px; }
 .item{ padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.10); }
 
-.main{ display:flex; flex-direction:column; gap: 2px; min-width: 0; }
-.title{
-  display:flex; align-items:center; gap: 8px;
-  font-weight: 900; font-size: 13.5px;
-}
+.main{ display:flex; flex-direction:column; gap: 6px; min-width: 0; }
+.titleRow{ display:flex; align-items:center; justify-content:space-between; gap: 10px; }
+.title{ font-weight: 950; font-size: 13.5px; }
+.body{ opacity: .85; font-size: 12.8px; white-space: pre-wrap; word-break: break-word; }
+.time{ opacity: .6; font-size: 12px; }
+
 .sub{
   opacity: .7; font-size: 12.5px;
   overflow:hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.iconPill{
-  width: 34px; height: 34px; border-radius: 14px;
+.notiIcon{
+  width: 36px; height: 36px; border-radius: 14px;
   display:grid; place-items:center;
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(255,255,255,.06);
-  color: rgba(255,255,255,.75);
 }
-.iconPill.on{
+.notiIcon.on{
   border-color: rgba(124,156,255,.22);
   background: rgba(124,156,255,.12);
-  color: rgba(255,255,255,.85);
 }
+.emoji{ font-size: 16px; line-height: 1; }
 
 .avatar{
   width: 34px; height: 34px; border-radius: 14px;
