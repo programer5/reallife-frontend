@@ -2,11 +2,11 @@
 <script setup>
 import { useRoute, useRouter } from "vue-router";
 import { computed } from "vue";
-import { useNotificationStore } from "@/stores/notifications";
+import { useNotificationsStore } from "@/stores/notifications";
 
 const route = useRoute();
 const router = useRouter();
-const noti = useNotificationStore();
+const noti = useNotificationsStore();
 
 const tabs = [
   { to: "/search", label: "Explore", icon: "compass" },

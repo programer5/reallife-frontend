@@ -1,34 +1,39 @@
+// src/stores/notifications.js
 import { defineStore } from "pinia";
-import api from "@/lib/api.js";
+import { fetchNotifications } from "../api/notifications";
 
-export const useNotificationStore = defineStore("notifications", {
+export const useNotificationsStore = defineStore("notifications", {
   state: () => ({
+    items: [],
+    nextCursor: null,
+    hasNext: false,
     hasUnread: false,
-    lastCheckedAt: null,
+    loading: false,
+    error: "",
+    _refreshTimer: null,
   }),
 
   actions: {
-    setHasUnread(v) {
-      this.hasUnread = !!v;
+    async refresh() {
+      // ✅ SSE가 연속으로 올 수 있으니 400ms 디바운스(트래픽/UX)
+      if (this._refreshTimer) clearTimeout(this._refreshTimer);
+      this._refreshTimer = setTimeout(() => this._refreshNow(), 400);
     },
 
-    async refreshHasUnread() {
+    async _refreshNow() {
+      this.loading = true;
+      this.error = "";
       try {
-        // API 응답: { items, nextCursor, hasNext, hasUnread }
-        const res = await api.get("/api/notifications");
-        const hasUnread = !!(res?.data?.hasUnread);
-        this.hasUnread = hasUnread;
-        this.lastCheckedAt = Date.now();
-        return hasUnread;
+        const res = await fetchNotifications({ size: 20 });
+        this.items = res.items;
+        this.nextCursor = res.nextCursor;
+        this.hasNext = res.hasNext;
+        this.hasUnread = res.hasUnread;
       } catch (e) {
-        // 네트워크/세션 문제일 수 있으니 조용히 실패 처리
-        return this.hasUnread;
+        this.error = e?.response?.data?.message || "알림을 불러오지 못했습니다.";
+      } finally {
+        this.loading = false;
       }
-    },
-
-    reset() {
-      this.hasUnread = false;
-      this.lastCheckedAt = null;
     },
   },
 });

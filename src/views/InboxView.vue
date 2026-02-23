@@ -4,14 +4,14 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import api from "@/lib/api.js";
 import sse from "@/lib/sse";
-import { useNotificationStore } from "@/stores/notifications";
+import { useNotificationsStore } from "@/stores/notifications";
 
 import RlRow from "@/components/ui/RlRow.vue";
 import RlBadge from "@/components/ui/RlBadge.vue";
 import RlButton from "@/components/ui/RlButton.vue";
 
 const router = useRouter();
-const notiStore = useNotificationStore();
+const notiStore = useNotificationsStore();
 
 // SSE status/events (from global manager)
 const sseConnected = ref(false);

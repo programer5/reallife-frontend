@@ -137,7 +137,7 @@ async function submitComment() {
   try {
     const created = await createComment({ postId: postId.value, content });
 
-    // ✅ 낙관적으로 목록에 추가 (API 응답이 이미 comment 형태)
+    // ✅ 낙관적으로 목록에 추가 (응답이 comment shape)
     comments.value.unshift({
       commentId: created.commentId,
       userId: created.userId,
@@ -147,7 +147,7 @@ async function submitComment() {
       createdAt: created.createdAt,
     });
 
-    // 상세의 commentCount도 +1 (있으면)
+    // 상세의 commentCount도 +1
     if (post.value) {
       const prev = Number(post.value.commentCount ?? 0);
       post.value.commentCount = prev + 1;
@@ -306,7 +306,13 @@ onMounted(load);
           </div>
 
           <div class="cMore">
-            <button v-if="commentsHasNext" class="cMoreBtn" type="button" @click="loadCommentsMore" :disabled="commentsMoreLoading">
+            <button
+                v-if="commentsHasNext"
+                class="cMoreBtn"
+                type="button"
+                @click="loadCommentsMore"
+                :disabled="commentsMoreLoading"
+            >
               {{ commentsMoreLoading ? "불러오는 중…" : "더 보기" }}
             </button>
             <div v-else class="cEnd">끝 ✨</div>

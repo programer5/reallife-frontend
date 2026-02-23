@@ -23,7 +23,7 @@ export async function fetchComments({ postId, size = 10, cursor = null }) {
 
 export async function createComment({ postId, content }) {
     const res = await api.post(`/api/posts/${postId}/comments`, { content });
-    return res.data; // {commentId, postId, userId, content, createdAt}
+    return res.data;
 }
 
 export async function deleteComment(commentId) {
