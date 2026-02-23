@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchPostDetail, deletePost } from "../api/posts";
+import { fetchComments, createComment, deleteComment } from "../api/comments";
 import { likePost, unlikePost } from "../api/likes";
 import { useToastStore } from "../stores/toast";
 import RlButton from "../components/ui/RlButton.vue";
@@ -26,6 +27,7 @@ async function load() {
   error.value = "";
   try {
     post.value = await fetchPostDetail(postId.value);
+    await loadCommentsFirst();
   } catch (e) {
     error.value = e?.response?.data?.message || "게시글을 불러오지 못했습니다.";
     toast.error("상세 로딩 실패", "잠시 후 다시 시도해주세요.");
@@ -77,6 +79,115 @@ async function toggleLike() {
     toast.error("좋아요 실패", "잠시 후 다시 시도해주세요.");
   } finally {
     likeBusy.value = false;
+  }
+}
+
+const commentsLoading = ref(false);
+const commentsError = ref("");
+const comments = ref([]);
+const commentsNextCursor = ref(null);
+const commentsHasNext = ref(false);
+const commentsMoreLoading = ref(false);
+
+const newComment = ref("");
+const commentBusy = ref(false);
+const deleteBusy = ref(new Set()); // commentId set
+
+async function loadCommentsFirst() {
+  commentsLoading.value = true;
+  commentsError.value = "";
+  try {
+    const res = await fetchComments({ postId: postId.value, size: 10 });
+    comments.value = res.items;
+    commentsNextCursor.value = res.nextCursor;
+    commentsHasNext.value = res.hasNext;
+  } catch (e) {
+    commentsError.value = e?.response?.data?.message || "댓글을 불러오지 못했습니다.";
+  } finally {
+    commentsLoading.value = false;
+  }
+}
+
+async function loadCommentsMore() {
+  if (!commentsHasNext.value || !commentsNextCursor.value) return;
+  commentsMoreLoading.value = true;
+  try {
+    const res = await fetchComments({
+      postId: postId.value,
+      size: 10,
+      cursor: commentsNextCursor.value,
+    });
+    comments.value.push(...res.items);
+    commentsNextCursor.value = res.nextCursor;
+    commentsHasNext.value = res.hasNext;
+  } finally {
+    commentsMoreLoading.value = false;
+  }
+}
+
+async function submitComment() {
+  const content = newComment.value.trim();
+  if (!content) {
+    toast.error("댓글 내용", "댓글을 입력해주세요.");
+    return;
+  }
+  if (commentBusy.value) return;
+
+  commentBusy.value = true;
+  try {
+    const created = await createComment({ postId: postId.value, content });
+
+    // ✅ 낙관적으로 목록에 추가 (API 응답이 이미 comment 형태)
+    comments.value.unshift({
+      commentId: created.commentId,
+      userId: created.userId,
+      handle: auth.me?.handle || auth.me?.username || "me",
+      name: auth.me?.name || auth.me?.displayName || "나",
+      content: created.content,
+      createdAt: created.createdAt,
+    });
+
+    // 상세의 commentCount도 +1 (있으면)
+    if (post.value) {
+      const prev = Number(post.value.commentCount ?? 0);
+      post.value.commentCount = prev + 1;
+    }
+
+    newComment.value = "";
+  } catch (e) {
+    const msg = e?.response?.data?.fieldErrors?.[0]?.reason || e?.response?.data?.message;
+    toast.error("댓글 등록 실패", msg || "잠시 후 다시 시도해주세요.");
+  } finally {
+    commentBusy.value = false;
+  }
+}
+
+function canDeleteComment(c) {
+  const myId = auth.me?.userId || auth.me?.id;
+  return !!myId && c.userId === myId;
+}
+
+async function onDeleteComment(c) {
+  const id = c.commentId;
+  if (!id) return;
+  if (deleteBusy.value.has(id)) return;
+
+  const ok = confirm("댓글을 삭제할까요?");
+  if (!ok) return;
+
+  deleteBusy.value.add(id);
+  try {
+    await deleteComment(id);
+    comments.value = comments.value.filter((x) => x.commentId !== id);
+
+    if (post.value) {
+      const prev = Number(post.value.commentCount ?? 0);
+      post.value.commentCount = Math.max(0, prev - 1);
+    }
+  } catch {
+    toast.error("삭제 실패", "잠시 후 다시 시도해주세요.");
+  } finally {
+    deleteBusy.value.delete(id);
   }
 }
 
@@ -151,6 +262,57 @@ onMounted(load);
 
         <span class="pill">💬 {{ post.commentCount ?? 0 }}</span>
       </div>
+      <div class="comments">
+        <div class="cHead">
+          <div class="cTitle">댓글</div>
+          <div class="cSub">총 {{ post?.commentCount ?? 0 }}개</div>
+        </div>
+
+        <div class="composer">
+          <input
+              v-model="newComment"
+              class="cInput"
+              placeholder="댓글을 입력하세요…"
+              maxlength="300"
+              @keydown.enter.prevent="submitComment"
+          />
+          <button class="cBtn" type="button" @click="submitComment" :disabled="commentBusy">
+            {{ commentBusy ? "등록중" : "등록" }}
+          </button>
+        </div>
+
+        <div v-if="commentsLoading" class="cState">댓글 불러오는 중…</div>
+        <div v-else-if="commentsError" class="cState err">{{ commentsError }}</div>
+        <div v-else-if="comments.length === 0" class="cState">첫 댓글을 남겨보세요 ✨</div>
+
+        <div v-else class="cList">
+          <div v-for="c in comments" :key="c.commentId" class="cItem">
+            <div class="cMeta">
+              <div class="cName">{{ c.name || "User" }}</div>
+              <div class="cHandle">@{{ c.handle || "handle" }}</div>
+              <div class="cTime">{{ c.createdAt || "" }}</div>
+
+              <button
+                  v-if="canDeleteComment(c)"
+                  class="cDel"
+                  type="button"
+                  @click="onDeleteComment(c)"
+                  :disabled="deleteBusy.has(c.commentId)"
+              >
+                삭제
+              </button>
+            </div>
+            <div class="cContent">{{ c.content }}</div>
+          </div>
+
+          <div class="cMore">
+            <button v-if="commentsHasNext" class="cMoreBtn" type="button" @click="loadCommentsMore" :disabled="commentsMoreLoading">
+              {{ commentsMoreLoading ? "불러오는 중…" : "더 보기" }}
+            </button>
+            <div v-else class="cEnd">끝 ✨</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -185,4 +347,25 @@ onMounted(load);
 .pill.btn.on{border-color:color-mix(in oklab,var(--danger) 45%,var(--border));color:var(--text)}
 .pill.btn.busy{filter:saturate(.9)}
 .heart{transform:translateY(.5px)}
+.comments{margin-top:14px;border-top:1px solid var(--border);padding-top:14px;display:grid;gap:12px}
+.cHead{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.cTitle{font-weight:950}
+.cSub{font-size:12px;color:var(--muted)}
+.composer{display:grid;grid-template-columns:1fr auto;gap:8px}
+.cInput{height:44px;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:0 12px;color:var(--text)}
+.cBtn{height:44px;padding:0 14px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text)}
+.cBtn:disabled{opacity:.6}
+.cState{font-size:13px;color:var(--muted);text-align:center;padding:10px 0}
+.cState.err{color:color-mix(in oklab,var(--danger) 80%,white)}
+.cList{display:grid;gap:10px}
+.cItem{border:1px solid var(--border);border-radius:16px;padding:10px;background:color-mix(in oklab,var(--surface) 92%,transparent)}
+.cMeta{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cName{font-weight:900;font-size:13px}
+.cHandle,.cTime{font-size:12px;color:var(--muted)}
+.cDel{margin-left:auto;height:30px;padding:0 10px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text);font-weight:900}
+.cDel:disabled{opacity:.6}
+.cContent{margin-top:6px;font-size:13.5px;line-height:1.45;white-space:pre-wrap}
+.cMore{display:grid;place-items:center;padding:6px 0}
+.cMoreBtn{height:40px;padding:0 12px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text);font-weight:900}
+.cEnd{font-size:12px;color:var(--muted)}
 </style>
