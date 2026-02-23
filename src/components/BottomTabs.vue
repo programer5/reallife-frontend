@@ -1,28 +1,28 @@
+<!-- src/components/BottomTabs.vue -->
 <script setup>
-import { useRoute, useRouter } from 'vue-router'
-const route = useRoute()
-const router = useRouter()
+import { useRoute, useRouter } from "vue-router";
+import { computed } from "vue";
+import { useNotificationStore } from "@/stores/notifications";
+
+const route = useRoute();
+const router = useRouter();
+const noti = useNotificationStore();
 
 const tabs = [
-  { to: '/search', label: 'Explore', icon: 'compass' },
-  { to: '/home', label: 'Home', icon: 'home' },
-  { to: '/inbox', label: 'Connect', icon: 'message' },
-  { to: '/me', label: 'Me', icon: 'user' },
-]
+  { to: "/search", label: "Explore", icon: "compass" },
+  { to: "/home", label: "Home", icon: "home" },
+  { to: "/inbox", label: "Connect", icon: "message" },
+  { to: "/me", label: "Me", icon: "user" },
+];
 
-const isActive = (to) => route.path.startsWith(to)
-const go = (to) => router.push(to)
+const isActive = (to) => route.path.startsWith(to);
+const go = (to) => router.push(to);
 
-const Icon = {
-  compass: `<path d="M12 4l6 6-4 8-8-4 6-10Z" stroke="currentColor" stroke-width="1.7" fill="none"/>`,
-  home: `<path d="M4 10.5 12 4l8 6.5V20a2 2 0 0 1-2 2h-4v-6H10v6H6a2 2 0 0 1-2-2v-9.5Z" stroke="currentColor" stroke-width="1.7" fill="none"/>`,
-  message: `<path d="M4 4h16v12H7l-3 3V4Z" stroke="currentColor" stroke-width="1.7" fill="none"/>`,
-  user: `<path d="M20 21a8 8 0 1 0-16 0" stroke="currentColor" stroke-width="1.7" fill="none"/><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.7"/>`,
-}
+const showInboxDot = computed(() => noti.hasUnread);
 </script>
 
 <template>
-  <nav class="tabs">
+  <nav class="tabs" aria-label="Bottom navigation">
     <button
         v-for="t in tabs"
         :key="t.to"
@@ -32,8 +32,26 @@ const Icon = {
         type="button"
     >
       <span class="ico" aria-hidden="true">
-        <svg viewBox="0 0 24 24" v-html="Icon[t.icon]" />
+        <svg viewBox="0 0 24 24">
+          <template v-if="t.icon === 'compass'">
+            <path d="M12 4l6 6-4 8-8-4 6-10Z" stroke="currentColor" stroke-width="1.7" fill="none"/>
+          </template>
+          <template v-else-if="t.icon === 'home'">
+            <path d="M4 10.5 12 4l8 6.5V20a2 2 0 0 1-2 2h-4v-6H10v6H6a2 2 0 0 1-2-2v-9.5Z" stroke="currentColor" stroke-width="1.7" fill="none"/>
+          </template>
+          <template v-else-if="t.icon === 'message'">
+            <path d="M4 4h16v12H7l-3 3V4Z" stroke="currentColor" stroke-width="1.7" fill="none"/>
+          </template>
+          <template v-else>
+            <path d="M20 21a8 8 0 1 0-16 0" stroke="currentColor" stroke-width="1.7" fill="none"/>
+            <circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.7" fill="none"/>
+          </template>
+        </svg>
+
+        <!-- inbox unread dot -->
+        <span v-if="t.to === '/inbox' && showInboxDot" class="dot" aria-hidden="true"></span>
       </span>
+
       <span class="lbl">{{ t.label }}</span>
     </button>
   </nav>
@@ -49,8 +67,8 @@ const Icon = {
   justify-content:space-around;
   align-items:center;
   padding:10px 10px 12px;
-  border-top: 1px solid rgba(255,255,255,0.08);
-  background: rgba(0,0,0,0.75);
+  border-top: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
   backdrop-filter: blur(20px);
 }
 
@@ -73,12 +91,24 @@ const Icon = {
   display:flex;
   align-items:center;
   justify-content:center;
+  position: relative;
   transition: all .18s ease;
 }
 
 .ico svg{
   width:24px;
   height:24px;
+}
+
+.dot{
+  position:absolute;
+  right: 2px;
+  top: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 6px rgba(255, 209, 102, 0.12);
 }
 
 .lbl{
@@ -92,11 +122,6 @@ const Icon = {
 }
 
 .active .ico{
-  transform: translateY(-2px) scale(1.12);
-  filter: drop-shadow(0 8px 18px rgba(110,120,255,0.35));
-}
-
-.active .lbl{
-  opacity:1;
+  transform: translateY(-1px);
 }
 </style>

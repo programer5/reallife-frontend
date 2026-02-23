@@ -1,46 +1,50 @@
+// src/router/index.js
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
-const routes = [
-  // ✅ Explore 탭이 /search를 쓰는 프로젝트가 많아서 /search를 공식 경로로 둠
-  { path: "/", redirect: "/inbox" },
+import AppShell from "../layouts/AppShell.vue";
+import LoginView from "../views/LoginView.vue";
 
-  { path: "/login", component: () => import("../views/LoginView.vue") },
+// MVP placeholders (기존 파일이 있으면 그대로 써도 됨)
+import HomeView from "../views/HomeView.vue";
+import InboxView from "../views/InboxView.vue";
+import MeView from "../views/MeView.vue";
+
+const routes = [
+  { path: "/login", name: "login", component: LoginView },
+  { path: "/posts/:postId", component: () => import("../views/PostDetailView.vue") },
 
   {
     path: "/",
-    component: () => import("../layouts/AppShell.vue"),
+    component: AppShell,
     children: [
-      { path: "inbox", component: () => import("../views/InboxView.vue") },
-      { path: "home", component: () => import("../views/HomeView.vue") },
-
-      // ✅ Explore: /search (BottomTabs에서 /search로 이동하는 경우가 있음)
-      { path: "search", component: () => import("../views/SearchView.vue") },
-
-      // ✅ 호환: /explore 로 들어오면 /search로 보내기
-      { path: "explore", redirect: "/search" },
-
-      { path: "me", component: () => import("../views/MeView.vue") },
-
-      // Chat detail
-      { path: "chat/:id", component: () => import("../views/ChatView.vue") },
+      { path: "", redirect: "/home" },
+      { path: "home", name: "home", component: HomeView },
+      { path: "inbox", name: "inbox", component: InboxView },
+      { path: "me", name: "me", component: MeView },
     ],
   },
+
+  { path: "/:pathMatch(.*)*", redirect: "/home" },
 ];
 
-export const router = createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes,
 });
 
 router.beforeEach(async (to) => {
-  const auth = useAuthStore();
-
   if (to.path === "/login") return true;
 
+  const auth = useAuthStore();
   if (auth.isAuthed) return true;
 
-  const ok = await auth.ensureSession();
-  if (!ok) return "/login";
-  return true;
+  try {
+    await auth.ensureSession();
+    return true;
+  } catch {
+    return { path: "/login" };
+  }
 });
+
+export default router;

@@ -1,6 +1,7 @@
+<!-- src/components/AppHeader.vue -->
 <template>
   <header class="header">
-    <div class="left" @click="goHome" role="button" tabindex="0">
+    <div class="left" @click="goHome" role="button" tabindex="0" @keydown.enter="goHome">
       <div class="brandMark" aria-hidden="true">
         <img :src="logo" alt="RealLife" class="brandImg" />
       </div>
@@ -12,147 +13,115 @@
     </div>
 
     <div class="right">
-      <button class="iconBtn" @click="goInbox" title="Connect" aria-label="Connect">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-              fill="currentColor"
-              d="M20 3H4a2 2 0 0 0-2 2v13a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V5a2 2 0 0 0-2-2Zm0 15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6h16v12Z"
-          />
-          <path fill="currentColor" d="M7 9h10v2H7z" opacity=".9" />
-        </svg>
-      </button>
-
-      <button class="iconBtn" @click="goMe" title="Me" aria-label="Me">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-              fill="currentColor"
-              d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2-8 4.5V21h16v-2.5C20 16 16.42 14 12 14Z"
-          />
-        </svg>
-      </button>
+      <span class="live" :data-on="live">
+        <span class="dot" aria-hidden="true"></span>
+        {{ live ? "LIVE" : "OFFLINE" }}
+      </span>
     </div>
   </header>
 </template>
 
 <script setup>
-import { computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import logo from "@/assets/brand/logo.png";
 
-const route = useRoute();
 const router = useRouter();
 
-/**
- * ✅ Explore만 안 바뀌는 케이스:
- * - Explore 탭 라우트가 /explore가 아니라 "/" 또는 "/discover" 등일 수 있음
- * - 그래서 path를 폭 넓게 매칭
- */
-const subtitle = computed(() => {
-  const path = (route.path || "/").toLowerCase();
-
-  // login
-  if (path.startsWith("/login")) return "Sign in";
-
-  // ✅ Explore 후보들: /, /explore, /discover, /search, /feed
-  if (
-      path === "/" ||
-      path.startsWith("/explore") ||
-      path.startsWith("/discover") ||
-      path.startsWith("/search") ||
-      path.startsWith("/feed")
-  ) {
-    return "Explore";
-  }
-
-  if (path.startsWith("/inbox") || path.startsWith("/connect")) return "Connect";
-  if (path.startsWith("/me")) return "Me";
-  if (path.startsWith("/home")) return "Home";
-
-  // 기본값
-  return "Home";
+defineProps({
+  subtitle: { type: String, default: "" },
+  live: { type: Boolean, default: false },
 });
 
 function goHome() {
   router.push("/home");
 }
-function goInbox() {
-  router.push("/inbox");
-}
-function goMe() {
-  router.push("/me");
-}
 </script>
 
 <style scoped>
-.header{
+.header {
   position: sticky;
   top: 0;
-  z-index: 50;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding: 12px 14px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px;
   border-bottom: 1px solid var(--border);
-  background: rgba(15,17,21,.55);
-  backdrop-filter: blur(14px);
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
+  backdrop-filter: blur(16px);
 }
 
-.left{
-  display:flex;
-  align-items:center;
+.left {
+  display: flex;
+  align-items: center;
   gap: 10px;
   cursor: pointer;
-  user-select:none;
+  user-select: none;
 }
 
-.brandMark{
-  width: 32px;
-  height: 32px;
-  border-radius: 12px;
+.brandMark {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 12px 30px rgba(0,0,0,.35);
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  display:grid;
-  place-items:center;
-}
-.brandImg{
-  width: 100%;
-  height: 100%;
-  display:block;
-  object-fit: cover;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface-2) 86%, transparent);
+  display: grid;
+  place-items: center;
 }
 
-.brandText{
-  display:flex;
-  flex-direction:column;
-  gap: 1px;
-  line-height: 1.05;
+.brandImg {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
 }
-.brandName{
-  font-weight: 800;
-  letter-spacing: .2px;
-  font-size: 14px;
+
+.brandText {
+  display: grid;
+  gap: 2px;
 }
-.brandSub{
-  font-size: 11.5px;
+
+.brandName {
+  font-weight: 950;
+  letter-spacing: 0.2px;
+}
+
+.brandSub {
+  font-size: 12px;
   color: var(--muted);
 }
 
-.right{ display:flex; align-items:center; gap: 10px; }
-
-.iconBtn{
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  color: rgba(255,255,255,.82);
-  display:grid;
-  place-items:center;
-  cursor:pointer;
-  transition: transform .08s ease, background .12s ease, border-color .12s ease;
+.right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.iconBtn:hover{ background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.14); }
-.iconBtn:active{ transform: translateY(1px); }
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 6px rgba(255, 107, 125, 0.12);
+}
+
+.live[data-on="true"] {
+  border-color: color-mix(in oklab, var(--success) 55%, var(--border));
+}
+.live[data-on="true"] .dot {
+  background: var(--success);
+  box-shadow: 0 0 0 6px rgba(85, 227, 160, 0.14);
+}
 </style>
