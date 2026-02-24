@@ -5,13 +5,13 @@ import { useAuthStore } from "../stores/auth";
 import AppShell from "../layouts/AppShell.vue";
 import LoginView from "../views/LoginView.vue";
 
-// MVP placeholders (기존 파일이 있으면 그대로 써도 됨)
 import HomeView from "../views/HomeView.vue";
 import InboxView from "../views/InboxView.vue";
 import MeView from "../views/MeView.vue";
 
 const routes = [
   { path: "/login", name: "login", component: LoginView },
+
   { path: "/posts/:postId", component: () => import("../views/PostDetailView.vue") },
 
   {
@@ -19,8 +19,35 @@ const routes = [
     component: AppShell,
     children: [
       { path: "", redirect: "/home" },
+
       { path: "home", name: "home", component: HomeView },
-      { path: "inbox", name: "inbox", component: InboxView },
+
+      // ✅ Inbox (알림 화면)
+      {
+        path: "inbox",
+        children: [
+          {
+            path: "",
+            name: "inbox",
+            component: InboxView,
+          },
+
+          // ✅ Conversations list
+          {
+            path: "conversations",
+            name: "conversations",
+            component: () => import("../views/ConversationsView.vue"),
+          },
+
+          // ✅ Conversation detail
+          {
+            path: "conversations/:conversationId",
+            name: "conversation-detail",
+            component: () => import("../views/ConversationDetailView.vue"),
+          },
+        ],
+      },
+
       { path: "me", name: "me", component: MeView },
     ],
   },

@@ -1,220 +1,177 @@
 <!-- src/views/InboxView.vue -->
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRouter } from "vue-router";
-import api from "@/lib/api.js";
-import sse from "@/lib/sse";
-import { useNotificationsStore } from "@/stores/notifications";
-
-import RlRow from "@/components/ui/RlRow.vue";
-import RlBadge from "@/components/ui/RlBadge.vue";
+import { computed, onMounted, ref } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
+import { useNotificationsStore } from "@/stores/notifications";
+import { readAllNotifications, readNotification, clearReadNotifications } from "@/api/notifications";
+import { useToastStore } from "@/stores/toast";
+import { useRouter } from "vue-router";
 
 const router = useRouter();
-const notiStore = useNotificationsStore();
+const toast = useToastStore();
+const noti = useNotificationsStore();
 
-// SSE status/events (from global manager)
-const sseConnected = ref(false);
-const events = ref([]);
-let offStatus = null;
-let offEvent = null;
+const busy = ref(false);
+const cleaning = ref(false);
 
-function pushEvent({ event, data }) {
-  events.value.unshift({ event, data, at: Date.now() });
-  if (events.value.length > 20) events.value.length = 20;
+const items = computed(() => noti.items);
+const hasUnread = computed(() => noti.hasUnread);
+const loading = computed(() => noti.loading);
+const error = computed(() => noti.error);
+
+function formatType(t) {
+  if (t === "MESSAGE_RECEIVED") return "메시지";
+  if (t === "COMMENT_CREATED") return "댓글";
+  if (t === "POST_LIKED") return "좋아요";
+  return t || "알림";
 }
 
-function fmtTime(ts) {
-  const d = new Date(ts);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
+function formatTime(iso) {
+  if (!iso) return "";
+  return iso.replace("T", " ").slice(0, 19);
 }
 
-// notifications
-const notiLoading = ref(false);
-const notifications = ref([]);
+async function refreshNow() {
+  await noti._refreshNow?.();
+  if (!noti._refreshNow) await noti.refresh();
+}
 
-// conversations
-const convLoading = ref(false);
-const conversations = ref([]);
-
-async function loadNotifications() {
-  notiLoading.value = true;
+async function markAllRead() {
+  if (busy.value) return;
+  busy.value = true;
   try {
-    const res = await api.get("/api/notifications");
-    notifications.value = res?.data?.items || [];
-    // 서버가 hasUnread 내려주면 store 갱신
-    if (typeof res?.data?.hasUnread === "boolean") {
-      notiStore.setHasUnread(res.data.hasUnread);
-    }
+    await readAllNotifications();
+    await refreshNow();
+    toast.success("완료", "알림을 모두 읽음 처리했어요.");
+  } catch (e) {
+    toast.error("실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
-    notiLoading.value = false;
+    busy.value = false;
   }
 }
 
-async function loadConversations() {
-  convLoading.value = true;
+async function clearRead() {
+  if (cleaning.value) return;
+  cleaning.value = true;
   try {
-    const res = await api.get("/api/conversations");
-    conversations.value = res?.data?.items || res?.data || [];
+    const res = await clearReadNotifications();
+    await refreshNow();
+    toast.success("정리 완료", `읽은 알림 ${res?.deletedCount ?? 0}개를 정리했어요.`);
+  } catch (e) {
+    toast.error("실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
-    convLoading.value = false;
+    cleaning.value = false;
   }
 }
 
-async function readAll() {
-  await api.post("/api/notifications/read-all");
-  await loadNotifications();
-  notiStore.setHasUnread(false);
+async function openItem(n) {
+  try {
+    await readNotification(n.id);
+    await refreshNow();
+  } catch {}
+
+  // 메시지 알림이면 대화 목록으로 이동
+  if (n.type === "MESSAGE_RECEIVED") {
+    router.push("/inbox/conversations");
+    return;
+  }
+
+  if (n.type === "COMMENT_CREATED" || n.type === "POST_LIKED") {
+    if (n.refId) router.push(`/posts/${n.refId}`);
+  }
 }
 
-async function readOne(id) {
-  await api.delete("/api/notifications/read", { data: { id } });
-  await loadNotifications();
-}
-
-function openConversation(c) {
-  const id = c?.id || c?.conversationId;
-  if (!id) return;
-  router.push(`/chat/${id}`);
-}
-
-onMounted(async () => {
-  // attach SSE listeners (global)
-  offStatus = sse.onStatus((st) => {
-    sseConnected.value = !!st.connected;
-  });
-
-  offEvent = sse.onEvent((evt) => {
-    // evt: {type, data, id}
-    pushEvent({ event: evt.type, data: evt.data });
-
-    // 알림/대화 관련 이벤트가 오면 리스트 갱신 (너무 자주 호출 방지: 최소한의 debounce)
-    if (evt.type && String(evt.type).toLowerCase().includes("notification")) {
-      notiStore.setHasUnread(true);
-    }
-  });
-
-  await Promise.all([loadNotifications(), loadConversations()]);
-  await notiStore.refreshHasUnread();
-});
-
-onUnmounted(() => {
-  if (offStatus) offStatus();
-  if (offEvent) offEvent();
-});
-
-const hasNoti = computed(() => notifications.value.length > 0);
-const hasConv = computed(() => conversations.value.length > 0);
+onMounted(refreshNow);
 </script>
 
 <template>
-  <div class="rl-page">
-    <div class="rl-section">
-      <div class="rl-row rl-row--between">
-        <div>
-          <div class="rl-title">Connect</div>
-          <div class="rl-sub">알림과 메시지</div>
-        </div>
-
-        <RlBadge :tone="sseConnected ? 'success' : 'neutral'">
-          {{ sseConnected ? "LIVE" : "OFFLINE" }}
-        </RlBadge>
+  <div class="page">
+    <header class="head">
+      <div>
+        <h1 class="title">Inbox</h1>
+        <p class="sub">알림 & 메시지</p>
       </div>
+
+      <div class="actions">
+        <!-- ✅ DM 이동 버튼 추가 -->
+        <RlButton size="sm" variant="soft" @click="router.push('/inbox/conversations')">
+          대화
+        </RlButton>
+
+        <RlButton size="sm" variant="soft" @click="refreshNow" :disabled="loading">
+          새로고침
+        </RlButton>
+
+        <RlButton size="sm" variant="soft" @click="markAllRead" :disabled="busy || loading || !items.length">
+          전체 읽음
+        </RlButton>
+
+        <RlButton size="sm" variant="soft" @click="clearRead" :disabled="cleaning || loading || !items.length">
+          읽은 알림 정리
+        </RlButton>
+      </div>
+    </header>
+
+    <div v-if="loading" class="state">불러오는 중…</div>
+    <div v-else-if="error" class="state err">{{ error }}</div>
+
+    <div v-else-if="items.length === 0" class="state">
+      아직 알림이 없어요 ✨
     </div>
 
-    <div class="rl-section">
-      <div class="rl-row rl-row--between">
-        <div class="rl-sectionTitle">Notifications</div>
-        <div class="rl-row" style="gap: 8px">
-          <RlButton size="sm" variant="soft" @click="loadNotifications" :loading="notiLoading">새로고침</RlButton>
-          <RlButton size="sm" variant="soft" @click="readAll">전체읽음</RlButton>
-        </div>
-      </div>
+    <div v-else class="list">
+      <button
+          v-for="n in items"
+          :key="n.id"
+          class="item"
+          :class="{ unread: !n.read }"
+          type="button"
+          @click="openItem(n)"
+      >
+        <div class="badge" :class="{ on: !n.read }"></div>
 
-      <div v-if="notiLoading" class="rl-faint">불러오는 중...</div>
-      <div v-else-if="!hasNoti" class="rl-faint">알림이 없어요.</div>
-      <div v-else class="rl-list">
-        <RlRow
-            v-for="n in notifications"
-            :key="n.id"
-            :title="n.title || n.type || 'Notification'"
-            :subtitle="n.message || n.content || ''"
-            @click="readOne(n.id)"
-        />
-      </div>
-    </div>
-
-    <div class="rl-section">
-      <div class="rl-row rl-row--between">
-        <div class="rl-sectionTitle">Conversations</div>
-        <RlButton size="sm" variant="soft" @click="loadConversations" :loading="convLoading">새로고침</RlButton>
-      </div>
-
-      <div v-if="convLoading" class="rl-faint">불러오는 중...</div>
-      <div v-else-if="!hasConv" class="rl-faint">대화가 없어요.</div>
-      <div v-else class="rl-list">
-        <RlRow
-            v-for="c in conversations"
-            :key="c.id || c.conversationId"
-            :title="c.title || c.name || ('Conversation #' + (c.id || c.conversationId))"
-            :subtitle="c.lastMessage?.content || c.lastMessage || ''"
-            @click="openConversation(c)"
-        />
-      </div>
-    </div>
-
-    <div class="rl-section">
-      <div class="rl-row rl-row--between">
-        <div class="rl-sectionTitle">SSE Events</div>
-        <RlBadge tone="neutral">{{ events.length }}</RlBadge>
-      </div>
-
-      <div class="rl-events">
-        <div v-for="e in events" :key="e.at" class="rl-event">
-          <div class="rl-event__meta">
-            <span class="rl-event__type">{{ e.event }}</span>
-            <span class="rl-event__time">{{ fmtTime(e.at) }}</span>
+        <div class="content">
+          <div class="row1">
+            <div class="type">{{ formatType(n.type) }}</div>
+            <div class="time">{{ formatTime(n.createdAt) }}</div>
           </div>
-          <div class="rl-event__data">{{ e.data }}</div>
+          <div class="body">{{ n.body }}</div>
         </div>
-      </div>
+
+        <div class="chev">›</div>
+      </button>
+    </div>
+
+    <div class="footerNote" v-if="hasUnread">
+      읽지 않은 알림이 있어요.
     </div>
   </div>
 </template>
 
 <style scoped>
-.rl-events {
-  display: grid;
-  gap: 10px;
+.page{padding:18px 14px 90px;max-width:760px;margin:0 auto}
+.head{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.title{font-size:20px;font-weight:950;margin:0}
+.sub{margin:6px 0 0;color:var(--muted);font-size:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.state{padding:28px 0;text-align:center;color:var(--muted)}
+.state.err{color:var(--danger)}
+.list{display:grid;gap:10px}
+.item{
+  width:100%;text-align:left;border:1px solid var(--border);
+  border-radius:18px;padding:12px;
+  background:color-mix(in oklab,var(--surface) 92%,transparent);
+  display:grid;grid-template-columns:10px 1fr auto;
+  gap:10px;align-items:center;cursor:pointer;
 }
-
-.rl-event {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 10px 12px;
-  background: color-mix(in oklab, var(--surface) 90%, transparent);
-}
-
-.rl-event__meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.rl-event__type {
-  font-weight: 900;
-  color: var(--text);
-}
-
-.rl-event__data {
-  margin-top: 6px;
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.35;
-  word-break: break-word;
-}
+.item.unread{border-color:var(--warning)}
+.badge{width:8px;height:8px;border-radius:999px;background:var(--border)}
+.badge.on{background:var(--warning)}
+.content{display:grid;gap:6px}
+.row1{display:flex;justify-content:space-between}
+.type{font-weight:950;font-size:13px}
+.time{font-size:12px;color:var(--muted)}
+.body{font-size:13px}
+.chev{font-size:20px;opacity:.5}
+.footerNote{margin-top:14px;font-size:12px;color:var(--muted)}
 </style>

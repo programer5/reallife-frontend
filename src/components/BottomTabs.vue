@@ -9,7 +9,6 @@ const router = useRouter();
 const noti = useNotificationsStore();
 
 const tabs = [
-  { to: "/search", label: "Explore", icon: "compass" },
   { to: "/home", label: "Home", icon: "home" },
   { to: "/inbox", label: "Connect", icon: "message" },
   { to: "/me", label: "Me", icon: "user" },

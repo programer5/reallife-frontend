@@ -9,6 +9,7 @@ import "./style.css";
 import { useSseStore } from "./stores/sse";
 import { useNotificationsStore } from "./stores/notifications";
 import { useAuthStore } from "./stores/auth";
+import { useConversationsStore } from "./stores/conversations";
 
 const app = createApp(App);
 
@@ -20,6 +21,7 @@ app.use(router);
 const auth = useAuthStore();
 const sse = useSseStore();
 const noti = useNotificationsStore();
+const conv = useConversationsStore();
 
 // ✅ 로그인 상태일 때 SSE 연결 / 로그아웃 시 해제
 // auth store에 isLoggedIn이 없다면 아래 watch의 기준만 바꾸면 됨.
@@ -38,6 +40,15 @@ watch(
     (t) => {
         if (!t) return;
         noti.refresh();
+    }
+);
+
+watch(
+    () => sse.lastEventAt,
+    (t) => {
+        if (!t) return;
+        noti.refresh();
+        conv.refresh(); // ✅ 메시지 수신 시 unreadCount 반영
     }
 );
 

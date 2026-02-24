@@ -37,10 +37,18 @@ export const useAuthStore = defineStore("auth", {
       }
     },
 
+    // src/stores/auth.js (ensureSession만 교체)
     async ensureSession() {
       try {
+        // ✅ 백엔드 기준: /api/me
         const res = await api.get("/api/me");
         this.me = res.data;
+
+        // ✅ 안전장치: userId가 없으면 null로 처리
+        if (!this.me?.userId) {
+          console.warn("ensureSession: userId is missing in /api/me response", this.me);
+        }
+
         sse.start();
       } catch (e) {
         this.me = null;
