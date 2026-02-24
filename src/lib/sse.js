@@ -2,7 +2,7 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import axios from "axios";
 
-const LAST_EVENT_ID_KEY = "rl:lastEventId";
+const LAST_EVENT_ID_KEY = "sse:lastEventId";
 
 function getLastEventId() {
   return localStorage.getItem(LAST_EVENT_ID_KEY) || "";
@@ -42,8 +42,12 @@ class SSEManager {
 
     this.eventListeners = new Set();
     this.statusListeners = new Set();
+
+    // store binder (optional)
+    this._boundStore = null;
   }
 
+  // ---- event subscription API ----
   onEvent(cb) {
     this.eventListeners.add(cb);
     return () => this.eventListeners.delete(cb);
@@ -61,9 +65,32 @@ class SSEManager {
   }
 
   _emitEvent(evt) {
+    // evt: { type, data, id, refId? }
     this.eventListeners.forEach((cb) => cb(evt));
+
+    // if a Pinia store is bound, update it too
+    if (this._boundStore && typeof this._boundStore.handleIncomingEvent === "function") {
+      try {
+        const refId = evt.data && evt.data.refId ? evt.data.refId : evt.refId || null;
+        this._boundStore.handleIncomingEvent({
+          type: evt.type,
+          refId,
+          data: evt.data,
+          id: evt.id || "",
+        });
+      } catch (e) {
+        // ignore store errors
+        // console.warn("SSE bind store error", e);
+      }
+    }
   }
 
+  bindStore(store) {
+    // store must implement handleIncomingEvent({type, refId, data, id})
+    this._boundStore = store;
+  }
+
+  // ---- start/stop ----
   start() {
     if (this.running) return;
     this.running = true;
@@ -85,6 +112,7 @@ class SSEManager {
     if (clearLastEvent) clearLastEventId();
   }
 
+  // ---- main loop using fetchEventSource ----
   async _loop() {
     while (this.running) {
       const controller = new AbortController();
@@ -125,15 +153,32 @@ class SSEManager {
           },
 
           onmessage: (msg) => {
+            // msg: { id, data, event? }
             if (msg?.id) setLastEventId(msg.id);
+
+            // try to parse data
+            let parsed = null;
+            try {
+              parsed = msg?.data ? JSON.parse(msg.data) : null;
+            } catch {
+              parsed = msg?.data ?? null;
+            }
+
+            // If server provides an explicit 'type' in payload, prefer it, else use msg.event
+            const type = (parsed && parsed.type) || msg.event || "message";
+            // refId often in payload as parsed.refId or parsed.conversationId — we keep payload intact
+            const refId = parsed && (parsed.refId || parsed.conversationId) ? (parsed.refId || parsed.conversationId) : null;
+
             this._emitEvent({
-              type: msg.event || "message",
-              data: msg.data,
+              type,
+              data: parsed,
               id: msg.id || "",
+              refId,
             });
           },
 
           onerror: (err) => {
+            // rethrow to outer catch
             throw err;
           },
         });

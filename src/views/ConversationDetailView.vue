@@ -10,6 +10,7 @@ import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
 import { useSseStore } from "@/stores/sse";
+import { onBeforeUnmount } from "vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -47,6 +48,23 @@ function normalizeMessages(arr) {
   if (!Array.isArray(arr)) return [];
   // 서버가 최신 먼저라고 가정 -> reverse 해서 아래로 쌓이게
   return [...arr].reverse();
+}
+
+function onScroll() {
+  if (!listRef.value) return;
+
+  // 스크롤이 맨 위 근처면
+  if (listRef.value.scrollTop < 10) {
+    if (hasNext.value && !loading.value) {
+      loadMore();
+    }
+  }
+}
+
+function isNearBottom() {
+  const el = listRef.value;
+  if (!el) return true;
+  return el.scrollHeight - (el.scrollTop + el.clientHeight) < 120;
 }
 
 async function ensureSessionOrRedirect() {
@@ -166,20 +184,47 @@ async function onSend() {
   }
 }
 
-// ✅ SSE 이벤트가 오면 필요한 API만 재조회하는 패턴(현재는 간단히 reload)
 watch(
-    () => sse.lastEventAt,
-    async (t) => {
-      if (!t) return;
-      if (!conversationId.value) return;
-      await loadFirst();
-    }
+    () => sse.lastEvent,
+    async (ev) => {
+      if (!ev) return;
+
+      // ✅ DM 관련 이벤트만
+      if (ev.type !== "MESSAGE_RECEIVED") return;
+
+      // ✅ 현재 보고 있는 대화방이면 메시지만 갱신
+      if (ev.refId === conversationId.value) {
+        const shouldStick = isNearBottom();
+
+        // 전체 재조회 대신 "최신 페이지만" 다시 가져오기
+        await loadFirst({ keepScroll: !shouldStick });
+
+        if (shouldStick) scrollToBottom();
+        return;
+      }
+
+      // ✅ 다른 대화방에서 온 메시지는 목록만 refresh (뱃지/미리보기 갱신)
+      convStore.refresh();
+    },
+    { deep: true }
 );
 
 onMounted(async () => {
   const ok = await ensureSessionOrRedirect();
   if (!ok) return;
+
   await loadFirst();
+
+  // 🔥 스크롤 이벤트 등록
+  nextTick(() => {
+    if (listRef.value) {
+      listRef.value.addEventListener("scroll", onScroll);
+    }
+  });
+});
+
+onBeforeUnmount(() => {
+  if (listRef.value) listRef.value.removeEventListener("scroll", onScroll);
 });
 </script>
 
