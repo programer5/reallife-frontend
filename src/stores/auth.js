@@ -20,7 +20,6 @@ export const useAuthStore = defineStore("auth", {
       this.error = "";
 
       try {
-        // 🔥 백엔드 DTO에 맞춰 email 필드로 보낸다
         await api.post("/api/auth/login-cookie", {
           email: usernameOrEmail,
           password: password,
@@ -28,27 +27,24 @@ export const useAuthStore = defineStore("auth", {
 
         await this.ensureSession();
       } catch (e) {
-        this.error =
-            e?.response?.data?.message ||
-            "로그인에 실패했습니다.";
+        this.error = e?.response?.data?.message || "로그인에 실패했습니다.";
         throw e;
       } finally {
         this.loading = false;
       }
     },
 
-    // src/stores/auth.js (ensureSession만 교체)
     async ensureSession() {
       try {
-        // ✅ 백엔드 기준: /api/me
         const res = await api.get("/api/me");
         this.me = res.data;
 
-        // ✅ 안전장치: userId가 없으면 null로 처리
-        if (!this.me?.userId) {
-          console.warn("ensureSession: userId is missing in /api/me response", this.me);
+        // ✅ /api/me 응답은 id가 핵심
+        if (!this.me?.id) {
+          console.warn("ensureSession: id is missing in /api/me response", this.me);
         }
 
+        // ✅ 로그인 세션 확보 후 SSE 시작
         sse.start();
       } catch (e) {
         this.me = null;

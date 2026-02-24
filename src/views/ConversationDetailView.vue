@@ -80,14 +80,18 @@ async function onSend() {
   }
 }
 
-/* 🔥 핵심: message-created 직접 append */
+/* 🔥 실시간 append */
 const off = sse.onEvent?.((evt) => {
   if (!conversationId.value) return;
   if (evt?.type !== "message-created") return;
 
-  const data = JSON.parse(evt.data);
+  const data =
+      typeof evt.data === "string" ? JSON.parse(evt.data) : evt.data;
 
   if (data.conversationId !== conversationId.value) return;
+
+  // 🔥 중복 방지
+  if (items.value.some((m) => m.messageId === data.messageId)) return;
 
   items.value.push(data);
 
@@ -113,20 +117,15 @@ onBeforeUnmount(() => {
       <div></div>
     </div>
 
-    <div v-if="loading" class="state">불러오는 중…</div>
-    <div v-else-if="error" class="state err">{{ error }}</div>
-
-    <div v-if="newMessageCount > 0" class="newBanner" @click="scrollToBottom(); newMessageCount = 0">
+    <div
+        v-if="newMessageCount > 0"
+        class="newBanner"
+        @click="scrollToBottom(); newMessageCount = 0"
+    >
       새 메시지 {{ newMessageCount }}개 ↓
     </div>
 
-    <div v-else ref="listRef" class="list">
-      <div class="more">
-        <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
-          이전 메시지 더 보기
-        </button>
-      </div>
-
+    <div ref="listRef" class="list">
       <div
           v-for="m in items"
           :key="m.messageId"
@@ -161,35 +160,22 @@ onBeforeUnmount(() => {
   margin:0 auto;
   height:calc(100vh - 72px);
   display:flex;
-  flex-direction:column
+  flex-direction:column;
 }
 .topbar{
   display:grid;
   grid-template-columns:auto 1fr auto;
   align-items:center;
   gap:10px;
-  margin-bottom:10px
+  margin-bottom:10px;
 }
 .title{font-weight:950;text-align:center}
-.state{text-align:center;color:var(--muted);padding:18px 0}
-.state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 .list{
   flex:1;
   overflow-y:auto;
   display:flex;
   flex-direction:column;
   gap:10px;
-  padding-bottom:12px
-}
-.more{display:grid;place-items:center}
-.moreBtn{
-  height:40px;
-  padding:0 12px;
-  border-radius:14px;
-  border:1px solid var(--border);
-  background:transparent;
-  color:var(--text);
-  font-weight:900
 }
 .msg{display:flex;flex-direction:column;align-items:flex-start}
 .msg.mine{align-items:flex-end}
@@ -197,83 +183,40 @@ onBeforeUnmount(() => {
   max-width:75%;
   padding:10px 14px;
   border-radius:18px;
-  background:color-mix(in oklab,var(--surface) 92%,transparent);
+  background:var(--surface);
   border:1px solid var(--border);
-  font-size:13.5px;
-  line-height:1.45;
-  white-space:pre-wrap
 }
 .msg.mine .bubble{
   background:color-mix(in oklab,var(--accent) 16%,transparent);
-  border-color:color-mix(in oklab,var(--accent) 40%,var(--border))
 }
 .time{font-size:11px;color:var(--muted);margin-top:4px}
+.newBanner{
+  position:sticky;
+  top:0;
+  margin:6px auto;
+  padding:6px 12px;
+  border-radius:999px;
+  background:var(--accent);
+  color:white;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+}
 .composer{
   display:grid;
   grid-template-columns:1fr auto;
   gap:8px;
-  padding-top:8px
+  padding-top:8px;
 }
 .input{
   height:44px;
   border-radius:16px;
   border:1px solid var(--border);
-  background:color-mix(in oklab,var(--surface-2) 88%,transparent);
   padding:0 12px;
-  color:var(--text)
 }
 .btn{
   height:44px;
   padding:0 14px;
   border-radius:16px;
-  border:1px solid color-mix(in oklab,var(--accent) 55%,var(--border));
-  background:color-mix(in oklab,var(--accent) 16%,transparent);
-  font-weight:950;
-  color:var(--text)
-}
-.btn:disabled{opacity:.6}
-
-/* ===== Custom Scrollbar ===== */
-
-.list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.list::-webkit-scrollbar-thumb {
-  background: linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--accent) 60%, transparent),
-      color-mix(in oklab, var(--accent) 40%, transparent)
-  );
-  border-radius: 999px;
-  transition: background 0.2s ease;
-}
-
-.list::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
-}
-
-/* Firefox */
-.list {
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
-}
-
-.newBanner{
-  position: sticky;
-  top: 0;
-  margin: 6px auto;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: white;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  z-index: 10;
 }
 </style>
