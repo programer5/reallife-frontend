@@ -1,6 +1,6 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, watch, onBeforeUnmount } from "vue";
+import { computed, onMounted, ref, nextTick, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 
@@ -9,7 +9,7 @@ import { markConversationRead } from "@/api/conversations";
 import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
-import sse from "@/lib/sse"; // ✅ 통일
+import sse from "@/lib/sse";
 
 const route = useRoute();
 const router = useRouter();
@@ -20,17 +20,14 @@ const auth = useAuthStore();
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const myId = computed(() => auth.me?.id || null);
 
-const loading = ref(false);
-const error = ref("");
-
 const items = ref([]);
 const nextCursor = ref(null);
 const hasNext = ref(false);
 
 const content = ref("");
 const sending = ref(false);
-
 const listRef = ref(null);
+const newMessageCount = ref(0);
 
 function scrollToBottom() {
   nextTick(() => {
@@ -39,74 +36,26 @@ function scrollToBottom() {
   });
 }
 
-function normalizeMessages(arr) {
-  if (!Array.isArray(arr)) return [];
-  return [...arr].reverse();
-}
-
 function isNearBottom() {
   const el = listRef.value;
   if (!el) return true;
   return el.scrollHeight - (el.scrollTop + el.clientHeight) < 120;
 }
 
-async function loadFirst({ keepScroll = false } = {}) {
-  if (!conversationId.value) return;
-
-  loading.value = true;
-  error.value = "";
-  const prevScrollHeight = listRef.value?.scrollHeight ?? 0;
-
-  try {
-    const res = await fetchMessages({
-      conversationId: conversationId.value,
-      size: 20,
-    });
-
-    items.value = normalizeMessages(res.items);
-    nextCursor.value = res.nextCursor ?? null;
-    hasNext.value = !!res.hasNext;
-
-    await markConversationRead(conversationId.value);
-    convStore.refresh();
-
-    if (keepScroll) {
-      nextTick(() => {
-        if (!listRef.value) return;
-        const newHeight = listRef.value.scrollHeight;
-        listRef.value.scrollTop += newHeight - prevScrollHeight;
-      });
-    } else {
-      scrollToBottom();
-    }
-  } catch (e) {
-    error.value =
-        e?.response?.data?.message || "메시지를 불러오지 못했습니다.";
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadMore() {
-  if (!hasNext.value || !nextCursor.value) return;
-
-  const prevScrollHeight = listRef.value?.scrollHeight ?? 0;
-
+async function loadFirst() {
   const res = await fetchMessages({
     conversationId: conversationId.value,
     size: 20,
-    cursor: nextCursor.value,
   });
 
-  items.value = [...normalizeMessages(res.items), ...items.value];
-  nextCursor.value = res.nextCursor ?? null;
-  hasNext.value = !!res.hasNext;
+  items.value = [...res.items].reverse();
+  nextCursor.value = res.nextCursor;
+  hasNext.value = res.hasNext;
 
-  nextTick(() => {
-    if (!listRef.value) return;
-    const newHeight = listRef.value.scrollHeight;
-    listRef.value.scrollTop += newHeight - prevScrollHeight;
-  });
+  await markConversationRead(conversationId.value);
+  convStore.refresh();
+
+  scrollToBottom();
 }
 
 async function onSend() {
@@ -123,36 +72,36 @@ async function onSend() {
 
     items.value.push(msg);
     content.value = "";
-
-    convStore.refresh();
     scrollToBottom();
   } catch (e) {
-    toast.error(
-        "전송 실패",
-        e?.response?.data?.message || "잠시 후 다시 시도해주세요."
-    );
+    toast.error("전송 실패");
   } finally {
     sending.value = false;
   }
 }
 
-/* ✅ SSE 이벤트 처리 */
-const unsubscribe = sse.onEvent?.(async () => {
+/* 🔥 핵심: message-created 직접 append */
+const off = sse.onEvent?.((evt) => {
   if (!conversationId.value) return;
+  if (evt?.type !== "message-created") return;
 
-  const shouldStick = isNearBottom();
+  const data = JSON.parse(evt.data);
 
-  await loadFirst({ keepScroll: !shouldStick });
+  if (data.conversationId !== conversationId.value) return;
 
-  if (shouldStick) scrollToBottom();
+  items.value.push(data);
+
+  if (isNearBottom()) {
+    scrollToBottom();
+  } else {
+    newMessageCount.value++;
+  }
 });
 
-onMounted(async () => {
-  await loadFirst();
-});
+onMounted(loadFirst);
 
 onBeforeUnmount(() => {
-  if (unsubscribe) unsubscribe();
+  off?.();
 });
 </script>
 
@@ -166,6 +115,10 @@ onBeforeUnmount(() => {
 
     <div v-if="loading" class="state">불러오는 중…</div>
     <div v-else-if="error" class="state err">{{ error }}</div>
+
+    <div v-if="newMessageCount > 0" class="newBanner" @click="scrollToBottom(); newMessageCount = 0">
+      새 메시지 {{ newMessageCount }}개 ↓
+    </div>
 
     <div v-else ref="listRef" class="list">
       <div class="more">
@@ -308,5 +261,19 @@ onBeforeUnmount(() => {
 .list {
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
+}
+
+.newBanner{
+  position: sticky;
+  top: 0;
+  margin: 6px auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 10;
 }
 </style>
