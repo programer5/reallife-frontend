@@ -1,6 +1,6 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, watch } from "vue";
+import { computed, onMounted, ref, nextTick, watch, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 
@@ -9,20 +9,15 @@ import { markConversationRead } from "@/api/conversations";
 import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
-import { useSseStore } from "@/stores/sse";
-import { onBeforeUnmount } from "vue";
+import sse from "@/lib/sse"; // ✅ 통일
 
 const route = useRoute();
 const router = useRouter();
 const toast = useToastStore();
 const convStore = useConversationsStore();
 const auth = useAuthStore();
-const sse = useSseStore();
 
-// ✅ 항상 문자열로 확보
 const conversationId = computed(() => String(route.params.conversationId || ""));
-
-// ✅ 중요: /api/me 응답에서 내 id는 userId가 아니라 id 임
 const myId = computed(() => auth.me?.id || null);
 
 const loading = ref(false);
@@ -46,19 +41,7 @@ function scrollToBottom() {
 
 function normalizeMessages(arr) {
   if (!Array.isArray(arr)) return [];
-  // 서버가 최신 먼저라고 가정 -> reverse 해서 아래로 쌓이게
   return [...arr].reverse();
-}
-
-function onScroll() {
-  if (!listRef.value) return;
-
-  // 스크롤이 맨 위 근처면
-  if (listRef.value.scrollTop < 10) {
-    if (hasNext.value && !loading.value) {
-      loadMore();
-    }
-  }
 }
 
 function isNearBottom() {
@@ -67,36 +50,14 @@ function isNearBottom() {
   return el.scrollHeight - (el.scrollTop + el.clientHeight) < 120;
 }
 
-async function ensureSessionOrRedirect() {
-  if (auth.me?.id) return true;
-  try {
-    await auth.ensureSession();
-    return !!auth.me?.id;
-  } catch {
-    router.replace("/login");
-    return false;
-  }
-}
-
 async function loadFirst({ keepScroll = false } = {}) {
-  // ✅ conversationId 없으면 요청 자체를 막고 안내
-  if (
-      !conversationId.value ||
-      conversationId.value === "undefined" ||
-      conversationId.value === "null"
-  ) {
-    error.value = "대화방 ID가 없습니다. 대화 목록에서 다시 들어와 주세요.";
-    return;
-  }
+  if (!conversationId.value) return;
 
   loading.value = true;
   error.value = "";
   const prevScrollHeight = listRef.value?.scrollHeight ?? 0;
 
   try {
-    console.log("DEBUG conversationId:", conversationId.value);
-    console.log("DEBUG myId:", myId.value);
-
     const res = await fetchMessages({
       conversationId: conversationId.value,
       size: 20,
@@ -106,11 +67,8 @@ async function loadFirst({ keepScroll = false } = {}) {
     nextCursor.value = res.nextCursor ?? null;
     hasNext.value = !!res.hasNext;
 
-    // ✅ 읽음 처리 + 목록 갱신
     await markConversationRead(conversationId.value);
     convStore.refresh();
-
-    console.log("DEBUG first message:", items.value?.[0]);
 
     if (keepScroll) {
       nextTick(() => {
@@ -140,7 +98,6 @@ async function loadMore() {
     cursor: nextCursor.value,
   });
 
-  // ✅ 위에 붙이기
   items.value = [...normalizeMessages(res.items), ...items.value];
   nextCursor.value = res.nextCursor ?? null;
   hasNext.value = !!res.hasNext;
@@ -155,11 +112,6 @@ async function loadMore() {
 async function onSend() {
   const text = content.value.trim();
   if (!text || sending.value) return;
-
-  if (!conversationId.value) {
-    toast.error("전송 실패", "대화방 ID가 없습니다.");
-    return;
-  }
 
   sending.value = true;
   try {
@@ -184,47 +136,23 @@ async function onSend() {
   }
 }
 
-watch(
-    () => sse.lastEvent,
-    async (ev) => {
-      if (!ev) return;
+/* ✅ SSE 이벤트 처리 */
+const unsubscribe = sse.onEvent?.(async () => {
+  if (!conversationId.value) return;
 
-      // ✅ DM 관련 이벤트만
-      if (ev.type !== "MESSAGE_RECEIVED") return;
+  const shouldStick = isNearBottom();
 
-      // ✅ 현재 보고 있는 대화방이면 메시지만 갱신
-      if (ev.refId === conversationId.value) {
-        const shouldStick = isNearBottom();
+  await loadFirst({ keepScroll: !shouldStick });
 
-        // 전체 재조회 대신 "최신 페이지만" 다시 가져오기
-        await loadFirst({ keepScroll: !shouldStick });
-
-        if (shouldStick) scrollToBottom();
-        return;
-      }
-
-      // ✅ 다른 대화방에서 온 메시지는 목록만 refresh (뱃지/미리보기 갱신)
-      convStore.refresh();
-    },
-    { deep: true }
-);
+  if (shouldStick) scrollToBottom();
+});
 
 onMounted(async () => {
-  const ok = await ensureSessionOrRedirect();
-  if (!ok) return;
-
   await loadFirst();
-
-  // 🔥 스크롤 이벤트 등록
-  nextTick(() => {
-    if (listRef.value) {
-      listRef.value.addEventListener("scroll", onScroll);
-    }
-  });
 });
 
 onBeforeUnmount(() => {
-  if (listRef.value) listRef.value.removeEventListener("scroll", onScroll);
+  if (unsubscribe) unsubscribe();
 });
 </script>
 
@@ -351,4 +279,34 @@ onBeforeUnmount(() => {
   color:var(--text)
 }
 .btn:disabled{opacity:.6}
+
+/* ===== Custom Scrollbar ===== */
+
+.list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.list::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--accent) 60%, transparent),
+      color-mix(in oklab, var(--accent) 40%, transparent)
+  );
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Firefox */
+.list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
 </style>
