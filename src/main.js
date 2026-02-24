@@ -5,12 +5,10 @@ import router from "./router";
 import App from "./App.vue";
 import "./styles/theme.css";
 
-// stores
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
 import { useConversationsStore } from "@/stores/conversations";
 
-// SSE Manager (fetch-event-source 기반)
 import sse from "@/lib/sse";
 
 const app = createApp(App);
@@ -23,67 +21,59 @@ const auth = useAuthStore();
 const noti = useNotificationsStore();
 const conv = useConversationsStore();
 
-/**
- * SSE ping이 자주 오므로, notifications 재조회 쿨다운 적용
- */
-let refreshing = false;
-let lastRefreshAt = 0;
-const COOLDOWN_MS = 1500;
-
-/**
- * “최신 알림” 중복 처리 방지
- */
-let lastHandledNotiId = null;
-
-async function handleAfterNotiRefresh() {
-    const items = noti.items || [];
-    if (!items.length) return;
-
-    const latest = items[0];
-    if (!latest?.id) return;
-
-    // 같은 알림이면 중복 처리 방지
-    if (latest.id === lastHandledNotiId) return;
-    lastHandledNotiId = latest.id;
-
-    // ✅ 메시지 알림이면 DM 목록(미리보기/뱃지)만 갱신
-    if (latest.type === "MESSAGE_RECEIVED") {
-        await conv.refresh();
+function safeJsonParse(x) {
+    if (x == null) return null;
+    if (typeof x === "object") return x;
+    try {
+        return JSON.parse(x);
+    } catch {
+        return x;
     }
 }
 
-/**
- * SSE 이벤트 수신 → notifications만 재조회(쿨다운)
- * (백엔드 구조상, 도메인 이벤트는 /api/notifications로 확인하는 패턴)
- */
-sse.onEvent?.(async () => {
+let refreshingNoti = false;
+
+const offEvent = sse.onEvent?.(async (evt) => {
     if (!auth.isAuthed) return;
 
-    const now = Date.now();
-    if (refreshing) return;
-    if (now - lastRefreshAt < COOLDOWN_MS) return;
+    const type = evt?.type;
+    const data = safeJsonParse(evt?.data);
 
-    refreshing = true;
-    lastRefreshAt = now;
-    try {
-        await noti.refresh();
-        await handleAfterNotiRefresh();
-    } finally {
-        refreshing = false;
+    // ✅ ping/connected는 무시 (heartbeat 때문에 불필요 호출 방지)
+    if (type === "ping" || type === "connected") return;
+
+    // ✅ 알림 생성 이벤트 → 알림만 refresh
+    if (type === "notification-created") {
+        if (refreshingNoti) return;
+        refreshingNoti = true;
+        try {
+            await noti.refresh();
+            // 메시지 알림이면 대화 목록도 갱신(뱃지/미리보기)
+            if (data?.type === "MESSAGE_RECEIVED") {
+                await conv.refresh();
+            }
+        } finally {
+            refreshingNoti = false;
+        }
+        return;
+    }
+
+    // ✅ 메시지 생성 이벤트 → 대화 목록 갱신 (상세 화면은 화면 컴포넌트에서 처리)
+    if (type === "message-created" || type === "message-deleted") {
+        await conv.refresh();
+        return;
     }
 });
 
-/**
- * 로그인(세션 확보) 직후 한 번 동기화
- */
 watch(
     () => auth.isAuthed,
     async (v) => {
         if (!v) return;
-        // auth.ensureSession() 내부에서 sse.start()를 하고 있다면 그대로 두고,
-        // 여기서는 “초기 알림 1회 동기화”만 수행
+        // 로그인 직후 1회 동기화
         await noti.refresh();
-        await handleAfterNotiRefresh();
+        await conv.refresh();
+        // auth.ensureSession()에서 sse.start()를 이미 하고 있으면 OK
+        // 아니면 여기서 sse.start() 해도 됨 (중복 start 방지 로직이 lib에 있어야 함)
     },
     { immediate: true }
 );
