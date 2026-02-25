@@ -1,6 +1,6 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, onBeforeUnmount } from "vue";
+import { computed, onMounted, ref, nextTick, watch, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 
@@ -17,7 +17,10 @@ const toast = useToastStore();
 const convStore = useConversationsStore();
 const auth = useAuthStore();
 
+// ✅ 항상 문자열로 확보
 const conversationId = computed(() => String(route.params.conversationId || ""));
+
+// ✅ 중요: /api/me 응답에서 내 id는 (프로젝트 기준) id
 const myId = computed(() => auth.me?.id || null);
 
 const loading = ref(false);
@@ -29,36 +32,48 @@ const hasNext = ref(false);
 
 const content = ref("");
 const sending = ref(false);
-const listRef = ref(null);
-const newMessageCount = ref(0);
 
-function safeParse(x) {
-  if (!x) return null;
-  if (typeof x === "object") return x;
-  try {
-    return JSON.parse(x);
-  } catch {
-    return null;
-  }
-}
+const listRef = ref(null);
 
 function scrollToBottom() {
   nextTick(() => {
-    if (!listRef.value) return;
-    listRef.value.scrollTop = listRef.value.scrollHeight;
+    const el = listRef.value;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   });
+}
+
+function normalizeMessages(arr) {
+  if (!Array.isArray(arr)) return [];
+  // 서버가 최신 먼저라면 reverse 해서 아래로 쌓이게
+  return [...arr].reverse();
 }
 
 function isNearBottom() {
   const el = listRef.value;
   if (!el) return true;
-  return el.scrollHeight - (el.scrollTop + el.clientHeight) < 120;
+  return el.scrollHeight - (el.scrollTop + el.clientHeight) < 140;
 }
 
-function normalizeMessages(arr) {
-  if (!Array.isArray(arr)) return [];
-  // 서버가 최신 먼저 줄 가능성이 높아서 reverse 해서 아래로 쌓이게
-  return [...arr].reverse();
+function onScroll() {
+  const el = listRef.value;
+  if (!el) return;
+
+  // 맨 위 근처면 이전 메시지 로드
+  if (el.scrollTop < 12) {
+    if (hasNext.value && !loading.value) loadMore();
+  }
+}
+
+async function ensureSessionOrRedirect() {
+  if (auth.me?.id) return true;
+  try {
+    await auth.ensureSession();
+    return !!auth.me?.id;
+  } catch {
+    router.replace("/login");
+    return false;
+  }
 }
 
 async function loadFirst({ keepScroll = false } = {}) {
@@ -69,24 +84,28 @@ async function loadFirst({ keepScroll = false } = {}) {
 
   loading.value = true;
   error.value = "";
-
   const prevScrollHeight = listRef.value?.scrollHeight ?? 0;
 
   try {
-    const res = await fetchMessages({ conversationId: conversationId.value, size: 20 });
+    const res = await fetchMessages({
+      conversationId: conversationId.value,
+      size: 20,
+    });
 
     items.value = normalizeMessages(res.items);
     nextCursor.value = res.nextCursor ?? null;
     hasNext.value = !!res.hasNext;
 
+    // 읽음 처리 + 목록 갱신
     await markConversationRead(conversationId.value);
     convStore.refresh();
 
     if (keepScroll) {
       nextTick(() => {
-        if (!listRef.value) return;
-        const newHeight = listRef.value.scrollHeight;
-        listRef.value.scrollTop += newHeight - prevScrollHeight;
+        const el = listRef.value;
+        if (!el) return;
+        const newHeight = el.scrollHeight;
+        el.scrollTop += newHeight - prevScrollHeight;
       });
     } else {
       scrollToBottom();
@@ -103,40 +122,33 @@ async function loadMore() {
 
   const prevScrollHeight = listRef.value?.scrollHeight ?? 0;
 
-  try {
-    const res = await fetchMessages({
-      conversationId: conversationId.value,
-      size: 20,
-      cursor: nextCursor.value,
-    });
+  const res = await fetchMessages({
+    conversationId: conversationId.value,
+    size: 20,
+    cursor: nextCursor.value,
+  });
 
-    items.value = [...normalizeMessages(res.items), ...items.value];
-    nextCursor.value = res.nextCursor ?? null;
-    hasNext.value = !!res.hasNext;
+  // 위에 붙이기
+  items.value = [...normalizeMessages(res.items), ...items.value];
+  nextCursor.value = res.nextCursor ?? null;
+  hasNext.value = !!res.hasNext;
 
-    nextTick(() => {
-      if (!listRef.value) return;
-      const newHeight = listRef.value.scrollHeight;
-      listRef.value.scrollTop += newHeight - prevScrollHeight;
-    });
-  } catch (e) {
-    toast.error("불러오기 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
-  }
-}
-
-function onScroll() {
-  const el = listRef.value;
-  if (!el) return;
-
-  // 위쪽 거의 도달하면 자동 이전 메시지 로드
-  if (el.scrollTop < 10) {
-    if (hasNext.value && !loading.value) loadMore();
-  }
+  nextTick(() => {
+    const el = listRef.value;
+    if (!el) return;
+    const newHeight = el.scrollHeight;
+    el.scrollTop += newHeight - prevScrollHeight;
+  });
 }
 
 async function onSend() {
   const text = content.value.trim();
   if (!text || sending.value) return;
+
+  if (!conversationId.value) {
+    toast.error("전송 실패", "대화방 ID가 없습니다.");
+    return;
+  }
 
   sending.value = true;
   try {
@@ -146,9 +158,9 @@ async function onSend() {
       attachmentIds: [],
     });
 
-    // 내 메시지는 즉시 append
     items.value.push(msg);
     content.value = "";
+
     convStore.refresh();
     scrollToBottom();
   } catch (e) {
@@ -158,44 +170,49 @@ async function onSend() {
   }
 }
 
-/**
- * ✅ 실시간 처리:
- * - SSE에서 event:message-created 가 오면
- * - 현재 대화방이면 append
- * - 화면이 아래에 붙어있으면 자동 스크롤, 아니면 배너 카운트
- */
-const off = sse.onEvent?.((evt) => {
-  if (!conversationId.value) return;
-  if (evt?.type !== "message-created") return;
-
-  const data = safeParse(evt?.data);
-  if (!data?.messageId) return;
-
-  if (data.conversationId !== conversationId.value) return;
-
-  // 중복 방지
-  if (items.value.some((m) => m.messageId === data.messageId)) return;
-
-  items.value.push(data);
-
-  if (isNearBottom()) {
-    scrollToBottom();
-  } else {
-    newMessageCount.value++;
-  }
-});
+// ✅ lib/sse.js에서 이벤트를 받으면 여기서 갱신
+let offEvent = null;
 
 onMounted(async () => {
+  const ok = await ensureSessionOrRedirect();
+  if (!ok) return;
+
   await loadFirst();
 
   nextTick(() => {
     if (listRef.value) listRef.value.addEventListener("scroll", onScroll);
   });
+
+  // ✅ SSE 이벤트 구독
+  offEvent = sse.onEvent?.(async (ev) => {
+    // lib/sse.js는 {type, data, id} 형태로 emit
+    if (!ev) return;
+
+    // message-created 이벤트만 처리
+    if (ev.type !== "message-created") return;
+
+    let data = ev.data;
+    try {
+      // fetch-event-source는 data가 string일 수 있음
+      if (typeof data === "string") data = JSON.parse(data);
+    } catch {}
+
+    // 현재 보고 있는 대화방이면 메시지 갱신
+    if (data?.conversationId === conversationId.value) {
+      const stick = isNearBottom();
+      await loadFirst({ keepScroll: !stick });
+      if (stick) scrollToBottom();
+      return;
+    }
+
+    // 다른 대화방이면 목록만 갱신(뱃지/미리보기)
+    convStore.refresh();
+  }) ?? null;
 });
 
 onBeforeUnmount(() => {
-  off?.();
   if (listRef.value) listRef.value.removeEventListener("scroll", onScroll);
+  if (offEvent) offEvent();
 });
 </script>
 
@@ -207,25 +224,15 @@ onBeforeUnmount(() => {
       <div></div>
     </div>
 
-    <div v-if="error" class="state err">{{ error }}</div>
-    <div v-else-if="loading && items.length === 0" class="state">불러오는 중…</div>
+    <div v-if="loading" class="state">불러오는 중…</div>
+    <div v-else-if="error" class="state err">{{ error }}</div>
 
-    <div
-        v-if="newMessageCount > 0"
-        class="newBanner"
-        @click="scrollToBottom(); newMessageCount = 0"
-        role="button"
-        tabindex="0"
-    >
-      새 메시지 {{ newMessageCount }}개 ↓
-    </div>
-
-    <div ref="listRef" class="list" v-if="!error">
+    <!-- ✅ 스크롤은 반드시 여기서만 발생 -->
+    <div v-else ref="listRef" class="list">
       <div class="more">
-        <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore" :disabled="loading">
-          {{ loading ? "불러오는 중…" : "이전 메시지 더 보기" }}
+        <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
+          이전 메시지 더 보기
         </button>
-        <div v-else class="end">처음까지 다 봤어요 ✨</div>
       </div>
 
       <div
@@ -235,9 +242,7 @@ onBeforeUnmount(() => {
           :class="{ mine: myId && m.senderId === myId }"
       >
         <div class="bubble">{{ m.content }}</div>
-        <div class="time">
-          {{ (m.createdAt || "").replace("T", " ").slice(11, 16) }}
-        </div>
+        <div class="time">{{ (m.createdAt || "").replace("T", " ").slice(11, 16) }}</div>
       </div>
     </div>
 
@@ -256,6 +261,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* ✅ 핵심: flex 스크롤 버그 방지 */
 .page{
   padding:14px 12px 90px;
   max-width:760px;
@@ -263,7 +269,9 @@ onBeforeUnmount(() => {
   height:calc(100vh - 72px);
   display:flex;
   flex-direction:column;
+  min-height:0; /* 🔥 중요 */
 }
+
 .topbar{
   display:grid;
   grid-template-columns:auto 1fr auto;
@@ -272,59 +280,48 @@ onBeforeUnmount(() => {
   margin-bottom:10px;
 }
 .title{font-weight:950;text-align:center}
-.state{ text-align:center;color:var(--muted);padding:18px 0 }
-.state.err{ color:color-mix(in oklab,var(--danger) 80%,white) }
+.state{text-align:center;color:var(--muted);padding:18px 0}
+.state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 
-.newBanner{
-  position:sticky;
-  top:0;
-  z-index:3;
-  margin:6px auto;
-  padding:6px 12px;
-  border-radius:999px;
-  background:color-mix(in oklab,var(--accent) 70%, #000);
-  border:1px solid color-mix(in oklab,var(--accent) 55%, var(--border));
-  color:white;
-  font-size:12px;
-  font-weight:900;
-  cursor:pointer;
-  user-select:none;
-}
-
+/* ✅ 스크롤 컨테이너 */
 .list{
   flex:1;
-  overflow-y:auto;
+  min-height:0;         /* 🔥 중요 */
+  overflow-y:auto;      /* ✅ 여기서만 스크롤 */
+  overflow-x:hidden;
   display:flex;
   flex-direction:column;
   gap:10px;
-  padding:2px 2px 12px;
-  border-radius:18px;
-
-  /* ✅ 스크롤바 디자인 (webkit) */
-  scrollbar-gutter: stable;
-}
-.list::-webkit-scrollbar{ width: 10px; }
-.list::-webkit-scrollbar-track{
-  background: color-mix(in oklab, var(--surface) 65%, transparent);
-  border-radius: 999px;
-}
-.list::-webkit-scrollbar-thumb{
-  background: color-mix(in oklab, var(--border) 70%, var(--accent));
-  border-radius: 999px;
-  border: 2px solid color-mix(in oklab, var(--surface) 80%, transparent);
-}
-.list::-webkit-scrollbar-thumb:hover{
-  background: color-mix(in oklab, var(--border) 55%, var(--accent));
+  padding-bottom:12px;
 }
 
-/* ✅ Firefox */
+/* ===== Custom Scrollbar (Chrome/Edge) ===== */
+.list::-webkit-scrollbar {
+  width: 8px;
+}
+.list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.list::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--accent) 60%, transparent),
+      color-mix(in oklab, var(--accent) 40%, transparent)
+  );
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+.list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* ===== Firefox ===== */
 .list{
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--border) 65%, var(--accent))
-  color-mix(in oklab, var(--surface) 65%, transparent);
+  scrollbar-color: var(--accent) transparent;
 }
 
-.more{display:grid;place-items:center;padding:6px 0}
+.more{display:grid;place-items:center}
 .moreBtn{
   height:40px;
   padding:0 12px;
@@ -332,12 +329,12 @@ onBeforeUnmount(() => {
   border:1px solid var(--border);
   background:transparent;
   color:var(--text);
-  font-weight:950;
+  font-weight:900;
 }
-.end{font-size:12px;color:var(--muted)}
 
 .msg{display:flex;flex-direction:column;align-items:flex-start}
 .msg.mine{align-items:flex-end}
+
 .bubble{
   max-width:75%;
   padding:10px 14px;
