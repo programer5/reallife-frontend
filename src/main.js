@@ -4,11 +4,11 @@ import { createPinia } from "pinia";
 import router from "./router";
 import App from "./App.vue";
 import "./styles/theme.css";
+import "./style.css";
 
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
 import { useConversationsStore } from "@/stores/conversations";
-
 import sse from "@/lib/sse";
 
 const app = createApp(App);
@@ -31,7 +31,7 @@ function parse(data) {
     }
 }
 
-sse.onEvent?.(async (evt) => {
+sse.onEvent?.((evt) => {
     if (!auth.isAuthed) return;
 
     const type = evt?.type;
@@ -41,16 +41,22 @@ sse.onEvent?.(async (evt) => {
     if (type === "ping" || type === "connected") return;
 
     if (type === "notification-created") {
-        await noti.refresh();
+        // ✅ 1) 즉시 UI 반영 (prepend)
+        noti.ingestFromSse?.(data);
+
+        // ✅ 2) 400ms 디바운스 보정 refresh
+        noti.refresh();
+
+        // ✅ 메시지 알림이면 DM 목록/뱃지도 같이 갱신
         if (data?.type === "MESSAGE_RECEIVED") {
-            await conv.refresh();
+            conv.refresh();
         }
         return;
     }
 
     if (type === "message-created") {
         // 대화 목록만 갱신 (상세는 화면에서 직접 처리)
-        await conv.refresh();
+        conv.refresh();
         return;
     }
 });

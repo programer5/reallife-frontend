@@ -1,6 +1,6 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, watch, onBeforeUnmount } from "vue";
+import { computed, onMounted, ref, nextTick, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 
@@ -17,10 +17,7 @@ const toast = useToastStore();
 const convStore = useConversationsStore();
 const auth = useAuthStore();
 
-// ✅ 항상 문자열로 확보
 const conversationId = computed(() => String(route.params.conversationId || ""));
-
-// ✅ 중요: /api/me 응답에서 내 id는 (프로젝트 기준) id
 const myId = computed(() => auth.me?.id || null);
 
 const loading = ref(false);
@@ -33,11 +30,12 @@ const hasNext = ref(false);
 const content = ref("");
 const sending = ref(false);
 
-const listRef = ref(null);
+/** ✅ 스크롤 컨테이너는 scroller */
+const scrollerRef = ref(null);
 
 function scrollToBottom() {
   nextTick(() => {
-    const el = listRef.value;
+    const el = scrollerRef.value;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   });
@@ -45,18 +43,17 @@ function scrollToBottom() {
 
 function normalizeMessages(arr) {
   if (!Array.isArray(arr)) return [];
-  // 서버가 최신 먼저라면 reverse 해서 아래로 쌓이게
   return [...arr].reverse();
 }
 
 function isNearBottom() {
-  const el = listRef.value;
+  const el = scrollerRef.value;
   if (!el) return true;
   return el.scrollHeight - (el.scrollTop + el.clientHeight) < 140;
 }
 
 function onScroll() {
-  const el = listRef.value;
+  const el = scrollerRef.value;
   if (!el) return;
 
   // 맨 위 근처면 이전 메시지 로드
@@ -84,7 +81,8 @@ async function loadFirst({ keepScroll = false } = {}) {
 
   loading.value = true;
   error.value = "";
-  const prevScrollHeight = listRef.value?.scrollHeight ?? 0;
+
+  const prevScrollHeight = scrollerRef.value?.scrollHeight ?? 0;
 
   try {
     const res = await fetchMessages({
@@ -96,13 +94,12 @@ async function loadFirst({ keepScroll = false } = {}) {
     nextCursor.value = res.nextCursor ?? null;
     hasNext.value = !!res.hasNext;
 
-    // 읽음 처리 + 목록 갱신
     await markConversationRead(conversationId.value);
     convStore.refresh();
 
     if (keepScroll) {
       nextTick(() => {
-        const el = listRef.value;
+        const el = scrollerRef.value;
         if (!el) return;
         const newHeight = el.scrollHeight;
         el.scrollTop += newHeight - prevScrollHeight;
@@ -120,7 +117,7 @@ async function loadFirst({ keepScroll = false } = {}) {
 async function loadMore() {
   if (!hasNext.value || !nextCursor.value) return;
 
-  const prevScrollHeight = listRef.value?.scrollHeight ?? 0;
+  const prevScrollHeight = scrollerRef.value?.scrollHeight ?? 0;
 
   const res = await fetchMessages({
     conversationId: conversationId.value,
@@ -128,13 +125,12 @@ async function loadMore() {
     cursor: nextCursor.value,
   });
 
-  // 위에 붙이기
   items.value = [...normalizeMessages(res.items), ...items.value];
   nextCursor.value = res.nextCursor ?? null;
   hasNext.value = !!res.hasNext;
 
   nextTick(() => {
-    const el = listRef.value;
+    const el = scrollerRef.value;
     if (!el) return;
     const newHeight = el.scrollHeight;
     el.scrollTop += newHeight - prevScrollHeight;
@@ -170,7 +166,6 @@ async function onSend() {
   }
 }
 
-// ✅ lib/sse.js에서 이벤트를 받으면 여기서 갱신
 let offEvent = null;
 
 onMounted(async () => {
@@ -180,24 +175,18 @@ onMounted(async () => {
   await loadFirst();
 
   nextTick(() => {
-    if (listRef.value) listRef.value.addEventListener("scroll", onScroll);
+    if (scrollerRef.value) scrollerRef.value.addEventListener("scroll", onScroll);
   });
 
-  // ✅ SSE 이벤트 구독
   offEvent = sse.onEvent?.(async (ev) => {
-    // lib/sse.js는 {type, data, id} 형태로 emit
     if (!ev) return;
-
-    // message-created 이벤트만 처리
     if (ev.type !== "message-created") return;
 
     let data = ev.data;
     try {
-      // fetch-event-source는 data가 string일 수 있음
       if (typeof data === "string") data = JSON.parse(data);
     } catch {}
 
-    // 현재 보고 있는 대화방이면 메시지 갱신
     if (data?.conversationId === conversationId.value) {
       const stick = isNearBottom();
       await loadFirst({ keepScroll: !stick });
@@ -205,13 +194,12 @@ onMounted(async () => {
       return;
     }
 
-    // 다른 대화방이면 목록만 갱신(뱃지/미리보기)
     convStore.refresh();
   }) ?? null;
 });
 
 onBeforeUnmount(() => {
-  if (listRef.value) listRef.value.removeEventListener("scroll", onScroll);
+  if (scrollerRef.value) scrollerRef.value.removeEventListener("scroll", onScroll);
   if (offEvent) offEvent();
 });
 </script>
@@ -227,98 +215,92 @@ onBeforeUnmount(() => {
     <div v-if="loading" class="state">불러오는 중…</div>
     <div v-else-if="error" class="state err">{{ error }}</div>
 
-    <!-- ✅ 스크롤은 반드시 여기서만 발생 -->
-    <div v-else ref="listRef" class="list">
-      <div class="more">
-        <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
-          이전 메시지 더 보기
-        </button>
-      </div>
+    <!-- ✅ 스크롤은 전체 폭 컨테이너에서 발생 => 스크롤바가 화면 오른쪽 끝 -->
+    <div v-else ref="scrollerRef" class="scroller rl-scroll rl-scroll--premium">
+      <div class="inner">
+        <div class="more">
+          <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
+            이전 메시지 더 보기
+          </button>
+        </div>
 
-      <div
-          v-for="m in items"
-          :key="m.messageId"
-          class="msg"
-          :class="{ mine: myId && m.senderId === myId }"
-      >
-        <div class="bubble">{{ m.content }}</div>
-        <div class="time">{{ (m.createdAt || "").replace("T", " ").slice(11, 16) }}</div>
+        <div
+            v-for="m in items"
+            :key="m.messageId"
+            class="msg"
+            :class="{ mine: myId && m.senderId === myId }"
+        >
+          <div class="bubble">{{ m.content }}</div>
+          <div class="time">{{ (m.createdAt || '').replace('T', ' ').slice(11, 16) }}</div>
+        </div>
+
+        <!-- 아래 여백(입력창 가리지 않게) -->
+        <div class="bottomSpacer"></div>
       </div>
     </div>
 
-    <div class="composer">
-      <input
-          v-model="content"
-          class="input"
-          placeholder="메시지 입력…"
-          @keydown.enter.prevent="onSend"
-      />
-      <button class="btn" type="button" @click="onSend" :disabled="sending">
-        {{ sending ? "..." : "전송" }}
-      </button>
+    <div class="composerWrap">
+      <div class="composerInner">
+        <input
+            v-model="content"
+            class="input"
+            placeholder="메시지 입력…"
+            @keydown.enter.prevent="onSend"
+        />
+        <button class="btn" type="button" @click="onSend" :disabled="sending">
+          {{ sending ? "..." : "전송" }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* ✅ 핵심: flex 스크롤 버그 방지 */
 .page{
-  padding:14px 12px 90px;
-  max-width:760px;
-  margin:0 auto;
-  height:calc(100vh - 72px);
+  height: calc(100dvh - 72px);
   display:flex;
   flex-direction:column;
-  min-height:0; /* 🔥 중요 */
+  min-height:0;
+  overflow:hidden;
 }
 
+/* 상단바 */
 .topbar{
+  padding: 14px 12px 10px;
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+
   display:grid;
   grid-template-columns:auto 1fr auto;
   align-items:center;
   gap:10px;
-  margin-bottom:10px;
 }
 .title{font-weight:950;text-align:center}
 .state{text-align:center;color:var(--muted);padding:18px 0}
 .state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 
-/* ✅ 스크롤 컨테이너 */
-.list{
-  flex:1;
-  min-height:0;         /* 🔥 중요 */
-  overflow-y:auto;      /* ✅ 여기서만 스크롤 */
-  overflow-x:hidden;
+/* ✅ 스크롤바는 여기(전체 폭) */
+.scroller{
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  /* ✅ 중앙 내용은 inner가 담당 */
+  padding: 0 12px;
+}
+
+/* ✅ 실제 메시지 컬럼(중앙 정렬) */
+.inner{
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+
   display:flex;
   flex-direction:column;
   gap:10px;
-  padding-bottom:12px;
-}
-
-/* ===== Custom Scrollbar (Chrome/Edge) ===== */
-.list::-webkit-scrollbar {
-  width: 8px;
-}
-.list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.list::-webkit-scrollbar-thumb {
-  background: linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--accent) 60%, transparent),
-      color-mix(in oklab, var(--accent) 40%, transparent)
-  );
-  border-radius: 999px;
-  transition: background 0.2s ease;
-}
-.list::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
-}
-
-/* ===== Firefox ===== */
-.list{
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
+  padding-bottom: 12px;
 }
 
 .more{display:grid;place-items:center}
@@ -351,12 +333,27 @@ onBeforeUnmount(() => {
 }
 .time{font-size:11px;color:var(--muted);margin-top:4px}
 
-.composer{
+.bottomSpacer{
+  height: 10px;
+}
+
+/* ✅ 입력창은 하단 고정 느낌 + 중앙 정렬 */
+.composerWrap{
+  padding: 10px 12px 14px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--bg) 70%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.composerInner{
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
   display:grid;
   grid-template-columns:1fr auto;
   gap:8px;
-  padding-top:8px;
 }
+
 .input{
   height:44px;
   border-radius:16px;

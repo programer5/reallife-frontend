@@ -14,6 +14,10 @@ const noti = useNotificationsStore();
 const busy = ref(false);
 const cleaning = ref(false);
 
+/** ✅ 추천 옵션: Inbox 들어가면 자동 전체 읽음 */
+const AUTO_READ_ON_OPEN = true;
+const autoReadDone = ref(false);
+
 const items = computed(() => noti.items);
 const hasUnread = computed(() => noti.hasUnread);
 const loading = computed(() => noti.loading);
@@ -36,13 +40,13 @@ async function refreshNow() {
   if (!noti._refreshNow) await noti.refresh();
 }
 
-async function markAllRead() {
+async function markAllRead({ silent = false } = {}) {
   if (busy.value) return;
   busy.value = true;
   try {
     await readAllNotifications();
     await refreshNow();
-    toast.success("완료", "알림을 모두 읽음 처리했어요.");
+    if (!silent) toast.success("완료", "알림을 모두 읽음 처리했어요.");
   } catch (e) {
     toast.error("실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
@@ -81,7 +85,17 @@ async function openItem(n) {
   }
 }
 
-onMounted(refreshNow);
+onMounted(async () => {
+  await refreshNow();
+
+  // ✅ 추천: Inbox 들어오면 자동 읽음(한 번만)
+  if (AUTO_READ_ON_OPEN && !autoReadDone.value && hasUnread.value) {
+    autoReadDone.value = true;
+    await markAllRead({ silent: true });
+    // 필요하면 토스트 켜기:
+    // toast.success("Inbox", "들어오면서 자동으로 읽음 처리했어요.");
+  }
+});
 </script>
 
 <template>
@@ -93,7 +107,6 @@ onMounted(refreshNow);
       </div>
 
       <div class="actions">
-        <!-- ✅ DM 이동 버튼 추가 -->
         <RlButton size="sm" variant="soft" @click="router.push('/inbox/conversations')">
           대화
         </RlButton>
@@ -102,7 +115,7 @@ onMounted(refreshNow);
           새로고침
         </RlButton>
 
-        <RlButton size="sm" variant="soft" @click="markAllRead" :disabled="busy || loading || !items.length">
+        <RlButton size="sm" variant="soft" @click="markAllRead()" :disabled="busy || loading || !items.length">
           전체 읽음
         </RlButton>
 
@@ -154,24 +167,35 @@ onMounted(refreshNow);
 .title{font-size:20px;font-weight:950;margin:0}
 .sub{margin:6px 0 0;color:var(--muted);font-size:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
-.state{padding:28px 0;text-align:center;color:var(--muted)}
-.state.err{color:var(--danger)}
-.list{display:grid;gap:10px}
+.state{text-align:center;color:var(--muted);padding:18px 0}
+.state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
+.list{display:flex;flex-direction:column;gap:10px;margin-top:6px}
 .item{
-  width:100%;text-align:left;border:1px solid var(--border);
-  border-radius:18px;padding:12px;
+  display:grid;
+  grid-template-columns: 10px 1fr auto;
+  gap:12px;
+  align-items:center;
+  text-align:left;
+  padding:12px 12px;
+  border-radius:16px;
+  border:1px solid var(--border);
   background:color-mix(in oklab,var(--surface) 92%,transparent);
-  display:grid;grid-template-columns:10px 1fr auto;
-  gap:10px;align-items:center;cursor:pointer;
+  cursor:pointer;
 }
-.item.unread{border-color:var(--warning)}
-.badge{width:8px;height:8px;border-radius:999px;background:var(--border)}
-.badge.on{background:var(--warning)}
-.content{display:grid;gap:6px}
-.row1{display:flex;justify-content:space-between}
-.type{font-weight:950;font-size:13px}
-.time{font-size:12px;color:var(--muted)}
-.body{font-size:13px}
-.chev{font-size:20px;opacity:.5}
-.footerNote{margin-top:14px;font-size:12px;color:var(--muted)}
+.item:hover{
+  border-color:color-mix(in oklab,var(--accent) 32%,var(--border));
+  background:color-mix(in oklab,var(--surface) 86%,transparent);
+}
+.badge{width:10px;height:10px;border-radius:999px;background:transparent}
+.badge.on{
+  background:var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+.content{display:flex;flex-direction:column;gap:6px}
+.row1{display:flex;justify-content:space-between;gap:12px}
+.type{font-weight:900}
+.time{color:var(--muted);font-size:12px}
+.body{color:color-mix(in oklab,var(--text) 90%,var(--muted));font-size:13px;line-height:1.35}
+.chev{color:var(--muted);font-size:18px}
+.footerNote{margin-top:12px;color:var(--muted);font-size:12px;text-align:center}
 </style>
