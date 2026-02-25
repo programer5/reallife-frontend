@@ -1,11 +1,14 @@
 // src/api/messages.js
 import api from "../lib/api";
 
-export async function fetchMessages({ conversationId, size = 20, cursor = null } = {}) {
+export async function fetchMessages({ conversationId, size = 20, cursor = null, unlockToken = null } = {}) {
     const params = { size };
     if (cursor) params.cursor = cursor;
 
-    const res = await api.get(`/api/conversations/${conversationId}/messages`, { params });
+    const headers = {};
+    if (unlockToken) headers["X-Conversation-Unlock-Token"] = unlockToken;
+
+    const res = await api.get(`/api/conversations/${conversationId}/messages`, { params, headers });
     const d = res.data || {};
     return {
         items: d.items || [],
@@ -14,11 +17,15 @@ export async function fetchMessages({ conversationId, size = 20, cursor = null }
     };
 }
 
-export async function sendMessage({ conversationId, content, attachmentIds = [] }) {
-    const res = await api.post(`/api/conversations/${conversationId}/messages`, {
-        content,
-        attachmentIds,
-    });
+export async function sendMessage({ conversationId, content, attachmentIds = [], unlockToken = null }) {
+    const headers = {};
+    if (unlockToken) headers["X-Conversation-Unlock-Token"] = unlockToken;
+
+    const res = await api.post(
+        `/api/conversations/${conversationId}/messages`,
+        { content, attachmentIds },
+        { headers }
+    );
     return res.data; // message object
 }
 
