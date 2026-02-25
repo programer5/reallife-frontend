@@ -20,6 +20,24 @@ const auth = useAuthStore();
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const myId = computed(() => auth.me?.id || null);
 
+const peer = computed(() => {
+  const cid = conversationId.value;
+  const row = convStore.items?.find((c) => String(c.conversationId) === String(cid));
+  return row?.peerUser || null;
+});
+
+function peerInitial() {
+  const s = String(peer.value?.nickname || peer.value?.name || peer.value?.handle || "").trim();
+  return s ? s[0].toUpperCase() : "U";
+}
+
+function openPeerProfile() {
+  const h = peer.value?.handle;
+  const id = peer.value?.userId || peer.value?.id;
+  if (h) return router.push(`/u/${h}`);
+  if (id) return router.push(`/u/id/${id}`);
+}
+
 const loading = ref(false);
 const error = ref("");
 
@@ -55,7 +73,6 @@ function scrollToBottom({ smooth = false } = {}) {
 
 function normalizeMessages(arr) {
   if (!Array.isArray(arr)) return [];
-  // 서버가 최신 먼저면 reverse 해서 아래로 쌓이게
   return [...arr].reverse();
 }
 
@@ -71,12 +88,10 @@ function appendIncomingMessage(payload) {
 
   items.value.push(payload);
 
-  // ✅ 사용자가 바닥 근처면 자동 스크롤
   if (isNearBottom()) {
     newMsgCount.value = 0;
     scrollToBottom({ smooth: true });
   } else {
-    // ✅ 위 보고 있으면 배너만 증가
     newMsgCount.value += 1;
   }
 }
@@ -85,12 +100,10 @@ function onScroll() {
   const el = scrollerRef.value;
   if (!el) return;
 
-  // 맨 위 근처면 이전 메시지 로드
   if (el.scrollTop < 12) {
     if (hasNext.value && !loading.value) loadMore();
   }
 
-  // 사용자가 바닥으로 내려오면 배너 리셋
   if (isNearBottom() && newMsgCount.value > 0) {
     newMsgCount.value = 0;
   }
@@ -130,7 +143,6 @@ async function loadFirst({ keepScroll = false } = {}) {
 
     await markConversationRead(conversationId.value);
 
-    // ✅ 내가 보고 있는 대화는 unreadCount 증가 방지(목록 정합성)
     convStore.setActiveConversation?.(conversationId.value);
     convStore.softSyncSoon?.();
 
@@ -162,7 +174,6 @@ async function loadMore() {
     cursor: nextCursor.value,
   });
 
-  // 위에 붙이기
   items.value = [...normalizeMessages(res.items), ...items.value];
   nextCursor.value = res.nextCursor ?? null;
   hasNext.value = !!res.hasNext;
@@ -192,14 +203,12 @@ async function onSend() {
       attachmentIds: [],
     });
 
-    // 내가 보낸 건 즉시 append
     if (msg?.messageId && !hasMessage(msg.messageId)) {
       items.value.push(msg);
     }
 
     content.value = "";
 
-    // 목록 프리뷰/시간 즉시 반영
     convStore.ingestMessageCreated?.({
       conversationId: conversationId.value,
       content: msg?.content,
@@ -226,7 +235,6 @@ onMounted(async () => {
   const ok = await ensureSessionOrRedirect();
   if (!ok) return;
 
-  // ✅ 진입 즉시 active 지정
   convStore.setActiveConversation?.(conversationId.value);
 
   await loadFirst();
@@ -235,7 +243,6 @@ onMounted(async () => {
     if (scrollerRef.value) scrollerRef.value.addEventListener("scroll", onScroll);
   });
 
-  // ✅ SSE: message-created 오면 재조회 대신 append + 배너/스크롤 처리
   offEvent =
       sse.onEvent?.((ev) => {
         if (!ev) return;
@@ -249,8 +256,6 @@ onMounted(async () => {
         if (String(data?.conversationId) !== String(conversationId.value)) return;
 
         appendIncomingMessage(data);
-
-        // 상세에서 받았으니 목록 정합성 보정(뱃지/순서/preview)
         convStore.softSyncSoon?.();
       }) ?? null;
 });
@@ -258,8 +263,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (scrollerRef.value) scrollerRef.value.removeEventListener("scroll", onScroll);
   if (offEvent) offEvent();
-
-  // ✅ 나가면 active 해제
   convStore.setActiveConversation?.(null);
 });
 </script>
@@ -268,8 +271,19 @@ onBeforeUnmount(() => {
   <div class="page">
     <div class="topbar">
       <RlButton size="sm" variant="soft" @click="router.back()">←</RlButton>
-      <div class="title">대화</div>
-      <div></div>
+
+      <button class="peer" type="button" @click="openPeerProfile" :disabled="!peer">
+        <div class="peerAva" aria-hidden="true">{{ peerInitial() }}</div>
+        <div class="peerMeta">
+          <div class="peerName">{{ peer?.nickname || peer?.name || "대화" }}</div>
+          <div class="peerHandle" v-if="peer?.handle">@{{ peer.handle }}</div>
+          <div class="peerHandle" v-else>프로필</div>
+        </div>
+      </button>
+
+      <div class="right">
+        <RlButton size="sm" variant="soft" @click="openPeerProfile" :disabled="!peer">프로필</RlButton>
+      </div>
     </div>
 
     <div v-if="loading" class="state">불러오는 중…</div>
@@ -297,19 +311,13 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- ✅ 새 메시지 배너 -->
     <button v-if="newMsgCount > 0" class="newBanner" type="button" @click="jumpToNewest">
       새 메시지 {{ newMsgCount }}개 · 아래로
     </button>
 
     <div class="composerWrap">
       <div class="composerInner">
-        <input
-            v-model="content"
-            class="input"
-            placeholder="메시지 입력…"
-            @keydown.enter.prevent="onSend"
-        />
+        <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
         <button class="btn" type="button" @click="onSend" :disabled="sending">
           {{ sending ? "..." : "전송" }}
         </button>
@@ -325,12 +333,12 @@ onBeforeUnmount(() => {
   flex-direction:column;
   min-height:0;
   overflow:hidden;
-  position: relative; /* ✅ 배너 absolute 기준 */
+  position: relative;
 }
 
 /* 상단바 */
 .topbar{
-  padding: 14px 12px 10px;
+  padding: 12px 12px 10px;
   max-width: 760px;
   margin: 0 auto;
   width: 100%;
@@ -340,11 +348,40 @@ onBeforeUnmount(() => {
   align-items:center;
   gap:10px;
 }
-.title{font-weight:950;text-align:center}
+
+.peer{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+  border:1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface) 84%, transparent);
+  padding:8px 10px;
+  border-radius: 16px;
+  cursor:pointer;
+  text-align:left;
+}
+.peer:disabled{opacity:.7;cursor:default}
+.peer:hover{border-color: color-mix(in oklab, var(--accent) 28%, var(--border));}
+.peerAva{
+  width:34px;height:34px;border-radius:50%;
+  display:grid;place-items:center;
+  background:
+      radial-gradient(12px 12px at 30% 30%, rgba(255,255,255,.22), transparent 60%),
+      linear-gradient(135deg, color-mix(in oklab, var(--accent) 76%, white), color-mix(in oklab, var(--success) 68%, white));
+  color:#0b0f14;
+  font-weight:950;
+  flex:0 0 auto;
+}
+.peerMeta{min-width:0;display:flex;flex-direction:column;gap:2px}
+.peerName{font-weight:950;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peerHandle{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.right{display:flex;justify-content:flex-end}
+
 .state{text-align:center;color:var(--muted);padding:18px 0}
 .state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 
-/* ✅ 스크롤(전체 폭) */
+/* 스크롤 */
 .scroller{
   flex: 1;
   min-height: 0;
@@ -353,12 +390,10 @@ onBeforeUnmount(() => {
   padding: 0 12px;
 }
 
-/* ✅ 실제 메시지 컬럼 */
 .inner{
   max-width: 760px;
   margin: 0 auto;
   width: 100%;
-
   display:flex;
   flex-direction:column;
   gap:10px;
@@ -397,7 +432,6 @@ onBeforeUnmount(() => {
 
 .bottomSpacer{height:10px}
 
-/* ✅ 새 메시지 배너 */
 .newBanner{
   position: absolute;
   left: 50%;
@@ -417,7 +451,6 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(10px);
 }
 
-/* 입력창 */
 .composerWrap{
   padding: 10px 12px 14px;
   border-top: 1px solid color-mix(in oklab, var(--border) 80%, transparent);

@@ -22,6 +22,10 @@ const routes = [
 
       { path: "home", name: "home", component: HomeView },
 
+      // ✅ 유저 프로필
+      { path: "u/:handle", name: "user-profile", component: () => import("../views/UserProfileView.vue") },
+      { path: "u/id/:userId", name: "user-profile-id", component: () => import("../views/UserProfileView.vue") },
+
       {
         path: "inbox",
         children: [

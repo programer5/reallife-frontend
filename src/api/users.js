@@ -17,3 +17,21 @@ export async function searchUsers({ q, cursor = null, size = 20 } = {}) {
         hasNext: !!d.hasNext,
     };
 }
+
+/**
+ * GET /api/users/{handle}
+ * response: ProfileResponse
+ */
+export async function fetchUserProfileByHandle(handle) {
+    const res = await api.get(`/api/users/${encodeURIComponent(handle)}`);
+    return res.data;
+}
+
+/**
+ * GET /api/users/id/{userId}
+ * response: ProfileResponse
+ */
+export async function fetchUserProfileById(userId) {
+    const res = await api.get(`/api/users/id/${encodeURIComponent(userId)}`);
+    return res.data;
+}
