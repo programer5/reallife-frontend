@@ -37,26 +37,29 @@ sse.onEvent?.((evt) => {
     const type = evt?.type;
     const data = parse(evt?.data);
 
-    // ping/connected 무시
     if (type === "ping" || type === "connected") return;
 
     if (type === "notification-created") {
-        // ✅ 1) 즉시 UI 반영 (prepend)
-        noti.ingestFromSse?.(data);
+        // ✅ (이미 너가 적용한 고급 버전이면 ingestFromSse + refresh 디바운스 유지)
+        if (noti.ingestFromSse) noti.ingestFromSse(data);
+        noti.refresh?.();
 
-        // ✅ 2) 400ms 디바운스 보정 refresh
-        noti.refresh();
-
-        // ✅ 메시지 알림이면 DM 목록/뱃지도 같이 갱신
+        // MESSAGE_RECEIVED면 목록 정합성 보정(혹시 message-created가 늦게/누락될 때 대비)
         if (data?.type === "MESSAGE_RECEIVED") {
-            conv.refresh();
+            conv.softSyncSoon?.();
         }
         return;
     }
 
     if (type === "message-created") {
-        // 대화 목록만 갱신 (상세는 화면에서 직접 처리)
-        conv.refresh();
+        // ✅ 핵심: 전체 재조회 금지 → 부분 업데이트
+        conv.ingestMessageCreated?.(data);
+        return;
+    }
+
+    if (type === "message-deleted") {
+        // 목록까지 정확히 반영하고 싶으면 여기서 conv.refresh() 대신 softSyncSoon 정도만
+        conv.softSyncSoon?.();
         return;
     }
 });
@@ -65,8 +68,8 @@ watch(
     () => auth.isAuthed,
     async (v) => {
         if (!v) return;
-        await noti.refresh();
-        await conv.refresh();
+        await noti.refresh?.();
+        await conv.refresh?.();
     },
     { immediate: true }
 );
