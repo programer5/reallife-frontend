@@ -74,7 +74,6 @@ async function openItem(n) {
     await refreshNow();
   } catch {}
 
-  // 메시지 알림이면 대화 목록으로 이동
   if (n.type === "MESSAGE_RECEIVED") {
     router.push("/inbox/conversations");
     return;
@@ -88,12 +87,9 @@ async function openItem(n) {
 onMounted(async () => {
   await refreshNow();
 
-  // ✅ 추천: Inbox 들어오면 자동 읽음(한 번만)
   if (AUTO_READ_ON_OPEN && !autoReadDone.value && hasUnread.value) {
     autoReadDone.value = true;
     await markAllRead({ silent: true });
-    // 필요하면 토스트 켜기:
-    // toast.success("Inbox", "들어오면서 자동으로 읽음 처리했어요.");
   }
 });
 </script>
@@ -107,6 +103,10 @@ onMounted(async () => {
       </div>
 
       <div class="actions">
+        <RlButton size="sm" variant="primary" @click="router.push('/inbox/new')">
+          새 DM
+        </RlButton>
+
         <RlButton size="sm" variant="soft" @click="router.push('/inbox/conversations')">
           대화
         </RlButton>

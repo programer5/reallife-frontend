@@ -28,17 +28,9 @@ const routes = [
           { path: "", name: "inbox", component: InboxView },
 
           // ✅ 새 DM
-          {
-            path: "new",
-            name: "inbox-new",
-            component: () => import("../views/NewDirectMessageView.vue"),
-          },
+          { path: "new", name: "inbox-new", component: () => import("../views/NewDirectMessageView.vue") },
 
-          {
-            path: "conversations",
-            name: "conversations",
-            component: () => import("../views/ConversationsView.vue"),
-          },
+          { path: "conversations", name: "conversations", component: () => import("../views/ConversationsView.vue") },
 
           {
             path: "conversations/:conversationId",

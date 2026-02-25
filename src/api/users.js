@@ -3,7 +3,7 @@ import api from "../lib/api";
 
 /**
  * GET /api/users/search?q=...&cursor=...&size=...
- * 응답: { items, nextCursor, hasNext }
+ * response: { items, nextCursor, hasNext }
  */
 export async function searchUsers({ q, cursor = null, size = 20 } = {}) {
     const params = { q, size };
