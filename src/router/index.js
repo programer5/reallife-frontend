@@ -22,24 +22,24 @@ const routes = [
 
       { path: "home", name: "home", component: HomeView },
 
-      // ✅ Inbox (알림 화면)
       {
         path: "inbox",
         children: [
+          { path: "", name: "inbox", component: InboxView },
+
+          // ✅ 새 DM
           {
-            path: "",
-            name: "inbox",
-            component: InboxView,
+            path: "new",
+            name: "inbox-new",
+            component: () => import("../views/NewDirectMessageView.vue"),
           },
 
-          // ✅ Conversations list
           {
             path: "conversations",
             name: "conversations",
             component: () => import("../views/ConversationsView.vue"),
           },
 
-          // ✅ Conversation detail
           {
             path: "conversations/:conversationId",
             name: "conversation-detail",

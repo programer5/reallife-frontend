@@ -1,4 +1,4 @@
-, <!-- src/views/ConversationsView.vue -->
+<!-- src/views/ConversationsView.vue -->
 <script setup>
 import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
@@ -16,6 +16,10 @@ function openConversation(id) {
   router.push(`/inbox/conversations/${id}`);
 }
 
+function goNewDm() {
+  router.push("/inbox/new");
+}
+
 onMounted(async () => {
   await conv._refreshNow?.();
   if (!conv._refreshNow) await conv.refresh();
@@ -30,6 +34,7 @@ onMounted(async () => {
         <p class="sub">새 메시지는 SSE 이벤트 후 목록이 자동 갱신됩니다.</p>
       </div>
       <div class="actions">
+        <RlButton size="sm" variant="soft" @click="goNewDm">새 DM</RlButton>
         <RlButton size="sm" variant="soft" @click="conv.refresh()" :disabled="loading">새로고침</RlButton>
       </div>
     </header>
