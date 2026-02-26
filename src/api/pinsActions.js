@@ -12,3 +12,7 @@ export async function pinCancel(pinId) {
 export async function pinDismiss(pinId) {
     await api.post(`/api/pins/${pinId}/dismiss`);
 }
+
+export async function pinUpdate(pinId, { placeText }) {
+    await api.patch(`/api/pins/${pinId}`, { placeText });
+}

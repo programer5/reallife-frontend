@@ -14,6 +14,7 @@ import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
 import { useConversationPinsStore } from "@/stores/conversationPins";
+import { pinUpdate } from "@/api/pinsActions";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -249,6 +250,43 @@ async function confirmPinAction() {
     toast.error("처리 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
     pinActionLoading.value = false;
+  }
+}
+
+const pinEditOpen = ref(false);
+const pinEditPin = ref(null);
+const pinEditPlace = ref("");
+const pinEditLoading = ref(false);
+
+function openPinEditPlace(pin) {
+  pinEditPin.value = pin;
+  pinEditPlace.value = pin?.placeText || "";
+  pinEditOpen.value = true;
+}
+function closePinEditPlace() {
+  if (pinEditLoading.value) return;
+  pinEditOpen.value = false;
+  pinEditPin.value = null;
+  pinEditPlace.value = "";
+}
+
+async function submitPinEditPlace() {
+  const p = pinEditPin.value;
+  if (!p?.pinId) return;
+
+  pinEditLoading.value = true;
+  try {
+    await pinUpdate(p.pinId, { placeText: pinEditPlace.value });
+
+    // simplest/안전: 서버 진실로 다시 맞춤
+    await loadPins();
+
+    toast.success("저장 완료", "장소를 업데이트했습니다.");
+    closePinEditPlace();
+  } catch (e) {
+    toast.error("저장 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
+  } finally {
+    pinEditLoading.value = false;
   }
 }
 
@@ -580,7 +618,10 @@ onBeforeUnmount(() => {
           <div class="pinMeta">
             <div v-if="p.placeText" class="pinRow">📍 {{ p.placeText }}</div>
             <div v-if="p.startAt" class="pinRow">🕒 {{ String(p.startAt).replace("T"," ").slice(0,16) }}</div>
-            <div v-else class="pinRow muted">🕒 시간 미정</div>
+            <div v-else class="pinRow muted">
+              📍 장소 미정
+              <RlButton size="sm" variant="ghost" @click="openPinEditPlace(p)">장소 추가</RlButton>
+            </div>
           </div>
         </div>
       </div>
@@ -687,6 +728,29 @@ onBeforeUnmount(() => {
         >
           닫기
         </RlButton>
+      </template>
+    </RlModal>
+
+    <RlModal
+        :open="pinEditOpen"
+        title="📍 장소 수정"
+        subtitle="약속 장소를 입력해 주세요."
+        :blockClose="pinEditLoading"
+        :closeOnBackdrop="!pinEditLoading"
+        @close="closePinEditPlace"
+    >
+      <div class="pinEditBody">
+        <input
+            class="pinEditInput"
+            v-model="pinEditPlace"
+            placeholder="예: 홍대입구 3번출구 / 회사 앞 / ○○ 술집"
+            :disabled="pinEditLoading"
+        />
+      </div>
+
+      <template #actions>
+        <RlButton block variant="primary" :loading="pinEditLoading" @click="submitPinEditPlace">저장</RlButton>
+        <RlButton block variant="ghost" :disabled="pinEditLoading" @click="closePinEditPlace">닫기</RlButton>
       </template>
     </RlModal>
 
@@ -1060,5 +1124,19 @@ onBeforeUnmount(() => {
 .mBtn.soft{
   border:1px solid var(--border);
   background:transparent;
+}
+
+.pinEditBody{ padding: 8px 0 2px; }
+.pinEditInput{
+  width: 100%;
+  padding: 12px 12px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--text);
+  outline: none;
+}
+.pinEditInput:focus{
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
 }
 </style>
