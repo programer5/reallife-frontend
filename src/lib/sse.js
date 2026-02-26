@@ -164,8 +164,8 @@ class SSEManager {
               parsed = msg?.data ?? null;
             }
 
-            // If server provides an explicit 'type' in payload, prefer it, else use msg.event
-            const type = (parsed && parsed.type) || msg.event || "message";
+            // ✅ 서버 SSE의 event: 값을 우선 사용 (payload의 type과 충돌 방지)
+            const type = msg.event || (parsed && parsed.eventType) || "message";
             // refId often in payload as parsed.refId or parsed.conversationId — we keep payload intact
             const refId = parsed && (parsed.refId || parsed.conversationId) ? (parsed.refId || parsed.conversationId) : null;
 
