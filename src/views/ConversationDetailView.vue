@@ -219,6 +219,18 @@ const pinModalSubtitle = computed(() => {
   return "이 핀을 내 화면에서 숨길까요? (상대방은 그대로 보일 수 있어요)";
 });
 
+const pinModalConfirmText = computed(() => {
+  if (pinModalAction.value === "DONE") return "완료 처리";
+  if (pinModalAction.value === "CANCELED") return "취소 처리";
+  return "숨김 처리";
+});
+
+const pinModalConfirmVariant = computed(() => {
+  if (pinModalAction.value === "DONE") return "primary";
+  if (pinModalAction.value === "CANCELED") return "danger";
+  return "ghost";
+});
+
 async function confirmPinAction() {
   const p = pinModalPin.value;
   if (!p?.pinId) return;
@@ -630,6 +642,8 @@ onBeforeUnmount(() => {
         :open="pinModalOpen"
         :title="pinModalTitle"
         :subtitle="pinModalSubtitle"
+        :blockClose="pinActionLoading"
+        :closeOnBackdrop="!pinActionLoading"
         @close="closePinActionModal"
     >
       <div class="pinModalBody">
@@ -648,8 +662,23 @@ onBeforeUnmount(() => {
       </div>
 
       <template #actions>
-        <RlButton block variant="primary" :loading="pinActionLoading" @click="confirmPinAction">확인</RlButton>
-        <RlButton block variant="ghost" :disabled="pinActionLoading" @click="closePinActionModal">취소</RlButton>
+        <RlButton
+            block
+            :variant="pinModalConfirmVariant"
+            :loading="pinActionLoading"
+            @click="confirmPinAction"
+        >
+          {{ pinModalConfirmText }}
+        </RlButton>
+
+        <RlButton
+            block
+            variant="ghost"
+            :disabled="pinActionLoading"
+            @click="closePinActionModal"
+        >
+          닫기
+        </RlButton>
       </template>
     </RlModal>
 

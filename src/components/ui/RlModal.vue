@@ -1,7 +1,11 @@
 <!-- src/components/ui/RlModal.vue -->
 <template>
   <teleport to="body">
-    <div v-if="open" class="modalBackdrop" @click.self="$emit('close')">
+    <div
+        v-if="open"
+        class="modalBackdrop"
+        @click.self="handleBackdrop"
+    >
       <div class="modal rl-cardish" role="dialog" aria-modal="true">
         <div class="mTitle" v-if="title">{{ title }}</div>
         <div class="mSub" v-if="subtitle">{{ subtitle }}</div>
@@ -19,12 +23,42 @@
 </template>
 
 <script setup>
-defineProps({
+import { onBeforeUnmount, onMounted } from "vue";
+
+const props = defineProps({
   open: { type: Boolean, default: false },
   title: { type: String, default: "" },
   subtitle: { type: String, default: "" },
+
+  // ✅ NEW: 로딩 중 닫기 방지
+  blockClose: { type: Boolean, default: false },
+
+  // ✅ NEW: 배경 클릭 닫기 on/off
+  closeOnBackdrop: { type: Boolean, default: true },
 });
-defineEmits(["close"]);
+
+const emit = defineEmits(["close"]);
+
+function tryClose() {
+  if (props.blockClose) return;
+  emit("close");
+}
+
+function handleBackdrop() {
+  if (!props.closeOnBackdrop) return;
+  tryClose();
+}
+
+function onKeydown(e) {
+  if (!props.open) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    tryClose();
+  }
+}
+
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <style scoped>
