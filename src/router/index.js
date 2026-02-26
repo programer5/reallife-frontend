@@ -41,6 +41,12 @@ const routes = [
             name: "conversation-detail",
             component: () => import("../views/ConversationDetailView.vue"),
           },
+
+          {
+            path: "conversations/:conversationId/pins",
+            name: "conversation-pins",
+            component: () => import("../views/PinnedListView.vue"),
+          },
         ],
       },
 

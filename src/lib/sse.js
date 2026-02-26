@@ -78,9 +78,8 @@ class SSEManager {
           data: evt.data,
           id: evt.id || "",
         });
-      } catch (e) {
+      } catch {
         // ignore store errors
-        // console.warn("SSE bind store error", e);
       }
     }
   }
@@ -164,10 +163,15 @@ class SSEManager {
               parsed = msg?.data ?? null;
             }
 
-            // ✅ 서버 SSE의 event: 값을 우선 사용 (payload의 type과 충돌 방지)
+            // ✅ FIX: 서버 SSE의 event: 값을 최우선으로 사용 (payload.type 과 충돌 방지)
+            // (pin-created 같은 SSE 이벤트가 payload.type=SCHEDULE 때문에 깨지던 문제 해결)
             const type = msg.event || (parsed && parsed.eventType) || "message";
+
             // refId often in payload as parsed.refId or parsed.conversationId — we keep payload intact
-            const refId = parsed && (parsed.refId || parsed.conversationId) ? (parsed.refId || parsed.conversationId) : null;
+            const refId =
+                parsed && (parsed.refId || parsed.conversationId)
+                    ? parsed.refId || parsed.conversationId
+                    : null;
 
             this._emitEvent({
               type,
@@ -178,7 +182,6 @@ class SSEManager {
           },
 
           onerror: (err) => {
-            // rethrow to outer catch
             throw err;
           },
         });

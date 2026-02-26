@@ -555,6 +555,14 @@ onBeforeUnmount(() => {
     <div v-if="(!lockEnabled || unlocked) && pins?.length" class="pinned">
       <div class="pinnedHead">
         <div class="pinnedTitle">📌 Pinned</div>
+
+        <RlButton
+            size="sm"
+            variant="ghost"
+            @click="router.push(`/inbox/conversations/${conversationId}/pins`)"
+        >
+          더보기
+        </RlButton>
       </div>
 
       <div class="pinList">
