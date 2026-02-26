@@ -10,6 +10,7 @@ import { getConversationLock, setConversationLock, disableConversationLock, issu
 import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
+import { useConversationPinsStore } from "@/stores/conversationPins";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -17,6 +18,9 @@ const router = useRouter();
 const toast = useToastStore();
 const convStore = useConversationsStore();
 const auth = useAuthStore();
+
+const pinsStore = useConversationPinsStore();
+const pins = computed(() => pinsStore.getPins(conversationId.value));
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const myId = computed(() => auth.me?.id || null);
@@ -171,6 +175,14 @@ async function submitLockModal() {
   } catch (e) {
     toast.error("해제 실패", e?.response?.data?.message || "비밀번호가 올바르지 않습니다.");
   }
+}
+
+async function loadPins() {
+  if (!conversationId.value) return;
+  // ✅ 잠금 ON인데 해제 전이면 핀도 노출하지 않음(UX/보안 일관성)
+  if (lockEnabled.value && !unlocked.value) return;
+
+  await pinsStore.refresh(conversationId.value, { size: 10 });
 }
 
 /** ====== 메시지 영역 ====== */
@@ -400,6 +412,7 @@ onMounted(async () => {
   await refreshLockState();
   if (!lockEnabled.value || unlocked.value) {
     await loadFirst();
+    await loadPins();
   }
 
   nextTick(() => {
@@ -409,16 +422,29 @@ onMounted(async () => {
   offEvent =
       sse.onEvent?.((ev) => {
         if (!ev) return;
-        if (ev.type !== "message-created") return;
 
+        // pin-created
+        if (ev.type === "pin-created") {
+          let data = ev.data;
+          try {
+            if (typeof data === "string") data = JSON.parse(data);
+          } catch {}
+
+          if (String(data?.conversationId) !== String(conversationId.value)) return;
+
+          // ✅ store에 append (dedupe 포함)
+          pinsStore.ingestPinCreated?.(data);
+          return;
+        }
+
+        // message-created (기존)
+        if (ev.type !== "message-created") return;
         let data = ev.data;
         try {
           if (typeof data === "string") data = JSON.parse(data);
         } catch {}
 
         if (String(data?.conversationId) !== String(conversationId.value)) return;
-
-        // 잠금 상태여도 “새 메시지 도착” 자체는 표시만 (내용은 서버가 어차피 막음)
         appendIncomingMessage(data);
         convStore.softSyncSoon?.();
       }) ?? null;
@@ -453,6 +479,28 @@ onBeforeUnmount(() => {
         >
           {{ lockEnabled ? "🔒 잠금 해제" : "🔓 잠금 설정" }}
         </RlButton>
+      </div>
+    </div>
+
+    <!-- ✅ Pinned 영역 -->
+    <div v-if="(!lockEnabled || unlocked) && pins?.length" class="pinned">
+      <div class="pinnedHead">
+        <div class="pinnedTitle">📌 Pinned</div>
+      </div>
+
+      <div class="pinList">
+        <div v-for="p in pins.slice(0, 3)" :key="p.pinId" class="pinCard">
+          <div class="pinTop">
+            <div class="pinName">{{ p.title || "약속" }}</div>
+            <div class="pinType">{{ p.type }}</div>
+          </div>
+
+          <div class="pinMeta">
+            <div v-if="p.placeText" class="pinRow">📍 {{ p.placeText }}</div>
+            <div v-if="p.startAt" class="pinRow">🕒 {{ String(p.startAt).replace("T"," ").slice(0,16) }}</div>
+            <div v-else class="pinRow muted">🕒 시간 미정</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -812,5 +860,66 @@ onBeforeUnmount(() => {
 .mBtn.soft{
   border:1px solid var(--border);
   background:transparent;
+}
+
+.pinned {
+  padding: 10px 12px 0;
+}
+
+.pinnedHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.pinnedTitle {
+  font-weight: 700;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.pinList {
+  display: grid;
+  gap: 8px;
+}
+
+.pinCard {
+  border: 1px solid color-mix(in oklab, var(--line) 65%, transparent);
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.pinTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.pinName {
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.pinType {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.pinMeta {
+  display: grid;
+  gap: 4px;
+}
+
+.pinRow {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.muted {
+  opacity: 0.55;
 }
 </style>

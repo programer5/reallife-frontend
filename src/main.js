@@ -9,6 +9,7 @@ import "./style.css";
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
 import { useConversationsStore } from "@/stores/conversations";
+import { useConversationPinsStore } from "@/stores/conversationPins";
 import sse from "@/lib/sse";
 
 const app = createApp(App);
@@ -20,6 +21,7 @@ app.use(router);
 const auth = useAuthStore();
 const noti = useNotificationsStore();
 const conv = useConversationsStore();
+const pins = useConversationPinsStore();
 
 function parse(data) {
     if (!data) return null;
@@ -54,6 +56,11 @@ sse.onEvent?.((evt) => {
     if (type === "message-created") {
         // ✅ 핵심: 전체 재조회 금지 → 부분 업데이트
         conv.ingestMessageCreated?.(data);
+        return;
+    }
+
+    if (type === "pin-created") {
+        pins.ingestPinCreated?.(data);
         return;
     }
 
