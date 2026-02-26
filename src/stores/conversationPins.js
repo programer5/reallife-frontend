@@ -2,50 +2,67 @@
 import { defineStore } from "pinia";
 import { fetchConversationPins } from "@/api/pins";
 
-function cidKey(conversationId) {
+function keyOf(conversationId) {
     return String(conversationId || "");
 }
 
 export const useConversationPinsStore = defineStore("conversationPins", {
     state: () => ({
-        // { [conversationId]: { items: [], loadedAt: ISO } }
-        byConversationId: {},
+        byConversationId: {}, // { [cid]: { items: [], loadedAt } }
         loading: false,
         error: "",
     }),
 
     actions: {
         getPins(conversationId) {
-            const key = cidKey(conversationId);
-            return this.byConversationId[key]?.items || [];
+            return this.byConversationId[keyOf(conversationId)]?.items || [];
         },
 
         setPins(conversationId, pins) {
-            const key = cidKey(conversationId);
-            this.byConversationId[key] = {
+            this.byConversationId[keyOf(conversationId)] = {
                 items: Array.isArray(pins) ? pins : [],
                 loadedAt: new Date().toISOString(),
             };
         },
 
         appendPin(conversationId, pin) {
-            const key = cidKey(conversationId);
             if (!pin?.pinId) return;
-
-            const cur = this.byConversationId[key]?.items || [];
+            const k = keyOf(conversationId);
+            const cur = this.byConversationId[k]?.items || [];
             const exists = cur.some((p) => String(p.pinId) === String(pin.pinId));
             if (exists) return;
 
-            // 최신이 위로 오도록 unshift
-            this.byConversationId[key] = {
+            this.byConversationId[k] = {
                 items: [pin, ...cur],
-                loadedAt: this.byConversationId[key]?.loadedAt || new Date().toISOString(),
+                loadedAt: this.byConversationId[k]?.loadedAt || new Date().toISOString(),
+            };
+        },
+
+        removePin(conversationId, pinId) {
+            const k = keyOf(conversationId);
+            const cur = this.byConversationId[k]?.items || [];
+            this.byConversationId[k] = {
+                items: cur.filter((p) => String(p.pinId) !== String(pinId)),
+                loadedAt: this.byConversationId[k]?.loadedAt || new Date().toISOString(),
             };
         },
 
         ingestPinCreated(payload) {
-            if (!payload?.conversationId) return;
-            this.appendPin(payload.conversationId, payload);
+            const cid = payload?.conversationId;
+            if (!cid) return;
+            this.appendPin(cid, payload);
+        },
+
+        ingestPinUpdated(payload) {
+            const cid = payload?.conversationId;
+            const pinId = payload?.pinId;
+            const action = payload?.action;
+            if (!cid || !pinId) return;
+
+            // DONE/CANCELED/DISMISSED => pinned에서 제거
+            if (action === "DONE" || action === "CANCELED" || action === "DISMISSED") {
+                this.removePin(cid, pinId);
+            }
         },
 
         async refresh(conversationId, { size = 10 } = {}) {

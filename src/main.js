@@ -42,11 +42,9 @@ sse.onEvent?.((evt) => {
     if (type === "ping" || type === "connected") return;
 
     if (type === "notification-created") {
-        // ✅ (이미 너가 적용한 고급 버전이면 ingestFromSse + refresh 디바운스 유지)
         if (noti.ingestFromSse) noti.ingestFromSse(data);
         noti.refresh?.();
 
-        // MESSAGE_RECEIVED면 목록 정합성 보정(혹시 message-created가 늦게/누락될 때 대비)
         if (data?.type === "MESSAGE_RECEIVED") {
             conv.softSyncSoon?.();
         }
@@ -54,19 +52,23 @@ sse.onEvent?.((evt) => {
     }
 
     if (type === "message-created") {
-        // ✅ 핵심: 전체 재조회 금지 → 부분 업데이트
         conv.ingestMessageCreated?.(data);
         return;
     }
 
+    if (type === "message-deleted") {
+        conv.softSyncSoon?.();
+        return;
+    }
+
+    // ✅ NEW: pins
     if (type === "pin-created") {
         pins.ingestPinCreated?.(data);
         return;
     }
 
-    if (type === "message-deleted") {
-        // 목록까지 정확히 반영하고 싶으면 여기서 conv.refresh() 대신 softSyncSoon 정도만
-        conv.softSyncSoon?.();
+    if (type === "pin-updated") {
+        pins.ingestPinUpdated?.(data);
         return;
     }
 });

@@ -3,10 +3,13 @@
 import { computed, onMounted, ref, nextTick, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
+import RlModal from "@/components/ui/RlModal.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
 import { getConversationLock, setConversationLock, disableConversationLock, issueUnlockToken } from "@/api/conversationLock";
+import { pinDone, pinCancel, pinDismiss } from "@/api/pinsActions";
+
 import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
@@ -18,9 +21,7 @@ const router = useRouter();
 const toast = useToastStore();
 const convStore = useConversationsStore();
 const auth = useAuthStore();
-
 const pinsStore = useConversationPinsStore();
-const pins = computed(() => pinsStore.getPins(conversationId.value));
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const myId = computed(() => auth.me?.id || null);
@@ -94,7 +95,6 @@ async function refreshLockState() {
     // 잠금 ON이면 토큰 있는지 확인
     unlocked.value = !!getSavedToken();
   } catch (e) {
-    // 잠금 상태 조회 실패 → 보수적으로 잠금 OFF처럼 처리하지 않고, 안내만
     lockEnabled.value = false;
     unlocked.value = true;
   }
@@ -111,8 +111,9 @@ async function handleUnlockGate() {
     lockGatePw.value = "";
     unlocked.value = true;
 
-    // 잠금 풀린 뒤 메시지 로딩
+    // 잠금 풀린 뒤 메시지 + 핀 로딩
     await loadFirst();
+    await loadPins();
   } catch (e) {
     toast.error("잠금 해제 실패", e?.response?.data?.message || "비밀번호가 올바르지 않습니다.");
   }
@@ -149,7 +150,7 @@ async function submitLockModal() {
       await setConversationLock(conversationId.value, p1);
       clearToken();
       lockEnabled.value = true;
-      unlocked.value = false; // 다시 잠금 게이트로
+      unlocked.value = false;
       toast.success("완료", "이 DM은 잠금 상태가 됐어요.");
       closeLockModal();
     } catch (e) {
@@ -172,17 +173,71 @@ async function submitLockModal() {
     clearToken();
     toast.success("완료", "잠금을 해제했습니다.");
     closeLockModal();
+
+    // 잠금 해제 후 핀 로딩
+    await loadPins();
   } catch (e) {
     toast.error("해제 실패", e?.response?.data?.message || "비밀번호가 올바르지 않습니다.");
   }
 }
 
+/** ====== Pins (Pinned 영역) ====== */
+const pins = computed(() => pinsStore.getPins(conversationId.value));
+
 async function loadPins() {
   if (!conversationId.value) return;
-  // ✅ 잠금 ON인데 해제 전이면 핀도 노출하지 않음(UX/보안 일관성)
   if (lockEnabled.value && !unlocked.value) return;
-
   await pinsStore.refresh(conversationId.value, { size: 10 });
+}
+
+// pin action modal (confirm 대체)
+const pinModalOpen = ref(false);
+const pinModalAction = ref("DONE"); // DONE | CANCELED | DISMISSED
+const pinModalPin = ref(null);
+const pinActionLoading = ref(false);
+
+function openPinActionModal(action, pin) {
+  pinModalAction.value = action;
+  pinModalPin.value = pin;
+  pinModalOpen.value = true;
+}
+
+function closePinActionModal() {
+  pinModalOpen.value = false;
+  pinModalPin.value = null;
+}
+
+const pinModalTitle = computed(() => {
+  if (pinModalAction.value === "DONE") return "✅ 핀 완료";
+  if (pinModalAction.value === "CANCELED") return "❌ 핀 취소";
+  return "🙈 핀 숨김";
+});
+
+const pinModalSubtitle = computed(() => {
+  if (pinModalAction.value === "DONE") return "이 핀을 완료 처리할까요? (대화방 전체에 적용)";
+  if (pinModalAction.value === "CANCELED") return "이 핀을 취소 처리할까요? (대화방 전체에 적용)";
+  return "이 핀을 내 화면에서 숨길까요? (상대방은 그대로 보일 수 있어요)";
+});
+
+async function confirmPinAction() {
+  const p = pinModalPin.value;
+  if (!p?.pinId) return;
+
+  pinActionLoading.value = true;
+  try {
+    if (pinModalAction.value === "DONE") await pinDone(p.pinId);
+    else if (pinModalAction.value === "CANCELED") await pinCancel(p.pinId);
+    else await pinDismiss(p.pinId);
+
+    // ✅ 낙관적으로 즉시 제거 (SSE가 늦어도 UX 즉시 반응)
+    pinsStore.removePin(conversationId.value, p.pinId);
+
+    closePinActionModal();
+  } catch (e) {
+    toast.error("처리 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
+  } finally {
+    pinActionLoading.value = false;
+  }
 }
 
 /** ====== 메시지 영역 ====== */
@@ -270,7 +325,6 @@ async function loadFirst({ keepScroll = false } = {}) {
     return;
   }
 
-  // ✅ 잠금 ON인데 해제 전이면 메시지 로딩 금지
   if (lockEnabled.value && !unlocked.value) return;
 
   loading.value = true;
@@ -305,11 +359,9 @@ async function loadFirst({ keepScroll = false } = {}) {
       scrollToBottom();
     }
   } catch (e) {
-    // 423: 잠김
     const msg = e?.response?.data?.message || "메시지를 불러오지 못했습니다.";
     error.value = msg;
 
-    // 서버가 잠금이라고 하면 다시 게이트로
     if (e?.response?.status === 423) {
       lockEnabled.value = true;
       unlocked.value = false;
@@ -423,28 +475,33 @@ onMounted(async () => {
       sse.onEvent?.((ev) => {
         if (!ev) return;
 
-        // pin-created
+        // ✅ pins
         if (ev.type === "pin-created") {
           let data = ev.data;
-          try {
-            if (typeof data === "string") data = JSON.parse(data);
-          } catch {}
-
+          try { if (typeof data === "string") data = JSON.parse(data); } catch {}
           if (String(data?.conversationId) !== String(conversationId.value)) return;
-
-          // ✅ store에 append (dedupe 포함)
           pinsStore.ingestPinCreated?.(data);
           return;
         }
 
-        // message-created (기존)
+        if (ev.type === "pin-updated") {
+          let data = ev.data;
+          try { if (typeof data === "string") data = JSON.parse(data); } catch {}
+          if (String(data?.conversationId) !== String(conversationId.value)) return;
+          pinsStore.ingestPinUpdated?.(data);
+          return;
+        }
+
+        // ✅ messages
         if (ev.type !== "message-created") return;
+
         let data = ev.data;
         try {
           if (typeof data === "string") data = JSON.parse(data);
         } catch {}
 
         if (String(data?.conversationId) !== String(conversationId.value)) return;
+
         appendIncomingMessage(data);
         convStore.softSyncSoon?.();
       }) ?? null;
@@ -492,7 +549,12 @@ onBeforeUnmount(() => {
         <div v-for="p in pins.slice(0, 3)" :key="p.pinId" class="pinCard">
           <div class="pinTop">
             <div class="pinName">{{ p.title || "약속" }}</div>
-            <div class="pinType">{{ p.type }}</div>
+
+            <div class="pinActions">
+              <RlButton size="sm" variant="soft" :loading="pinActionLoading" @click="openPinActionModal('DONE', p)">완료</RlButton>
+              <RlButton size="sm" variant="danger" :loading="pinActionLoading" @click="openPinActionModal('CANCELED', p)">취소</RlButton>
+              <RlButton size="sm" variant="ghost" :loading="pinActionLoading" @click="openPinActionModal('DISMISSED', p)">숨김</RlButton>
+            </div>
           </div>
 
           <div class="pinMeta">
@@ -563,7 +625,35 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- ✅ 잠금 설정/해제 모달 -->
+    <!-- ✅ 핀 액션 모달(confirm 대체) -->
+    <RlModal
+        :open="pinModalOpen"
+        :title="pinModalTitle"
+        :subtitle="pinModalSubtitle"
+        @close="closePinActionModal"
+    >
+      <div class="pinModalBody">
+        <div class="pinModalLine">
+          <span class="k">제목</span>
+          <span class="v">{{ pinModalPin?.title || "약속" }}</span>
+        </div>
+        <div class="pinModalLine">
+          <span class="k">장소</span>
+          <span class="v">{{ pinModalPin?.placeText || "미정" }}</span>
+        </div>
+        <div class="pinModalLine">
+          <span class="k">시간</span>
+          <span class="v">{{ pinModalPin?.startAt ? String(pinModalPin.startAt).replace("T"," ").slice(0,16) : "미정" }}</span>
+        </div>
+      </div>
+
+      <template #actions>
+        <RlButton block variant="primary" :loading="pinActionLoading" @click="confirmPinAction">확인</RlButton>
+        <RlButton block variant="ghost" :disabled="pinActionLoading" @click="closePinActionModal">취소</RlButton>
+      </template>
+    </RlModal>
+
+    <!-- ✅ 잠금 설정/해제 모달(기존 유지) -->
     <div v-if="lockModalOpen" class="modalBackdrop" @click.self="closeLockModal">
       <div class="modal rl-cardish">
         <div class="mTitle">
@@ -659,6 +749,79 @@ onBeforeUnmount(() => {
 
 .state{text-align:center;color:var(--muted);padding:18px 0}
 .state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
+
+/* ✅ Pinned */
+.pinned{
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 12px 8px;
+}
+.pinnedHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom: 8px;
+}
+.pinnedTitle{
+  font-weight: 950;
+  font-size: 13px;
+  opacity: .92;
+}
+.pinList{
+  display:grid;
+  gap: 8px;
+}
+.pinCard{
+  border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  box-shadow: 0 1px 0 rgba(255,255,255,.06) inset;
+  border-radius: 16px;
+  padding: 10px 12px;
+}
+.pinTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.pinName{
+  font-weight: 950;
+  font-size: 13px;
+}
+.pinActions{
+  display:flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.pinMeta{
+  display:grid;
+  gap: 4px;
+}
+.pinRow{
+  font-size: 12px;
+  opacity: .92;
+}
+.muted{
+  opacity: .55;
+}
+
+/* pin modal body */
+.pinModalBody{
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+  padding: 10px 0 2px;
+}
+.pinModalLine{
+  display:flex;
+  justify-content:space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.pinModalLine .k{ color: var(--muted); font-weight: 800; }
+.pinModalLine .v{ color: var(--text); font-weight: 900; }
 
 /* 잠금 게이트 */
 .lockGate{
@@ -811,7 +974,7 @@ onBeforeUnmount(() => {
 }
 .btn:disabled{opacity:.6}
 
-/* modal */
+/* lock modal (기존 유지) */
 .modalBackdrop{
   position: fixed;
   inset: 0;
@@ -860,66 +1023,5 @@ onBeforeUnmount(() => {
 .mBtn.soft{
   border:1px solid var(--border);
   background:transparent;
-}
-
-.pinned {
-  padding: 10px 12px 0;
-}
-
-.pinnedHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.pinnedTitle {
-  font-weight: 700;
-  font-size: 13px;
-  opacity: 0.9;
-}
-
-.pinList {
-  display: grid;
-  gap: 8px;
-}
-
-.pinCard {
-  border: 1px solid color-mix(in oklab, var(--line) 65%, transparent);
-  background: color-mix(in oklab, var(--card) 88%, transparent);
-  border-radius: 14px;
-  padding: 10px 12px;
-}
-
-.pinTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.pinName {
-  font-weight: 800;
-  font-size: 13px;
-}
-
-.pinType {
-  font-size: 11px;
-  opacity: 0.6;
-}
-
-.pinMeta {
-  display: grid;
-  gap: 4px;
-}
-
-.pinRow {
-  font-size: 12px;
-  opacity: 0.9;
-}
-
-.muted {
-  opacity: 0.55;
 }
 </style>
