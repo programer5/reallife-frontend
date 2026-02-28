@@ -1,6 +1,6 @@
 <!-- src/views/PinnedListView.vue -->
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import RlButton from "@/components/ui/RlButton.vue";
@@ -9,9 +9,12 @@ import RlModal from "@/components/ui/RlModal.vue";
 import { useConversationPinsStore } from "@/stores/conversationPins";
 import { pinDone, pinCancel, pinDismiss } from "@/api/pinsActions";
 import { useToastStore } from "@/stores/toast";
+import { readNotification } from "@/api/notifications";
+import { useNotificationsStore } from "@/stores/notifications";
 
 const route = useRoute();
 const router = useRouter();
+const notiStore = useNotificationsStore();
 const toast = useToastStore();
 const pinsStore = useConversationPinsStore();
 
@@ -180,7 +183,58 @@ async function load() {
   await pinsStore.refresh(conversationId.value, { size: 50 });
 }
 
-onMounted(load);
+/** ===== focus specific pin (by query pinId) ===== */
+const flashPinId = ref(""); // 현재 반짝일 pinId
+const pinElMap = new Map(); // pinId -> element
+
+function setPinEl(pinId, el) {
+  const k = String(pinId || "");
+  if (!k) return;
+  if (el) pinElMap.set(k, el);
+  else pinElMap.delete(k);
+}
+
+async function focusPinFromQuery() {
+  const qPinId = route.query?.pinId ? String(route.query.pinId) : "";
+  if (!qPinId) return;
+
+  // DOM 렌더 후 요소 확보
+  await nextTick();
+
+  const el = pinElMap.get(qPinId);
+  if (!el) return;
+
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  flashPinId.value = qPinId;
+  setTimeout(() => {
+    if (flashPinId.value === qPinId) flashPinId.value = "";
+  }, 1000);
+}
+
+// pinId 쿼리가 바뀌거나, 목록이 다시 렌더될 때도 재시도
+watch(
+    [() => route.query?.pinId, () => filteredPins.value.length],
+    () => focusPinFromQuery(),
+    { immediate: true }
+);
+
+onMounted(async () => {
+  // ✅ pins 화면을 열었으면 리마인드 배지는 자동 해제
+  pinsStore.clearRemindBadge?.(conversationId.value);
+
+  // ✅ 토스트 딥링크로 넘어온 notiId가 있으면 읽음 처리
+  const notiId = route.query?.notiId ? String(route.query.notiId) : "";
+  if (notiId) {
+    try {
+      await readNotification(notiId);
+      await notiStore.refresh?.(); // unread 상태/리스트 보정
+    } catch {}
+  }
+
+  // 기존 로딩
+  load();
+});
 
 /** ===== actions modal ===== */
 const modalOpen = ref(false);
@@ -313,7 +367,14 @@ function fmtTime(s) {
         조건에 맞는 핀이 없어요.
       </div>
 
-      <div v-for="p in filteredPins" :key="p.pinId" class="card">
+      <div
+          v-for="p in filteredPins"
+          :key="p.pinId"
+          class="card"
+          :data-pin-id="String(p.pinId)"
+          :ref="(el) => setPinEl(p.pinId, el)"
+          :class="{ 'card--flash': flashPinId === String(p.pinId) }"
+      >
         <div class="rowTop">
           <div class="name">{{ p.title || "약속" }}</div>
 
@@ -488,4 +549,13 @@ function fmtTime(s) {
 .mBody2{display:flex;flex-direction:column;gap:8px;padding:10px 0 2px}
 .kv{display:flex;justify-content:space-between;gap:10px;font-size:12px}
 .k{color:var(--muted);font-weight:800}
+/* ✅ focus flash */
+.card--flash{
+  animation: pinFlash 1s ease;
+}
+@keyframes pinFlash{
+  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
+  30%  { box-shadow: 0 0 0 8px color-mix(in oklab, var(--accent) 22%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
+}
 </style>

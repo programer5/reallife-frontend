@@ -52,18 +52,30 @@ async function handlePinRemindToastAndBadge(notiPayload) {
     if (!pinId) return;
 
     try {
-        const pin = await getPin(pinId); // { pinId, conversationId, title, placeText, startAt, ... }
+        const pin = await getPin(pinId); // { pinId, conversationId, ... }
         const cid = pin?.conversationId;
+
+        // ✅ 현재 대화방이면 pinned 영역 하이라이트 트리거
+        if (cid) {
+            try {
+                window.dispatchEvent(
+                    new CustomEvent("pin-remind-highlight", { detail: { conversationId: cid } })
+                );
+            } catch {}
+        }
 
         // ✅ 대화방 Pinned 배지 ON
         if (cid) pins.markRemindBadge?.(cid);
 
-        // ✅ 토스트
+        // ✅ 토스트 (딥링크 포함)
         toast.success?.("⏰ 리마인드", `📌 ${fmtPin(pin)}`, {
-            to: cid ? `/inbox/conversations/${cid}/pins` : "",
+            to: cid
+                ? `/inbox/conversations/${cid}/pins?pinId=${encodeURIComponent(pinId)}&notiId=${encodeURIComponent(
+                    notiPayload?.notificationId || ""
+                )}`
+                : "",
         });
     } catch {
-        // 핀 조회 실패해도 최소 토스트는 띄우자(체감용)
         toast.success?.("⏰ 리마인드", "📌 저장한 일정 리마인드가 도착했어요.");
     }
 }

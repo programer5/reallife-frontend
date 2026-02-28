@@ -31,6 +31,25 @@ const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
+const isPinnedHighlight = ref(false);
+
+function onPinRemindHighlight(e) {
+  const cid = e?.detail?.conversationId;
+  if (!cid) return;
+
+  // 현재 보고 있는 대화방만 하이라이트
+  if (String(cid) !== String(conversationId.value)) return;
+
+  isPinnedHighlight.value = true;
+  setTimeout(() => (isPinnedHighlight.value = false), 800);
+}
+
+onMounted(() => {
+  window.addEventListener("pin-remind-highlight", onPinRemindHighlight);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("pin-remind-highlight", onPinRemindHighlight);
+});
 const myId = computed(() => auth.me?.id || null);
 
 /** 상대(목록 데이터 기반) */
@@ -719,43 +738,45 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- ✅ Pinned -->
-    <div v-if="showPinned" class="pinned">
-      <div class="pinnedHead">
-        <div class="pinnedTitle" @click="clearPinRemindBadge" style="cursor:pointer;">
-          📌 Pinned
-          <span v-if="hasPinRemindBadge" class="pinRemindDot" title="리마인드 도착"></span>
-        </div>
-
-        <RlButton
-            size="sm"
-            variant="ghost"
-            @click="
-      clearPinRemindBadge();
-      router.push(`/inbox/conversations/${conversationId}/pins`)
-          "
-        >
-          더보기
-        </RlButton>
-      </div>
-
-      <div class="pinList">
-        <div v-for="p in pins.slice(0, 3)" :key="p.pinId" class="pinCard">
-          <div class="pinTop">
-            <div class="pinName">{{ p.title || "약속" }}</div>
-
-            <div class="pinActions">
-              <RlButton size="sm" variant="soft" :loading="pinActionLoading" @click="openPinActionModal('DONE', p)">완료</RlButton>
-              <RlButton size="sm" variant="danger" :loading="pinActionLoading" @click="openPinActionModal('CANCELED', p)">취소</RlButton>
-              <RlButton size="sm" variant="ghost" :loading="pinActionLoading" @click="openPinActionModal('DISMISSED', p)">숨김</RlButton>
-            </div>
+    <div class="pinnedWrap" :class="{ 'pinnedWrap--flash': isPinnedHighlight }">
+      <div v-if="showPinned" class="pinned">
+        <div class="pinnedHead">
+          <div class="pinnedTitle" @click="clearPinRemindBadge" style="cursor:pointer;">
+            📌 Pinned
+            <span v-if="hasPinRemindBadge" class="pinRemindDot" title="리마인드 도착"></span>
           </div>
 
-          <div class="pinMeta">
-            <div v-if="p.placeText" class="pinRow">📍 {{ p.placeText }}</div>
-            <div v-if="p.startAt" class="pinRow">🕒 {{ pinTimeText(p) }}</div>
-            <div v-else class="pinRow muted">
-              📍 장소 미정
-              <RlButton size="sm" variant="ghost" @click="openPinEditPlace(p)">장소 추가</RlButton>
+          <RlButton
+              size="sm"
+              variant="ghost"
+              @click="
+        clearPinRemindBadge();
+        router.push(`/inbox/conversations/${conversationId}/pins`)
+            "
+          >
+            더보기
+          </RlButton>
+        </div>
+
+        <div class="pinList">
+          <div v-for="p in pins.slice(0, 3)" :key="p.pinId" class="pinCard">
+            <div class="pinTop">
+              <div class="pinName">{{ p.title || "약속" }}</div>
+
+              <div class="pinActions">
+                <RlButton size="sm" variant="soft" :loading="pinActionLoading" @click="openPinActionModal('DONE', p)">완료</RlButton>
+                <RlButton size="sm" variant="danger" :loading="pinActionLoading" @click="openPinActionModal('CANCELED', p)">취소</RlButton>
+                <RlButton size="sm" variant="ghost" :loading="pinActionLoading" @click="openPinActionModal('DISMISSED', p)">숨김</RlButton>
+              </div>
+            </div>
+
+            <div class="pinMeta">
+              <div v-if="p.placeText" class="pinRow">📍 {{ p.placeText }}</div>
+              <div v-if="p.startAt" class="pinRow">🕒 {{ pinTimeText(p) }}</div>
+              <div v-else class="pinRow muted">
+                📍 장소 미정
+                <RlButton size="sm" variant="ghost" @click="openPinEditPlace(p)">장소 추가</RlButton>
+              </div>
             </div>
           </div>
         </div>
@@ -999,6 +1020,14 @@ onBeforeUnmount(() => {
 .state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 
 /* ✅ Pinned */
+.pinnedWrap--flash{
+  animation: pinnedFlash 0.8s ease;
+}
+@keyframes pinnedFlash{
+  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
+  30%  { box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 22%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
+}
 /* ✅ PIN_REMIND badge dot */
 .pinRemindDot{
   display:inline-block;
