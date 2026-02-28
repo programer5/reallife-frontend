@@ -554,14 +554,26 @@ function showSavedBadge(messageId) {
 }
 
 /** ====== 핀 후보 confirm (중복 포함) ====== */
-const confirmCandidateBusy = ref(false);
+// ✅ messageId별 confirm busy (같은 메시지 연타만 막기)
+const confirmBusyByMessageId = ref({}); // { [messageId]: true }
+
+function isConfirmBusy(messageId) {
+  const key = String(messageId || "");
+  return !!confirmBusyByMessageId.value[key];
+}
+
+function setConfirmBusy(messageId, v) {
+  const key = String(messageId || "");
+  if (!key) return;
+  if (v) confirmBusyByMessageId.value[key] = true;
+  else delete confirmBusyByMessageId.value[key];
+}
 
 async function onConfirmCandidate(message, payload) {
   if (!conversationId.value) return;
   if (!message?.messageId) return;
-  if (confirmCandidateBusy.value) return;
-
-  confirmCandidateBusy.value = true;
+  if (isConfirmBusy(message.messageId)) return;
+  setConfirmBusy(message.messageId, true);
   try {
     const created = await confirmPinFromMessage({
       conversationId: conversationId.value,
@@ -588,7 +600,7 @@ async function onConfirmCandidate(message, payload) {
     }
     toast.error?.("핀 생성 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
-    confirmCandidateBusy.value = false;
+    setConfirmBusy(message.messageId, false);
   }
 }
 
@@ -782,7 +794,7 @@ onBeforeUnmount(() => {
                 v-for="c in m.pinCandidates"
                 :key="c.candidateId"
                 :candidate="c"
-                :busy="confirmCandidateBusy"
+                :busy="isConfirmBusy(m.messageId)"
                 @confirm="confirmCandidate(m, $event)"
                 @dismiss="dismissCandidate(m, $event)"
             />

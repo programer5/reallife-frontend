@@ -16,3 +16,8 @@ export async function pinDismiss(pinId) {
 export async function pinUpdate(pinId, { placeText }) {
     await api.patch(`/api/pins/${pinId}`, { placeText });
 }
+
+export async function getPin(pinId) {
+    const res = await api.get(`/api/pins/${pinId}`);
+    return res.data;
+}

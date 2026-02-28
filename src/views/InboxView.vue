@@ -6,6 +6,7 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { readAllNotifications, readNotification, clearReadNotifications } from "@/api/notifications";
 import { useToastStore } from "@/stores/toast";
 import { useRouter } from "vue-router";
+import { getPin } from "@/api/pinsActions";
 
 const router = useRouter();
 const toast = useToastStore();
@@ -27,6 +28,8 @@ function formatType(t) {
   if (t === "MESSAGE_RECEIVED") return "메시지";
   if (t === "COMMENT_CREATED") return "댓글";
   if (t === "POST_LIKED") return "좋아요";
+  if (t === "PIN_CREATED") return "핀";
+  if (t === "PIN_REMIND") return "리마인드";
   return t || "알림";
 }
 
@@ -81,6 +84,24 @@ async function openItem(n) {
 
   if (n.type === "COMMENT_CREATED" || n.type === "POST_LIKED") {
     if (n.refId) router.push(`/posts/${n.refId}`);
+  }
+
+  if (n.type === "PIN_CREATED" || n.type === "PIN_REMIND") {
+    // refId = pinId
+    if (n.refId) {
+      try {
+        const pin = await getPin(n.refId);
+        // ✅ Pinned 더보기 페이지로 이동 (원하면 여기서 conversation 화면으로 보내도 됨)
+        router.push(`/inbox/conversations/${pin.conversationId}/pins`);
+        return;
+      } catch (e) {
+        // 실패하면 최소한 대화 목록이라도
+        router.push("/inbox/conversations");
+        return;
+      }
+    }
+    router.push("/inbox/conversations");
+    return;
   }
 }
 
