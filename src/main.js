@@ -13,6 +13,9 @@ import { useConversationPinsStore } from "@/stores/conversationPins";
 import { useToastStore } from "@/stores/toast";
 import sse from "@/lib/sse";
 
+// ✅ NEW
+import { getPin } from "@/api/pinsActions";
+
 const app = createApp(App);
 const pinia = createPinia();
 
@@ -38,9 +41,31 @@ function parse(data) {
 function fmtPin(p) {
     if (!p) return "";
     const place = p.placeText ? `📍 ${p.placeText}` : "📍 장소 미정";
-    const when = p.startAt ? `🕒 ${String(p.startAt).replace("T"," ").slice(0,16)}` : "🕒 시간 미정";
+    const when = p.startAt ? `🕒 ${String(p.startAt).replace("T", " ").slice(0, 16)}` : "🕒 시간 미정";
     const title = p.title ? `“${p.title}”` : "“약속”";
     return `${title} · ${place} · ${when}`;
+}
+
+async function handlePinRemindToastAndBadge(notiPayload) {
+    // notiPayload: { type, refId(pinId), body, createdAt, notificationId }
+    const pinId = notiPayload?.refId;
+    if (!pinId) return;
+
+    try {
+        const pin = await getPin(pinId); // { pinId, conversationId, title, placeText, startAt, ... }
+        const cid = pin?.conversationId;
+
+        // ✅ 대화방 Pinned 배지 ON
+        if (cid) pins.markRemindBadge?.(cid);
+
+        // ✅ 토스트
+        toast.success?.("⏰ 리마인드", `📌 ${fmtPin(pin)}`, {
+            to: cid ? `/inbox/conversations/${cid}/pins` : "",
+        });
+    } catch {
+        // 핀 조회 실패해도 최소 토스트는 띄우자(체감용)
+        toast.success?.("⏰ 리마인드", "📌 저장한 일정 리마인드가 도착했어요.");
+    }
 }
 
 sse.onEvent?.((evt) => {
@@ -57,7 +82,15 @@ sse.onEvent?.((evt) => {
 
         if (data?.type === "MESSAGE_RECEIVED") {
             conv.softSyncSoon?.();
+            return;
         }
+
+        // ✅ NEW: PIN_REMIND면 대화 상세에서도 “체감”나게 토스트/배지
+        if (data?.type === "PIN_REMIND") {
+            handlePinRemindToastAndBadge(data);
+            return;
+        }
+
         return;
     }
 
@@ -71,8 +104,7 @@ sse.onEvent?.((evt) => {
         return;
     }
 
-    // ✅ NEW: pins
-    // ✅ NEW: pins
+    // ✅ pins
     if (type === "pin-created") {
         pins.ingestPinCreated?.(data);
 
@@ -96,10 +128,6 @@ sse.onEvent?.((evt) => {
             else if (action === "DISMISSED") toast.success?.("핀 숨김", `🙈 ${msg}`);
             else toast.success?.("핀 업데이트", msg);
         } catch {}
-
-        // (선택) 안전장치: event 누락/순서 꼬임 대비 가벼운 재동기화
-        // - 너무 자주 호출되면 부담이니, 필요한 경우에만 주석 해제
-        // pins.refresh?.(data?.conversationId, { size: 10 });
 
         return;
     }

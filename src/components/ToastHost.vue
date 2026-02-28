@@ -5,14 +5,22 @@
         v-for="t in toast.items"
         :key="t.id"
         class="toast"
+        :class="{ clickable: !!t.to }"
         :data-type="t.type"
         role="status"
+        @click="handleClick(t)"
     >
       <div class="toast__text">
         <div class="toast__title">{{ t.title }}</div>
         <div v-if="t.message" class="toast__msg">{{ t.message }}</div>
+        <div v-if="t.to" class="toast__hint">눌러서 이동</div>
       </div>
-      <button class="toast__x" @click="toast.dismiss(t.id)" aria-label="Close toast">
+
+      <button
+          class="toast__x"
+          @click.stop="toast.dismiss(t.id)"
+          aria-label="Close toast"
+      >
         ✕
       </button>
     </div>
@@ -20,8 +28,17 @@
 </template>
 
 <script setup>
-import { useToastStore } from "../stores/toast";
+import { useToastStore } from "@/stores/toast";
+import { useRouter } from "vue-router";
+
 const toast = useToastStore();
+const router = useRouter();
+
+function handleClick(t) {
+  if (!t?.to) return;
+  router.push(t.to);
+  toast.dismiss(t.id);
+}
 </script>
 
 <style scoped>
@@ -47,6 +64,10 @@ const toast = useToastStore();
   backdrop-filter: blur(10px);
 }
 
+.toast.clickable {
+  cursor: pointer;
+}
+
 .toast__title {
   font-weight: 800;
   font-size: 13px;
@@ -58,6 +79,12 @@ const toast = useToastStore();
   font-size: 12.5px;
   opacity: 0.88;
   line-height: 1.35;
+}
+
+.toast__hint {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.75;
 }
 
 .toast__x {

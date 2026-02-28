@@ -11,9 +11,9 @@ export const useToastStore = defineStore("toast", {
     }),
 
     actions: {
-        show({ title, message = "", type = "info", durationMs = 3500 } = {}) {
+        show({ title, message = "", type = "info", durationMs = 3500, to = "" } = {}) {
             const id = uid();
-            const item = { id, title, message, type };
+            const item = { id, title, message, type, to };
             this.items.push(item);
 
             if (durationMs > 0) {
@@ -22,16 +22,16 @@ export const useToastStore = defineStore("toast", {
             return id;
         },
 
-        success(title, message = "") {
-            return this.show({ title, message, type: "success" });
+        success(title, message = "", opts = {}) {
+            return this.show({ title, message, type: "success", ...opts });
         },
 
-        error(title, message = "") {
-            return this.show({ title, message, type: "error", durationMs: 5000 });
+        error(title, message = "", opts = {}) {
+            return this.show({ title, message, type: "error", durationMs: 5000, ...opts });
         },
 
-        info(title, message = "") {
-            return this.show({ title, message, type: "info" });
+        info(title, message = "", opts = {}) {
+            return this.show({ title, message, type: "info", ...opts });
         },
 
         dismiss(id) {

@@ -1,6 +1,6 @@
 <!-- src/views/InboxView.vue -->
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, nextTick } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import { useNotificationsStore } from "@/stores/notifications";
 import { readAllNotifications, readNotification, clearReadNotifications } from "@/api/notifications";
@@ -22,6 +22,8 @@ const autoReadDone = ref(false);
 const items = computed(() => noti.items);
 const hasUnread = computed(() => noti.hasUnread);
 const loading = computed(() => noti.loading);
+const loadingMore = computed(() => noti.loadingMore);
+const hasNext = computed(() => noti.hasNext);
 const error = computed(() => noti.error);
 
 function formatType(t) {
@@ -84,6 +86,7 @@ async function openItem(n) {
 
   if (n.type === "COMMENT_CREATED" || n.type === "POST_LIKED") {
     if (n.refId) router.push(`/posts/${n.refId}`);
+    return;
   }
 
   if (n.type === "PIN_CREATED" || n.type === "PIN_REMIND") {
@@ -91,11 +94,9 @@ async function openItem(n) {
     if (n.refId) {
       try {
         const pin = await getPin(n.refId);
-        // ✅ Pinned 더보기 페이지로 이동 (원하면 여기서 conversation 화면으로 보내도 됨)
         router.push(`/inbox/conversations/${pin.conversationId}/pins`);
         return;
-      } catch (e) {
-        // 실패하면 최소한 대화 목록이라도
+      } catch {
         router.push("/inbox/conversations");
         return;
       }
@@ -105,6 +106,35 @@ async function openItem(n) {
   }
 }
 
+/** ====== infinite scroll ====== */
+const sentinelEl = ref(null);
+let io = null;
+
+async function loadMore() {
+  if (loading.value || loadingMore.value) return;
+  if (!hasNext.value) return;
+  await noti.loadMore({ size: 20 });
+}
+
+function attachObserver() {
+  if (io) io.disconnect();
+
+  io = new IntersectionObserver(
+      async (entries) => {
+        const e = entries?.[0];
+        if (!e?.isIntersecting) return;
+        await loadMore();
+      },
+      {
+        root: null,        // viewport
+        rootMargin: "200px", // 미리 로드
+        threshold: 0.01,
+      }
+  );
+
+  if (sentinelEl.value) io.observe(sentinelEl.value);
+}
+
 onMounted(async () => {
   await refreshNow();
 
@@ -112,6 +142,14 @@ onMounted(async () => {
     autoReadDone.value = true;
     await markAllRead({ silent: true });
   }
+
+  await nextTick();
+  attachObserver();
+});
+
+onBeforeUnmount(() => {
+  if (io) io.disconnect();
+  io = null;
 });
 </script>
 
@@ -146,7 +184,7 @@ onMounted(async () => {
       </div>
     </header>
 
-    <div v-if="loading" class="state">불러오는 중…</div>
+    <div v-if="loading && !items.length" class="state">불러오는 중…</div>
     <div v-else-if="error" class="state err">{{ error }}</div>
 
     <div v-else-if="items.length === 0" class="state">
@@ -174,6 +212,25 @@ onMounted(async () => {
 
         <div class="chev">›</div>
       </button>
+
+      <!-- ✅ sentinel (무한 스크롤 트리거) -->
+      <div ref="sentinelEl" class="sentinel" />
+
+      <!-- ✅ 더보기 버튼(옵션): observer가 안 먹는 환경에서도 동작 -->
+      <div class="moreWrap" v-if="hasNext">
+        <RlButton
+            size="sm"
+            variant="soft"
+            :disabled="loadingMore || loading"
+            @click="loadMore"
+        >
+          {{ loadingMore ? "불러오는 중…" : "더보기" }}
+        </RlButton>
+      </div>
+
+      <div class="moreEnd" v-else>
+        끝까지 다 봤어요.
+      </div>
     </div>
 
     <div class="footerNote" v-if="hasUnread">
@@ -219,4 +276,8 @@ onMounted(async () => {
 .body{color:color-mix(in oklab,var(--text) 90%,var(--muted));font-size:13px;line-height:1.35}
 .chev{color:var(--muted);font-size:18px}
 .footerNote{margin-top:12px;color:var(--muted);font-size:12px;text-align:center}
+
+.sentinel{height:1px}
+.moreWrap{display:flex;justify-content:center;padding:10px 0}
+.moreEnd{color:var(--muted);font-size:12px;text-align:center;padding:8px 0}
 </style>

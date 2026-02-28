@@ -193,6 +193,13 @@ async function submitLockModal() {
 }
 
 /** ====== Pins (Pinned) ====== */
+// ✅ NEW: PIN_REMIND 배지
+const hasPinRemindBadge = computed(() => pinsStore.hasRemindBadge?.(conversationId.value));
+
+function clearPinRemindBadge() {
+  pinsStore.clearRemindBadge?.(conversationId.value);
+}
+
 const pins = computed(() => pinsStore.getPins(conversationId.value));
 const showPinned = computed(() => {
   const arr = pins.value;
@@ -714,8 +721,19 @@ onBeforeUnmount(() => {
     <!-- ✅ Pinned -->
     <div v-if="showPinned" class="pinned">
       <div class="pinnedHead">
-        <div class="pinnedTitle">📌 Pinned</div>
-        <RlButton size="sm" variant="ghost" @click="router.push(`/inbox/conversations/${conversationId}/pins`)">
+        <div class="pinnedTitle" @click="clearPinRemindBadge" style="cursor:pointer;">
+          📌 Pinned
+          <span v-if="hasPinRemindBadge" class="pinRemindDot" title="리마인드 도착"></span>
+        </div>
+
+        <RlButton
+            size="sm"
+            variant="ghost"
+            @click="
+      clearPinRemindBadge();
+      router.push(`/inbox/conversations/${conversationId}/pins`)
+          "
+        >
           더보기
         </RlButton>
       </div>
@@ -981,6 +999,17 @@ onBeforeUnmount(() => {
 .state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 
 /* ✅ Pinned */
+/* ✅ PIN_REMIND badge dot */
+.pinRemindDot{
+  display:inline-block;
+  width:8px;
+  height:8px;
+  margin-left:8px;
+  border-radius:999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
+  vertical-align: middle;
+}
 .pinned{
   max-width: 760px;
   margin: 0 auto;

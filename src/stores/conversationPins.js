@@ -9,9 +9,18 @@ function keyOf(conversationId) {
 export const useConversationPinsStore = defineStore("conversationPins", {
     state: () => ({
         byConversationId: {}, // { [cid]: { items: [], loadedAt } }
+        // ✅ NEW: PIN_REMIND 배지 상태
+        remindBadgeByConversationId: {}, // { [cid]: true }
         loading: false,
         error: "",
     }),
+
+    getters: {
+        hasRemindBadge: (state) => (conversationId) => {
+            const k = keyOf(conversationId);
+            return !!state.remindBadgeByConversationId[k];
+        },
+    },
 
     actions: {
         getPins(conversationId) {
@@ -62,6 +71,21 @@ export const useConversationPinsStore = defineStore("conversationPins", {
             // DONE/CANCELED/DISMISSED => pinned에서 제거
             if (action === "DONE" || action === "CANCELED" || action === "DISMISSED") {
                 this.removePin(cid, pinId);
+            }
+        },
+
+        // ✅ NEW: PIN_REMIND 배지 ON/OFF
+        markRemindBadge(conversationId) {
+            const k = keyOf(conversationId);
+            if (!k) return;
+            this.remindBadgeByConversationId[k] = true;
+        },
+
+        clearRemindBadge(conversationId) {
+            const k = keyOf(conversationId);
+            if (!k) return;
+            if (this.remindBadgeByConversationId[k]) {
+                delete this.remindBadgeByConversationId[k];
             }
         },
 
