@@ -209,7 +209,9 @@ async function focusPinFromQuery() {
   flashPinId.value = qPinId;
   setTimeout(() => {
     if (flashPinId.value === qPinId) flashPinId.value = "";
-  }, 1000);
+  }, 2000);
+  // ✅ 처리 끝났으면 URL query 정리
+  router.replace({ query: {} });
 }
 
 // pinId 쿼리가 바뀌거나, 목록이 다시 렌더될 때도 재시도
@@ -376,7 +378,10 @@ function fmtTime(s) {
           :class="{ 'card--flash': flashPinId === String(p.pinId) }"
       >
         <div class="rowTop">
-          <div class="name">{{ p.title || "약속" }}</div>
+          <div class="name">
+            {{ p.title || "약속" }}
+            <span v-if="flashPinId === String(p.pinId)" class="remindTag">리마인드 도착</span>
+          </div>
 
           <div class="actions">
             <RlButton size="sm" variant="soft" :loading="busy" @click="openAction('DONE', p)">완료</RlButton>
@@ -557,5 +562,16 @@ function fmtTime(s) {
   0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
   30%  { box-shadow: 0 0 0 8px color-mix(in oklab, var(--accent) 22%, transparent); }
   100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
+}
+.remindTag{
+  display:inline-block;
+  margin-left:8px;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:11px;
+  line-height:1.6;
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent);
+  vertical-align: middle;
 }
 </style>

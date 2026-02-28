@@ -64,6 +64,7 @@ async function handlePinRemindToastAndBadge(notiPayload) {
             } catch {}
         }
 
+        if (cid) pins.bumpPinToTop?.(cid, pinId);   // ✅ NEW: 위로 올리기
         // ✅ 대화방 Pinned 배지 ON
         if (cid) pins.markRemindBadge?.(cid);
 

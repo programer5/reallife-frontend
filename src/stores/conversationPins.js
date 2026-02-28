@@ -89,6 +89,23 @@ export const useConversationPinsStore = defineStore("conversationPins", {
             }
         },
 
+        bumpPinToTop(conversationId, pinId) {
+            const k = String(conversationId || "");
+            if (!k || !pinId) return;
+
+            const cur = this.byConversationId[k]?.items || [];
+            const idx = cur.findIndex((p) => String(p.pinId) === String(pinId));
+            if (idx < 0) return;
+
+            const target = cur[idx];
+            const next = [target, ...cur.slice(0, idx), ...cur.slice(idx + 1)];
+
+            this.byConversationId[k] = {
+                items: next,
+                loadedAt: this.byConversationId[k]?.loadedAt || new Date().toISOString(),
+            };
+        },
+
         async refresh(conversationId, { size = 10 } = {}) {
             this.loading = true;
             this.error = "";

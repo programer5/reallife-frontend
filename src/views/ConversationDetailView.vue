@@ -1024,9 +1024,12 @@ onBeforeUnmount(() => {
   animation: pinnedFlash 0.8s ease;
 }
 @keyframes pinnedFlash{
-  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
-  30%  { box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 22%, transparent); }
-  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
+  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent);
+    background: color-mix(in oklab, var(--surface) 100%, transparent); }
+  30%  { box-shadow: 0 0 0 10px color-mix(in oklab, var(--accent) 28%, transparent);
+    background: color-mix(in oklab, var(--accent) 10%, var(--surface)); }
+  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent);
+    background: color-mix(in oklab, var(--surface) 100%, transparent); }
 }
 /* ✅ PIN_REMIND badge dot */
 .pinRemindDot{
