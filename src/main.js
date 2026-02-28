@@ -54,6 +54,7 @@ async function handlePinRemindToastAndBadge(notiPayload) {
     try {
         const pin = await getPin(pinId); // { pinId, conversationId, ... }
         const cid = pin?.conversationId;
+        if (cid) pins.bumpPinToTop?.(cid, pinId);   // ✅ NEW: 위로 올리기
 
         // ✅ 현재 대화방이면 pinned 영역 하이라이트 트리거
         if (cid) {
@@ -64,7 +65,6 @@ async function handlePinRemindToastAndBadge(notiPayload) {
             } catch {}
         }
 
-        if (cid) pins.bumpPinToTop?.(cid, pinId);   // ✅ NEW: 위로 올리기
         // ✅ 대화방 Pinned 배지 ON
         if (cid) pins.markRemindBadge?.(cid);
 

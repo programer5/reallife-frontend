@@ -91,10 +91,11 @@ export const useConversationPinsStore = defineStore("conversationPins", {
 
         bumpPinToTop(conversationId, pinId) {
             const k = String(conversationId || "");
-            if (!k || !pinId) return;
+            const pid = String(pinId || "");
+            if (!k || !pid) return;
 
             const cur = this.byConversationId[k]?.items || [];
-            const idx = cur.findIndex((p) => String(p.pinId) === String(pinId));
+            const idx = cur.findIndex((p) => String(p.pinId) === pid);
             if (idx < 0) return;
 
             const target = cur[idx];
