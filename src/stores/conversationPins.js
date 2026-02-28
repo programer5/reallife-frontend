@@ -98,7 +98,7 @@ export const useConversationPinsStore = defineStore("conversationPins", {
             const idx = cur.findIndex((p) => String(p.pinId) === pid);
             if (idx < 0) return;
 
-            const target = cur[idx];
+            const target = { ...cur[idx], __bumpAt: Date.now() }; // ✅ NEW: bump 우선순위용
             const next = [target, ...cur.slice(0, idx), ...cur.slice(idx + 1)];
 
             this.byConversationId[k] = {

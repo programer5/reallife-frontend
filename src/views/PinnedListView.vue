@@ -90,6 +90,9 @@ function createdMs(p) {
 function startMs(p) {
   return toTimeMs(p?.startAt); // null 가능
 }
+function bumpMs(p) {
+  return Number(p?.__bumpAt || 0);
+}
 
 function applySort(list) {
   const key = sortKey.value;
@@ -97,16 +100,18 @@ function applySort(list) {
   const arr = [...list];
 
   if (key === "CREATED_DESC") {
-    arr.sort((a, b) => createdMs(b) - createdMs(a));
+    arr.sort((a, b) => (bumpMs(b) - bumpMs(a)) || (createdMs(b) - createdMs(a)));
     return arr;
   }
   if (key === "CREATED_ASC") {
-    arr.sort((a, b) => createdMs(a) - createdMs(b));
+    arr.sort((a, b) => (bumpMs(b) - bumpMs(a)) || (createdMs(a) - createdMs(b)));
     return arr;
   }
   if (key === "START_ASC") {
-    // startAt 없는 건 맨 뒤
     arr.sort((a, b) => {
+      const bump = bumpMs(b) - bumpMs(a);
+      if (bump) return bump;
+
       const ta = startMs(a);
       const tb = startMs(b);
       if (ta == null && tb == null) return createdMs(b) - createdMs(a);
@@ -117,8 +122,10 @@ function applySort(list) {
     return arr;
   }
   if (key === "START_DESC") {
-    // startAt 없는 건 맨 뒤
     arr.sort((a, b) => {
+      const bump = bumpMs(b) - bumpMs(a);
+      if (bump) return bump;
+
       const ta = startMs(a);
       const tb = startMs(b);
       if (ta == null && tb == null) return createdMs(b) - createdMs(a);
@@ -129,8 +136,11 @@ function applySort(list) {
     return arr;
   }
   if (key === "TITLE_ASC") {
-    arr.sort((a, b) => safeLower(a?.title).localeCompare(safeLower(b?.title)));
-    return arr;
+    arr.sort((a, b) => {
+      const bump = bumpMs(b) - bumpMs(a);
+      if (bump) return bump;
+      return safeLower(a?.title).localeCompare(safeLower(b?.title));
+    });
   }
 
   return arr;
