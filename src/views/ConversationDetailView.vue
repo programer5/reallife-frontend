@@ -302,6 +302,25 @@ const pinEditTitle = ref("");
 const pinEditPlaceText = ref("");
 const pinEditStartAtLocal = ref(""); // datetime-local용 "YYYY-MM-DDTHH:mm"
 
+const pinEditRemindMinutes = ref(60);
+
+const REMIND_OPTIONS = [
+  { label: "5분 전", value: 5 },
+  { label: "10분 전", value: 10 },
+  { label: "30분 전", value: 30 },
+  { label: "1시간 전", value: 60 },
+];
+
+function guessRemindMinutesFromPin(pin) {
+  try {
+    const s = pin?.startAt ? Date.parse(pin.startAt) : NaN;
+    const r = pin?.remindAt ? Date.parse(pin.remindAt) : NaN;
+    const diff = Math.round((s - r) / 60000);
+    if ([5, 10, 30, 60].includes(diff)) return diff;
+  } catch {}
+  return 60;
+}
+
 const pinEditLoading = ref(false);
 
 function toLocalInput(dt) {
@@ -324,6 +343,7 @@ function openPinEdit(pin) {
   pinEditTitle.value = pin?.title || "";
   pinEditPlaceText.value = pin?.placeText || "";
   pinEditStartAtLocal.value = toLocalInput(pin?.startAt || "");
+  pinEditRemindMinutes.value = guessRemindMinutesFromPin(pin);
 
   pinEditOpen.value = true;
 }
@@ -334,6 +354,7 @@ function closePinEdit() {
   pinEditTitle.value = "";
   pinEditPlaceText.value = "";
   pinEditStartAtLocal.value = "";
+  pinEditRemindMinutes.value = 60;
 }
 
 async function submitPinEdit() {
@@ -346,6 +367,7 @@ async function submitPinEdit() {
       title: pinEditTitle.value.trim() ? pinEditTitle.value.trim() : null,
       placeText: pinEditPlaceText.value.trim() ? pinEditPlaceText.value.trim() : null,
       startAt: fromLocalInput(pinEditStartAtLocal.value), // null이면 일정 변경 없음
+      remindMinutes: pinEditRemindMinutes.value, // ✅ NEW
     });
 
     await loadPins();
@@ -957,6 +979,15 @@ onBeforeUnmount(() => {
               type="datetime-local"
               :disabled="pinEditLoading"
           />
+        </label>
+
+        <label class="pinEditField">
+          <div class="pinEditLabel">리마인드</div>
+          <select class="pinEditInput" v-model.number="pinEditRemindMinutes" :disabled="pinEditLoading">
+            <option v-for="o in REMIND_OPTIONS" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </option>
+          </select>
         </label>
 
         <label class="pinEditField">
