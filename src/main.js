@@ -130,7 +130,7 @@ async function handlePinRemindToastAndBadge(notiPayload) {
                 : "";
 
             // 설정 ON + 권한 허용 + (현재 페이지가 숨김 상태일 때만)
-            if (settings.pinRemindBrowserNotify && document.hidden) {
+            if (settings.pinRemindBrowserNotify && (document.hidden || !document.hasFocus())) {
                 showPinRemindBrowserNotification({
                     title: "⏰ 리마인드",
                     body: `📌 ${fmtPin(pin)}`,

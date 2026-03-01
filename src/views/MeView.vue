@@ -75,70 +75,69 @@
             <div class="v">{{ me?.email || "-" }}</div>
           </div>
         </div>
+      </section>
+      <section class="rl-card">
+        <div class="rl-card__header">
+          <div>
+            <div class="rl-card__title">알림</div>
+            <div class="rl-card__sub">리마인드 알림 UX</div>
+          </div>
+        </div>
 
-        <section class="rl-card">
-          <div class="rl-card__header">
-            <div>
-              <div class="rl-card__title">알림</div>
-              <div class="rl-card__sub">리마인드 알림 UX</div>
-            </div>
+        <div class="pad">
+          <div class="kv kv--toggle">
+            <div class="k">PIN_REMIND 사운드</div>
+            <label class="switch">
+              <input
+                  type="checkbox"
+                  :checked="settings.pinRemindSound"
+                  @change="settings.setPinRemindSound($event.target.checked)"
+              />
+              <span class="slider" aria-hidden="true"></span>
+            </label>
           </div>
 
-          <div class="pad">
-            <div class="kv kv--toggle">
-              <div class="k">PIN_REMIND 사운드</div>
-              <label class="switch">
-                <input
-                    type="checkbox"
-                    :checked="settings.pinRemindSound"
-                    @change="settings.setPinRemindSound($event.target.checked)"
-                />
-                <span class="slider" aria-hidden="true"></span>
-              </label>
-            </div>
-
-            <div class="kv kv--toggle">
-              <div class="k">PIN_REMIND 진동</div>
-              <label class="switch">
-                <input
-                    type="checkbox"
-                    :checked="settings.pinRemindVibrate"
-                    @change="settings.setPinRemindVibrate($event.target.checked)"
-                />
-                <span class="slider" aria-hidden="true"></span>
-              </label>
-            </div>
-
-            <div class="kv kv--toggle">
-              <div class="k">브라우저 알림</div>
-              <label class="switch">
-                <input
-                    type="checkbox"
-                    :checked="settings.pinRemindBrowserNotify"
-                    @change="settings.setPinRemindBrowserNotify($event.target.checked)"
-                />
-                <span class="slider" aria-hidden="true"></span>
-              </label>
-            </div>
-
-            <RlButton
-                size="sm"
-                variant="soft"
-                style="margin-top: 10px;"
-                @click="requestBrowserNotifyPermission"
-            >
-              알림 권한 요청
-            </RlButton>
-
-            <div class="hint">
-              다른 탭/화면을 보고 있을 때 PIN_REMIND가 오면 브라우저 알림을 띄워요.
-            </div>
-
-            <div class="hint">
-              브라우저 정책 때문에 첫 클릭/키 입력 이후부터 소리가 날 수 있어요.
-            </div>
+          <div class="kv kv--toggle">
+            <div class="k">PIN_REMIND 진동</div>
+            <label class="switch">
+              <input
+                  type="checkbox"
+                  :checked="settings.pinRemindVibrate"
+                  @change="settings.setPinRemindVibrate($event.target.checked)"
+              />
+              <span class="slider" aria-hidden="true"></span>
+            </label>
           </div>
-        </section>
+
+          <div class="kv kv--toggle">
+            <div class="k">브라우저 알림</div>
+            <label class="switch">
+              <input
+                  type="checkbox"
+                  :checked="settings.pinRemindBrowserNotify"
+                  @change="onToggleBrowserNotify"
+              />
+              <span class="slider" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <RlButton
+              size="sm"
+              variant="soft"
+              style="margin-top: 10px;"
+              @click="requestBrowserNotifyPermission"
+          >
+            알림 권한 요청
+          </RlButton>
+
+          <div class="hint">
+            다른 탭/화면을 보고 있을 때 PIN_REMIND가 오면 브라우저 알림을 띄워요.
+          </div>
+
+          <div class="hint">
+            브라우저 정책 때문에 첫 클릭/키 입력 이후부터 소리가 날 수 있어요.
+          </div>
+        </div>
       </section>
     </div>
   </div>
@@ -170,6 +169,35 @@ async function requestBrowserNotifyPermission() {
       alert("알림 권한이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.");
     }
   } catch {}
+}
+
+async function onToggleBrowserNotify(e) {
+  const next = !!e.target.checked;
+
+  // 끄는 건 그냥 끄기
+  if (!next) {
+    settings.setPinRemindBrowserNotify(false);
+    return;
+  }
+
+  // 켜려면: 권한 체크
+  if (!("Notification" in window)) {
+    alert("이 브라우저는 알림을 지원하지 않아요.");
+    settings.setPinRemindBrowserNotify(false);
+    return;
+  }
+
+  // 권한이 없으면 요청
+  if (Notification.permission !== "granted") {
+    await requestBrowserNotifyPermission();
+  }
+
+  // 최종 권한 확인 후 반영
+  if (Notification.permission === "granted") {
+    settings.setPinRemindBrowserNotify(true);
+  } else {
+    settings.setPinRemindBrowserNotify(false);
+  }
 }
 
 const me = ref(null);       // /api/me
