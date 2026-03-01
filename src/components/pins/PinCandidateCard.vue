@@ -40,6 +40,25 @@ const title = ref("");
 const placeText = ref("");
 const startAtLocal = ref("");
 
+const remindMinutes = ref(60);
+
+const REMIND_OPTIONS = [
+  { label: "5분 전", value: 5 },
+  { label: "10분 전", value: 10 },
+  { label: "30분 전", value: 30 },
+  { label: "1시간 전", value: 60 },
+];
+
+function guessRemindMinutes(candidate) {
+  try {
+    const s = candidate?.startAt ? Date.parse(candidate.startAt) : NaN;
+    const r = candidate?.remindAt ? Date.parse(candidate.remindAt) : NaN;
+    const diff = Math.round((s - r) / 60000);
+    if ([5, 10, 30, 60].includes(diff)) return diff;
+  } catch {}
+  return 60;
+}
+
 const canSave = computed(() => {
   // 제목은 빈값이면 서버가 기본값 처리하도록 null로 보내도 되지만,
   // UX상 제목은 최소 1자 권장. 다만 강제하진 않음.
@@ -50,6 +69,10 @@ function openEdit() {
   title.value = props.candidate?.title || "";
   placeText.value = props.candidate?.placeText || "";
   startAtLocal.value = toLocalInput(props.candidate?.startAt || "");
+
+  // ✅ NEW: 후보가 가지고 있던 remindAt이 있으면 그걸 기반으로 기본 선택
+  remindMinutes.value = guessRemindMinutes(props.candidate);
+
   editOpen.value = true;
 }
 
@@ -64,6 +87,7 @@ function confirmDefault() {
     overrideTitle: null,
     overridePlaceText: null,
     overrideStartAt: null,
+    overrideRemindMinutes: remindMinutes.value, // ✅ NEW
   });
 }
 
@@ -73,6 +97,7 @@ function confirmEdited() {
     overrideTitle: title.value.trim() ? title.value.trim() : null,
     overridePlaceText: placeText.value.trim() ? placeText.value.trim() : null,
     overrideStartAt: fromLocalInput(startAtLocal.value),
+    overrideRemindMinutes: remindMinutes.value, // ✅ NEW
   });
   editOpen.value = false;
 }
@@ -98,6 +123,17 @@ watch(
           (세부 정보 없음)
         </span>
       </div>
+    </div>
+
+    <div class="editBody" style="padding: 8px 0 2px;">
+      <label class="field">
+        <div class="label">리마인드</div>
+        <select v-model.number="remindMinutes" class="input">
+          <option v-for="o in REMIND_OPTIONS" :key="o.value" :value="o.value">
+            {{ o.label }}
+          </option>
+        </select>
+      </label>
     </div>
 
     <div class="actions">

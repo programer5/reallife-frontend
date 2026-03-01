@@ -17,12 +17,14 @@ export async function confirmPinFromMessage({
                                                 overrideTitle = null,
                                                 overrideStartAt = null,
                                                 overridePlaceText = null,
+                                                overrideRemindMinutes = null, // ✅ NEW
                                             } = {}) {
     const res = await api.post(`/api/conversations/${conversationId}/pins/confirm`, {
         messageId,
         overrideTitle,
         overrideStartAt,
         overridePlaceText,
+        overrideRemindMinutes, // ✅ NEW
     });
     return res.data;
 }

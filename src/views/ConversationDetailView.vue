@@ -637,6 +637,7 @@ async function onConfirmCandidate(message, payload) {
       overrideTitle: payload?.overrideTitle ?? null,
       overrideStartAt: payload?.overrideStartAt ?? null,
       overridePlaceText: payload?.overridePlaceText ?? null,
+      overrideRemindMinutes: payload?.overrideRemindMinutes ?? 60, // ✅ NEW
     });
 
     if (created?.pinId) {
