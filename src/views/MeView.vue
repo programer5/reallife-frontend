@@ -87,38 +87,59 @@
         <div class="pad">
           <div class="kv kv--toggle">
             <div class="k">PIN_REMIND 사운드</div>
-            <label class="switch">
-              <input
-                  type="checkbox"
-                  :checked="settings.pinRemindSound"
-                  @change="settings.setPinRemindSound($event.target.checked)"
-              />
-              <span class="slider" aria-hidden="true"></span>
-            </label>
+
+            <div class="toggleRight">
+              <span class="toggleState" :data-on="settings.pinRemindSound">
+                {{ settings.pinRemindSound ? "ON" : "OFF" }}
+              </span>
+
+              <label class="switch">
+                <input
+                    type="checkbox"
+                    :checked="settings.pinRemindSound"
+                    @change="settings.setPinRemindSound($event.target.checked)"
+                />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
           </div>
 
           <div class="kv kv--toggle">
             <div class="k">PIN_REMIND 진동</div>
-            <label class="switch">
-              <input
-                  type="checkbox"
-                  :checked="settings.pinRemindVibrate"
-                  @change="settings.setPinRemindVibrate($event.target.checked)"
-              />
-              <span class="slider" aria-hidden="true"></span>
-            </label>
+
+            <div class="toggleRight">
+              <span class="toggleState" :data-on="settings.pinRemindVibrate">
+                {{ settings.pinRemindVibrate ? "ON" : "OFF" }}
+              </span>
+
+              <label class="switch">
+                <input
+                    type="checkbox"
+                    :checked="settings.pinRemindVibrate"
+                    @change="settings.setPinRemindVibrate($event.target.checked)"
+                />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
           </div>
 
           <div class="kv kv--toggle">
             <div class="k">브라우저 알림</div>
-            <label class="switch">
-              <input
-                  type="checkbox"
-                  :checked="settings.pinRemindBrowserNotify"
-                  @change="onToggleBrowserNotify"
-              />
-              <span class="slider" aria-hidden="true"></span>
-            </label>
+
+            <div class="toggleRight">
+              <span class="toggleState" :data-on="settings.pinRemindBrowserNotify">
+                {{ settings.pinRemindBrowserNotify ? "ON" : "OFF" }}
+              </span>
+
+              <label class="switch">
+                <input
+                    type="checkbox"
+                    :checked="settings.pinRemindBrowserNotify"
+                    @change="onToggleBrowserNotify"
+                />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
           </div>
 
           <RlButton
@@ -306,7 +327,7 @@ async function saveProfile() {
 async function onLogout() {
   loading.value = true;
   try {
-    await auth.logout();
+    await auth.logoutCookie();
     router.replace("/login");
   } finally {
     loading.value = false;
@@ -387,10 +408,38 @@ onMounted(async () => {
 .switch input:checked + .slider::after{
   transform: translateX(18px);
 }
-
 .hint{
   margin-top:10px;
   font-size:12.5px;
   color:var(--muted);
+}
+.toggleState{
+  min-width: 44px;
+  text-align: right;
+  font-size: 12px;
+  letter-spacing: .5px;
+  color: var(--muted);
+}
+.toggleState[data-on="true"]{
+  color: color-mix(in oklab, var(--accent) 70%, var(--text));
+  font-weight: 600;
+}
+.toggleRight{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.toggleState{
+  width:32px;
+  text-align:right;
+  font-size:12px;
+  color:var(--muted);
+  letter-spacing:.5px;
+}
+
+.toggleState[data-on="true"]{
+  color: color-mix(in oklab, var(--accent) 70%, var(--text));
+  font-weight:600;
 }
 </style>
