@@ -404,11 +404,17 @@ function normalizeMessages(arr) {
 }
 function scrollToBottom({ smooth = false } = {}) {
   nextTick(() => {
-    const el = scrollerRef.value;
-    if (!el) return;
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: smooth ? "smooth" : "auto",
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollerRef.value;
+        if (!el) return;
+
+        if (smooth) {
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        } else {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
     });
   });
 }
@@ -519,24 +525,19 @@ async function loadFirst({ keepScroll = false } = {}) {
   } finally {
     loading.value = false;
 
-    // ✅ 핵심: loading=false로 scroller가 DOM에 렌더된 다음에 스크롤 실행
-    // ✅ 핵심: loading=false로 scroller가 DOM에 렌더된 다음에 스크롤 실행
+    // ✅ 핵심: DOM 렌더 1번 + 레이아웃 확정(rAF 2번) 이후 스크롤을 맞춘다
     nextTick(() => {
-      const el = scrollerRef.value;
-      if (!el) return;
-
-      // DOM이 한 번 더 커지는(이미지/비동기 렌더) 케이스까지 커버하려고
-      // rAF 2번으로 "최종 레이아웃" 이후에 스크롤을 맞춘다.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          const el2 = scrollerRef.value;
-          if (!el2) return;
+          const el = scrollerRef.value;
+          if (!el) return;
 
           if (shouldKeepScroll) {
-            const newHeight = el2.scrollHeight;
-            el2.scrollTop += newHeight - prevScrollHeight;
+            const newHeight = el.scrollHeight;
+            el.scrollTop += newHeight - prevScrollHeight;
           } else if (shouldScrollToBottom) {
-            el2.scrollTop = el2.scrollHeight; // scrollTo보다 더 확실
+            // scrollTo보다 이게 더 확실하게 "맨 아래"에 붙는 경우가 많음
+            el.scrollTop = el.scrollHeight;
           }
         });
       });
@@ -1515,5 +1516,36 @@ onBeforeUnmount(() => {
 .scroller {
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
+}
+@media (max-width: 520px) {
+  .topbar {
+    padding: 10px 10px 8px;
+    gap: 8px;
+  }
+
+  .peer {
+    padding: 8px 10px;
+    border-radius: 14px;
+  }
+  .peerAva { width: 32px; height: 32px; }
+  .peerName { font-size: 12.5px; }
+
+  .pinActions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .composerWrap {
+    padding: 10px 10px 12px;
+  }
+  .composerInner .input {
+    height: 44px;
+    font-size: 16px; /* iOS 자동 줌 방지 */
+  }
+  .composerInner .btn {
+    min-width: 72px;
+    height: 44px;
+  }
 }
 </style>
