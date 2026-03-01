@@ -117,16 +117,20 @@ async function routeForNotification(n) {
 }
 
 async function openItem(n) {
-  // 1) 읽음 처리(기존 로직 유지)
+  // 1) 읽음 처리
   try {
     if (!n.read) await readNotification(n.id);
   } catch {}
 
-  // 2) 어디로 갈지 계산 후 이동
+  // 2) 이동 경로 계산
   const to = await routeForNotification(n);
-  router.push(to);
 
-  // 3) 뒤에서 상태 보정(선택)
+  // ✅ 같은 경로면 push 안 함
+  if (router.currentRoute.value.fullPath !== to) {
+    router.push(to);
+  }
+
+  // 3) 상태 보정
   noti.refresh?.();
 }
 
