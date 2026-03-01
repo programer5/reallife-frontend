@@ -75,6 +75,45 @@
             <div class="v">{{ me?.email || "-" }}</div>
           </div>
         </div>
+
+        <section class="rl-card">
+          <div class="rl-card__header">
+            <div>
+              <div class="rl-card__title">알림</div>
+              <div class="rl-card__sub">리마인드 알림 UX</div>
+            </div>
+          </div>
+
+          <div class="pad">
+            <div class="kv kv--toggle">
+              <div class="k">PIN_REMIND 사운드</div>
+              <label class="switch">
+                <input
+                    type="checkbox"
+                    :checked="settings.pinRemindSound"
+                    @change="settings.setPinRemindSound($event.target.checked)"
+                />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
+
+            <div class="kv kv--toggle">
+              <div class="k">PIN_REMIND 진동</div>
+              <label class="switch">
+                <input
+                    type="checkbox"
+                    :checked="settings.pinRemindVibrate"
+                    @change="settings.setPinRemindVibrate($event.target.checked)"
+                />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
+
+            <div class="hint">
+              브라우저 정책 때문에 첫 클릭/키 입력 이후부터 소리가 날 수 있어요.
+            </div>
+          </div>
+        </section>
       </section>
     </div>
   </div>
@@ -86,12 +125,14 @@ import { useRouter } from "vue-router";
 
 import api from "@/lib/api.js";
 import { useAuthStore } from "@/stores/auth.js";
+import { useSettingsStore } from "@/stores/settings";
 
 import RlBadge from "@/components/ui/RlBadge.vue";
 import RlButton from "@/components/ui/RlButton.vue";
 
 const router = useRouter();
 const auth = useAuthStore();
+const settings = useSettingsStore();
 
 const me = ref(null);       // /api/me
 const profile = ref(null);  // /api/users/{handle}
@@ -240,4 +281,50 @@ onMounted(async () => {
 .v{ color: var(--text); font-size: 13px; }
 
 .hidden{ display:none; }
+.kv--toggle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 14px;
+}
+
+.switch{
+  position: relative;
+  width: 46px;
+  height: 28px;
+  display:inline-block;
+}
+
+.switch input{ display:none; }
+
+.slider{
+  position:absolute;
+  inset:0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+  border: 1px solid rgba(255,255,255,.14);
+  transition: background .15s ease;
+}
+
+.slider::after{
+  content:"";
+  position:absolute;
+  width:22px;
+  height:22px;
+  left:3px;
+  top:2px;
+  border-radius:999px;
+  background:white;
+  transition: transform .15s ease;
+}
+
+.switch input:checked + .slider::after{
+  transform: translateX(18px);
+}
+
+.hint{
+  margin-top:10px;
+  font-size:12.5px;
+  color:var(--muted);
+}
 </style>

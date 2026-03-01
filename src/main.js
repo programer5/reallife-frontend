@@ -11,6 +11,8 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { useConversationsStore } from "@/stores/conversations";
 import { useConversationPinsStore } from "@/stores/conversationPins";
 import { useToastStore } from "@/stores/toast";
+import { useSettingsStore } from "@/stores/settings";
+import { bindSoundUnlockOnce, playDing } from "@/lib/sound";
 import sse from "@/lib/sse";
 
 // ✅ NEW
@@ -41,6 +43,10 @@ function scheduleNotiRefresh(ms = 600) {
 }
 const pins = useConversationPinsStore();
 const toast = useToastStore();
+const settings = useSettingsStore();
+
+// 브라우저 정책상(사용자 제스처 필요) 앱 시작 시 unlock 바인딩
+try { bindSoundUnlockOnce(); } catch {}
 
 function parse(data) {
     if (!data) return null;
@@ -90,6 +96,20 @@ async function handlePinRemindToastAndBadge(notiPayload) {
                 )}`
                 : "",
         });
+
+        // ✅ NEW: PIN_REMIND 진동 (모바일에서 체감 업)
+        try {
+            if (settings.pinRemindVibrate && typeof navigator !== "undefined" && navigator.vibrate) {
+                navigator.vibrate([60, 40, 60]); // 짧게 2번 "부르르"
+            }
+        } catch {}
+
+        // ✅ NEW: PIN_REMIND 사운드 (설정 ON일 때만)
+        try {
+            if (settings.pinRemindSound) {
+                playDing({ volume: 0.18 });
+            }
+        } catch {}
     } catch {
         toast.success?.("⏰ 리마인드", "📌 저장한 일정 리마인드가 도착했어요.");
     }
