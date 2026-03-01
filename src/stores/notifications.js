@@ -123,5 +123,18 @@ export const useNotificationsStore = defineStore("notifications", {
         this.loadingMore = false;
       }
     },
+    // ✅ 읽은 알림을 로컬 리스트에서 즉시 제거 (Optimistic UI)
+    purgeReadLocal() {
+      const before = (this.items || []).length;
+      const next = (this.items || []).filter((n) => !n.read);
+
+      this.items = next;
+      this.hasUnread = next.some((n) => !n.read);
+
+      // seen 동기화 (삭제된 id는 seen에서 없어도 됨. refresh가 다시 맞춰줌)
+      this._seenIds = new Set((this.items || []).slice(0, 200).map((x) => x.id));
+
+      return before - next.length; // 제거된 개수
+    },
   },
 });

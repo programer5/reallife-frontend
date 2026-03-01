@@ -62,12 +62,24 @@ async function markAllRead({ silent = false } = {}) {
 async function clearRead() {
   if (cleaning.value) return;
   cleaning.value = true;
+
   try {
     const res = await clearReadNotifications();
-    await refreshNow();
-    toast.success("정리 완료", `읽은 알림 ${res?.deletedCount ?? 0}개를 정리했어요.`);
+
+    // ✅ Optimistic: 읽은 알림 즉시 제거
+    const removedLocal = noti.purgeReadLocal?.() ?? 0;
+
+    toast.success(
+        "정리 완료",
+        `읽은 알림 ${res?.deletedCount ?? removedLocal ?? 0}개를 정리했어요.`
+    );
+
+    // ✅ 뒤에서 보정(커서/hasNext/hasUnread 등 서버 기준으로 정리)
+    noti.refresh?.();
   } catch (e) {
     toast.error("실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
+    // ❗실패 시는 서버 상태가 불확실하니 강제 동기화
+    await refreshNow();
   } finally {
     cleaning.value = false;
   }
