@@ -106,7 +106,11 @@ async function openItem(n) {
     if (n.refId) {
       try {
         const pin = await getPin(n.refId);
-        router.push(`/inbox/conversations/${pin.conversationId}/pins`);
+        router.push(
+            `/inbox/conversations/${pin.conversationId}/pins?pinId=${encodeURIComponent(
+                n.refId
+            )}&notiId=${encodeURIComponent(n.id)}`
+        );
         return;
       } catch {
         router.push("/inbox/conversations");
