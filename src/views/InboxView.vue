@@ -85,41 +85,49 @@ async function clearRead() {
   }
 }
 
+function enc(v) {
+  return encodeURIComponent(String(v ?? ""));
+}
+
+async function routeForNotification(n) {
+  // ✅ PIN 알림은 pinId + notiId까지 붙여서 pins 화면에서 자동 포커스/반짝
+  if (n.type === "PIN_CREATED" || n.type === "PIN_REMIND") {
+    if (!n.refId) return "/inbox/conversations";
+
+    try {
+      const pin = await getPin(n.refId);
+      const cid = pin?.conversationId;
+      if (!cid) return "/inbox/conversations";
+
+      return `/inbox/conversations/${cid}/pins?pinId=${enc(n.refId)}&notiId=${enc(n.id)}`;
+    } catch {
+      return "/inbox/conversations";
+    }
+  }
+
+  // ✅ 메시지/대화 관련 (프로젝트 기존 규칙 유지)
+  if (n.type === "MESSAGE_RECEIVED") {
+    // 예: n.refId가 conversationId인 구조면:
+    if (n.refId) return `/inbox/conversations/${enc(n.refId)}`;
+    return "/inbox/conversations";
+  }
+
+  // 기본 fallback
+  return "/inbox/conversations";
+}
+
 async function openItem(n) {
+  // 1) 읽음 처리(기존 로직 유지)
   try {
-    await readNotification(n.id);
-    await refreshNow();
+    if (!n.read) await readNotification(n.id);
   } catch {}
 
-  if (n.type === "MESSAGE_RECEIVED") {
-    router.push("/inbox/conversations");
-    return;
-  }
+  // 2) 어디로 갈지 계산 후 이동
+  const to = await routeForNotification(n);
+  router.push(to);
 
-  if (n.type === "COMMENT_CREATED" || n.type === "POST_LIKED") {
-    if (n.refId) router.push(`/posts/${n.refId}`);
-    return;
-  }
-
-  if (n.type === "PIN_CREATED" || n.type === "PIN_REMIND") {
-    // refId = pinId
-    if (n.refId) {
-      try {
-        const pin = await getPin(n.refId);
-        router.push(
-            `/inbox/conversations/${pin.conversationId}/pins?pinId=${encodeURIComponent(
-                n.refId
-            )}&notiId=${encodeURIComponent(n.id)}`
-        );
-        return;
-      } catch {
-        router.push("/inbox/conversations");
-        return;
-      }
-    }
-    router.push("/inbox/conversations");
-    return;
-  }
+  // 3) 뒤에서 상태 보정(선택)
+  noti.refresh?.();
 }
 
 /** ====== infinite scroll ====== */
