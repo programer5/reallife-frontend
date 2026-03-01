@@ -28,6 +28,17 @@ app.use(router);
 const auth = useAuthStore();
 const noti = useNotificationsStore();
 const conv = useConversationsStore();
+// ✅ noti.refresh 폭주 방지용 디바운스
+let __notiRefreshTimer = null;
+function scheduleNotiRefresh(ms = 600) {
+    if (__notiRefreshTimer) clearTimeout(__notiRefreshTimer);
+    __notiRefreshTimer = setTimeout(() => {
+        __notiRefreshTimer = null;
+        try {
+            noti.refresh?.();
+        } catch {}
+    }, ms);
+}
 const pins = useConversationPinsStore();
 const toast = useToastStore();
 
@@ -136,8 +147,8 @@ sse.onEvent?.(async (evt) => {
         // ✅ 1) 스토어에 즉시 반영 (새 알림 리스트에 끼워넣기)
         if (noti.ingestFromSse) noti.ingestFromSse(data);
 
-        // ✅ 2) 서버와 동기화(커서/카운트 보정) - 너무 잦으면 debounce 추천
-        noti.refresh?.();
+        // ✅ 2) 서버와 동기화(커서/카운트 보정) - 디바운스로 묶어서 호출
+        scheduleNotiRefresh(600);
 
         // ✅ 3) 타입별 후처리
         if (data?.type === "MESSAGE_RECEIVED") {
