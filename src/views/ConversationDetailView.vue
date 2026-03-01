@@ -483,6 +483,10 @@ async function loadFirst({ keepScroll = false } = {}) {
 
   const prevScrollHeight = scrollerRef.value?.scrollHeight ?? 0;
 
+  // ✅ NEW: fetch 끝난 뒤 어떤 스크롤을 할지 "예약"만 해둠
+  let shouldScrollToBottom = !keepScroll;
+  let shouldKeepScroll = keepScroll;
+
   try {
     const res = await fetchMessages({
       conversationId: conversationId.value,
@@ -499,16 +503,6 @@ async function loadFirst({ keepScroll = false } = {}) {
     convStore.setActiveConversation?.(conversationId.value);
     convStore.softSyncSoon?.();
 
-    if (keepScroll) {
-      nextTick(() => {
-        const el = scrollerRef.value;
-        if (!el) return;
-        const newHeight = el.scrollHeight;
-        el.scrollTop += newHeight - prevScrollHeight;
-      });
-    } else {
-      scrollToBottom();
-    }
   } catch (e) {
     const msg = e?.response?.data?.message || "메시지를 불러오지 못했습니다.";
     error.value = msg;
@@ -518,8 +512,25 @@ async function loadFirst({ keepScroll = false } = {}) {
       unlocked.value = false;
       clearToken();
     }
+
+    // 에러면 스크롤 예약 취소
+    shouldScrollToBottom = false;
+    shouldKeepScroll = false;
   } finally {
     loading.value = false;
+
+    // ✅ 핵심: loading=false로 scroller가 DOM에 렌더된 다음에 스크롤 실행
+    nextTick(() => {
+      const el = scrollerRef.value;
+      if (!el) return;
+
+      if (shouldKeepScroll) {
+        const newHeight = el.scrollHeight;
+        el.scrollTop += newHeight - prevScrollHeight;
+      } else if (shouldScrollToBottom) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+      }
+    });
   }
 }
 
@@ -1470,5 +1481,29 @@ onBeforeUnmount(() => {
     right: 10px;
     width: auto;
   }
+}
+/* ===== Custom Scrollbar (ConversationDetailView scroller) ===== */
+.scroller::-webkit-scrollbar {
+  width: 8px;
+}
+.scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroller::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--accent) 60%, transparent),
+      color-mix(in oklab, var(--accent) 40%, transparent)
+  );
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+.scroller::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+/* Firefox */
+.scroller {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
 }
 </style>
