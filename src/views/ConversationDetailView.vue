@@ -520,16 +520,26 @@ async function loadFirst({ keepScroll = false } = {}) {
     loading.value = false;
 
     // ✅ 핵심: loading=false로 scroller가 DOM에 렌더된 다음에 스크롤 실행
+    // ✅ 핵심: loading=false로 scroller가 DOM에 렌더된 다음에 스크롤 실행
     nextTick(() => {
       const el = scrollerRef.value;
       if (!el) return;
 
-      if (shouldKeepScroll) {
-        const newHeight = el.scrollHeight;
-        el.scrollTop += newHeight - prevScrollHeight;
-      } else if (shouldScrollToBottom) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-      }
+      // DOM이 한 번 더 커지는(이미지/비동기 렌더) 케이스까지 커버하려고
+      // rAF 2번으로 "최종 레이아웃" 이후에 스크롤을 맞춘다.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el2 = scrollerRef.value;
+          if (!el2) return;
+
+          if (shouldKeepScroll) {
+            const newHeight = el2.scrollHeight;
+            el2.scrollTop += newHeight - prevScrollHeight;
+          } else if (shouldScrollToBottom) {
+            el2.scrollTop = el2.scrollHeight; // scrollTo보다 더 확실
+          }
+        });
+      });
     });
   }
 }
