@@ -13,6 +13,7 @@ function normalizeNoti(payload) {
     id,
     type: payload.type || "UNKNOWN",
     refId: payload.refId || null,
+    conversationId: payload.conversationId || null, // ✅ 추가
     body: payload.body || "",
     createdAt: payload.createdAt || new Date().toISOString(),
     read: typeof payload.read === "boolean" ? payload.read : false,

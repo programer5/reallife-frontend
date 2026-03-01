@@ -93,16 +93,10 @@ async function routeForNotification(n) {
   // ✅ PIN 알림은 pinId + notiId까지 붙여서 pins 화면에서 자동 포커스/반짝
   if (n.type === "PIN_CREATED" || n.type === "PIN_REMIND") {
     if (!n.refId) return "/inbox/conversations";
+    const cid = n.conversationId; // ✅ 백엔드가 내려줌
+    if (!cid) return "/inbox/conversations";
 
-    try {
-      const pin = await getPin(n.refId);
-      const cid = pin?.conversationId;
-      if (!cid) return "/inbox/conversations";
-
-      return `/inbox/conversations/${cid}/pins?pinId=${enc(n.refId)}&notiId=${enc(n.id)}`;
-    } catch {
-      return "/inbox/conversations";
-    }
+    return `/inbox/conversations/${cid}/pins?pinId=${enc(n.refId)}&notiId=${enc(n.id)}`;
   }
 
   // ✅ 메시지/대화 관련 (프로젝트 기존 규칙 유지)
