@@ -1414,4 +1414,61 @@ onBeforeUnmount(() => {
 }
 .pinEditField { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
 .pinEditLabel { font-size:12px; font-weight:900; color: var(--muted); }
+/* ===== Mobile / Narrow ===== */
+@media (max-width: 520px) {
+  .page{
+    height: calc(100dvh - 56px); /* 모바일에서 상단바 높이 체감 */
+  }
+
+  .topbar{
+    padding: 10px 10px 8px;
+    grid-template-columns: auto 1fr; /* 2열로 */
+    grid-template-areas:
+      "back peer"
+      "lock lock";
+    gap: 8px;
+  }
+
+  /* topbar 내부 요소 배치 */
+  .topbar > :first-child { grid-area: back; }
+  .peer { grid-area: peer; }
+  .right { grid-area: lock; justify-content: flex-start; }
+
+  .peer{
+    padding: 8px 10px;
+    border-radius: 14px;
+  }
+  .peerAva{ width: 32px; height: 32px; }
+  .peerName{ font-size: 12.5px; }
+
+  /* Pinned 카드 액션이 줄바꿈되도록 */
+  .pinActions{
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  /* 메시지/컴포저 */
+  .composerWrap{
+    padding: 10px 10px 12px;
+  }
+  .composerInner{
+    gap: 8px;
+  }
+  .composerInner .input{
+    height: 44px;
+    font-size: 16px; /* iOS 자동 줌 방지 */
+  }
+  .composerInner .btn{
+    min-width: 72px;
+    height: 44px;
+  }
+
+  /* 새 메시지 배너 위치가 너무 위로 뜨면 */
+  .newBanner{
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+}
 </style>

@@ -584,4 +584,22 @@ function fmtTime(s) {
   border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent);
   vertical-align: middle;
 }
+@media (max-width: 520px) {
+  .topbar{
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .actions{
+    justify-content: flex-end;
+  }
+
+  .card{
+    padding: 12px;
+  }
+
+  .name{
+    font-size: 13px;
+  }
+}
 </style>
