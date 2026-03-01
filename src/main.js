@@ -66,6 +66,30 @@ function fmtPin(p) {
     return `${title} · ${place} · ${when}`;
 }
 
+function showPinRemindBrowserNotification({ title, body, url }) {
+    try {
+        if (!("Notification" in window)) return;
+        if (Notification.permission !== "granted") return;
+
+        const n = new Notification(title, {
+            body,
+            silent: true, // 이미 사운드/진동은 앱에서 처리하니까 알림 자체는 무음 추천
+        });
+
+        n.onclick = () => {
+            try {
+                window.focus?.();
+            } catch {}
+            try {
+                if (url) router.push(url);
+            } catch {}
+            try {
+                n.close?.();
+            } catch {}
+        };
+    } catch {}
+}
+
 async function handlePinRemindToastAndBadge(notiPayload) {
     // notiPayload: { type, refId(pinId), body, createdAt, notificationId }
     const pinId = notiPayload?.refId;
@@ -96,6 +120,24 @@ async function handlePinRemindToastAndBadge(notiPayload) {
                 )}`
                 : "",
         });
+
+        // ✅ NEW: 사용자가 다른 탭/창 보고 있으면 브라우저 알림 띄우기
+        try {
+            const url = cid
+                ? `/inbox/conversations/${cid}/pins?pinId=${encodeURIComponent(pinId)}&notiId=${encodeURIComponent(
+                    notiPayload?.notificationId || ""
+                )}`
+                : "";
+
+            // 설정 ON + 권한 허용 + (현재 페이지가 숨김 상태일 때만)
+            if (settings.pinRemindBrowserNotify && document.hidden) {
+                showPinRemindBrowserNotification({
+                    title: "⏰ 리마인드",
+                    body: `📌 ${fmtPin(pin)}`,
+                    url,
+                });
+            }
+        } catch {}
 
         // ✅ NEW: PIN_REMIND 진동 (모바일에서 체감 업)
         try {

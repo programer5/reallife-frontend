@@ -109,6 +109,31 @@
               </label>
             </div>
 
+            <div class="kv kv--toggle">
+              <div class="k">브라우저 알림</div>
+              <label class="switch">
+                <input
+                    type="checkbox"
+                    :checked="settings.pinRemindBrowserNotify"
+                    @change="settings.setPinRemindBrowserNotify($event.target.checked)"
+                />
+                <span class="slider" aria-hidden="true"></span>
+              </label>
+            </div>
+
+            <RlButton
+                size="sm"
+                variant="soft"
+                style="margin-top: 10px;"
+                @click="requestBrowserNotifyPermission"
+            >
+              알림 권한 요청
+            </RlButton>
+
+            <div class="hint">
+              다른 탭/화면을 보고 있을 때 PIN_REMIND가 오면 브라우저 알림을 띄워요.
+            </div>
+
             <div class="hint">
               브라우저 정책 때문에 첫 클릭/키 입력 이후부터 소리가 날 수 있어요.
             </div>
@@ -133,6 +158,19 @@ import RlButton from "@/components/ui/RlButton.vue";
 const router = useRouter();
 const auth = useAuthStore();
 const settings = useSettingsStore();
+
+async function requestBrowserNotifyPermission() {
+  try {
+    if (!("Notification" in window)) {
+      alert("이 브라우저는 알림을 지원하지 않아요.");
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      alert("알림 권한이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.");
+    }
+  } catch {}
+}
 
 const me = ref(null);       // /api/me
 const profile = ref(null);  // /api/users/{handle}
