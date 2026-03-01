@@ -570,6 +570,15 @@ async function loadMore() {
   });
 }
 
+function makeTempId() {
+  return `tmp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function replaceMessageById(id, newMsg) {
+  const idx = items.value.findIndex((x) => x?.messageId === id);
+  if (idx >= 0) items.value.splice(idx, 1, newMsg);
+}
+
 async function onSend() {
   const text = String(content.value || "").trim();
   if (!text || sending.value) return;
@@ -583,6 +592,21 @@ async function onSend() {
     return;
   }
 
+  // ✅ NEW: temp 메시지 먼저 넣기
+  const tempId = makeTempId();
+  const tempMsg = {
+    messageId: tempId,
+    content: text,
+    createdAt: new Date().toISOString(),
+    pinCandidates: [],
+    _status: "sending",
+  };
+
+  items.value.push(tempMsg);
+  content.value = "";
+  newMsgCount.value = 0;
+  scrollToBottom({ smooth: true });
+
   sending.value = true;
   try {
     const msg = await sendMessage({
@@ -592,11 +616,9 @@ async function onSend() {
       unlockToken: lockEnabled.value ? unlockToken.value : null,
     });
 
-    if (msg?.messageId && !hasMessage(msg.messageId)) {
-      items.value.push(msg);
-    }
-
-    content.value = "";
+    // ✅ 성공: temp를 실제 msg로 교체
+    const cleaned = { ...msg };
+    replaceMessageById(tempId, cleaned);
 
     convStore.ingestMessageCreated?.({
       conversationId: conversationId.value,
@@ -604,22 +626,66 @@ async function onSend() {
       createdAt: msg?.createdAt,
     });
 
-    newMsgCount.value = 0;
-
     const hasCandidates = Array.isArray(msg?.pinCandidates) && msg.pinCandidates.length > 0;
     scrollToBottom({ smooth: true });
     if (hasCandidates) nextTick(() => scrollToBottom({ smooth: true }));
   } catch (e) {
+    // ✅ 실패: temp 상태만 failed로 바꾸기
     if (e?.response?.status === 423) {
       lockEnabled.value = true;
       unlocked.value = false;
       clearToken();
       toast.error?.("전송 실패", "이 대화는 잠금 상태입니다. 먼저 잠금을 해제하세요.");
-      return;
+    } else {
+      toast.error?.("전송 실패", e?.response?.data?.message || "잠시 후 다시 시도해 주세요.");
     }
-    toast.error?.("전송 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
+
+    // temp 메시지에 실패 상태 부여 → 재시도 버튼 활성화
+    const idx = items.value.findIndex((x) => x?.messageId === tempId);
+    if (idx >= 0) items.value[idx]._status = "failed";
   } finally {
     sending.value = false;
+  }
+}
+
+async function retrySend(m) {
+  // 실패 상태 메시지만 재시도
+  if (!m || m._status !== "failed") return;
+
+  // 잠금이면 재시도 막기
+  if (!canViewConversation.value) {
+    toast.error?.("재시도 실패", "잠금이 해제되어야 전송할 수 있어요.");
+    return;
+  }
+
+  // 다시 sending 상태로
+  m._status = "sending";
+
+  try {
+    const msg = await sendMessage({
+      conversationId: conversationId.value,
+      content: m.content,
+      attachmentIds: [],
+      unlockToken: lockEnabled.value ? unlockToken.value : null,
+    });
+
+    // 성공하면 temp를 실제 메시지로 교체
+    const cleaned = { ...msg };
+    replaceMessageById(m.messageId, cleaned);
+
+    newMsgCount.value = 0;
+    scrollToBottom({ smooth: true });
+  } catch (e) {
+    if (e?.response?.status === 423) {
+      lockEnabled.value = true;
+      unlocked.value = false;
+      clearToken();
+      toast.error?.("재시도 실패", "이 대화는 잠금 상태입니다. 먼저 잠금을 해제하세요.");
+      m._status = "failed";
+      return;
+    }
+    m._status = "failed";
+    toast.error?.("재시도 실패", e?.response?.data?.message || "잠시 후 다시 시도해 주세요.");
   }
 }
 
@@ -901,6 +967,15 @@ onBeforeUnmount(() => {
             <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
 
             <div class="text">{{ m.content }}</div>
+            <!-- ✅ NEW: optimistic send 상태 -->
+            <div v-if="m._status" class="sendState" :data-status="m._status">
+              <template v-if="m._status === 'sending'">전송 중…</template>
+
+              <template v-else-if="m._status === 'failed'">
+                전송 실패
+                <button class="retryBtn" type="button" @click="retrySend(m)">재시도</button>
+              </template>
+            </div>
           </div>
 
           <div v-if="m.pinCandidates && m.pinCandidates.length" class="candidates">
@@ -1547,5 +1622,31 @@ onBeforeUnmount(() => {
     min-width: 72px;
     height: 44px;
   }
+}
+.sendState{
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sendState[data-status="sending"]{
+  opacity: .9;
+}
+
+.sendState[data-status="failed"]{
+  color: color-mix(in oklab, var(--danger) 70%, var(--text));
+}
+
+.retryBtn{
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--danger) 35%, var(--border));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.retryBtn:hover{
+  border-color: color-mix(in oklab, var(--danger) 55%, var(--border));
 }
 </style>
