@@ -16,6 +16,9 @@ import sse from "@/lib/sse";
 // ✅ NEW
 import { getPin } from "@/api/pinsActions";
 
+// ✅ 최근 처리한 notification 이벤트 중복 방지
+const processedNotificationIds = new Set();
+
 const app = createApp(App);
 const pinia = createPinia();
 
@@ -114,16 +117,36 @@ sse.onEvent?.(async (evt) => {
     }
 
     if (type === "notification-created") {
+        // ✅ SSE 재연결/중복전달 대비: notificationId 기준 idempotent guard
+        const nid = data?.notificationId || data?.id; // payload에 notificationId가 없고 id만 있던 경우도 대비
+        if (!window.__seenNotiIds) window.__seenNotiIds = new Set();
+
+        if (nid) {
+            if (window.__seenNotiIds.has(nid)) return;
+            window.__seenNotiIds.add(nid);
+
+            // 메모리 무한증가 방지
+            if (window.__seenNotiIds.size > 500) {
+                // 간단하게 clear (필요하면 LRU로 바꿀 수 있음)
+                window.__seenNotiIds.clear();
+                window.__seenNotiIds.add(nid);
+            }
+        }
+
+        // ✅ 1) 스토어에 즉시 반영 (새 알림 리스트에 끼워넣기)
         if (noti.ingestFromSse) noti.ingestFromSse(data);
+
+        // ✅ 2) 서버와 동기화(커서/카운트 보정) - 너무 잦으면 debounce 추천
         noti.refresh?.();
 
+        // ✅ 3) 타입별 후처리
         if (data?.type === "MESSAGE_RECEIVED") {
             conv.softSyncSoon?.();
             return;
         }
 
-        // ✅ NEW: PIN_REMIND면 대화 상세에서도 “체감”나게 토스트/배지
         if (data?.type === "PIN_REMIND") {
+            // await 쓰면 여기 블록이 async 함수 안이어야 하므로, 지금은 기존처럼 fire-and-forget 유지
             handlePinRemindToastAndBadge(data);
             return;
         }
