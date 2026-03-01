@@ -294,33 +294,63 @@ async function confirmPinAction() {
   }
 }
 
-// pin edit place
+// pin edit (title / time / place)
 const pinEditOpen = ref(false);
 const pinEditPin = ref(null);
-const pinEditPlace = ref("");
+
+const pinEditTitle = ref("");
+const pinEditPlaceText = ref("");
+const pinEditStartAtLocal = ref(""); // datetime-local용 "YYYY-MM-DDTHH:mm"
+
 const pinEditLoading = ref(false);
 
-function openPinEditPlace(pin) {
+function toLocalInput(dt) {
+  if (!dt) return "";
+  const s = String(dt);
+  if (s.includes("T")) return s.slice(0, 16);
+  // "YYYY-MM-DD HH:mm" -> "YYYY-MM-DDTHH:mm"
+  if (s.length >= 16) return s.slice(0, 10) + "T" + s.slice(11, 16);
+  return "";
+}
+function fromLocalInput(v) {
+  // "YYYY-MM-DDTHH:mm" -> "YYYY-MM-DDTHH:mm:00"
+  if (!v) return null;
+  return v.length === 16 ? `${v}:00` : v;
+}
+
+function openPinEdit(pin) {
   pinEditPin.value = pin;
-  pinEditPlace.value = pin?.placeText || "";
+
+  pinEditTitle.value = pin?.title || "";
+  pinEditPlaceText.value = pin?.placeText || "";
+  pinEditStartAtLocal.value = toLocalInput(pin?.startAt || "");
+
   pinEditOpen.value = true;
 }
-function closePinEditPlace() {
+function closePinEdit() {
   if (pinEditLoading.value) return;
   pinEditOpen.value = false;
   pinEditPin.value = null;
-  pinEditPlace.value = "";
+  pinEditTitle.value = "";
+  pinEditPlaceText.value = "";
+  pinEditStartAtLocal.value = "";
 }
-async function submitPinEditPlace() {
+
+async function submitPinEdit() {
   const p = pinEditPin.value;
   if (!p?.pinId) return;
 
   pinEditLoading.value = true;
   try {
-    await pinUpdate(p.pinId, { placeText: pinEditPlace.value });
+    await pinUpdate(p.pinId, {
+      title: pinEditTitle.value.trim() ? pinEditTitle.value.trim() : null,
+      placeText: pinEditPlaceText.value.trim() ? pinEditPlaceText.value.trim() : null,
+      startAt: fromLocalInput(pinEditStartAtLocal.value), // null이면 일정 변경 없음
+    });
+
     await loadPins();
-    toast.success?.("저장 완료", "장소를 업데이트했습니다.");
-    closePinEditPlace();
+    toast.success?.("저장 완료", "핀 정보를 업데이트했습니다.");
+    closePinEdit();
   } catch (e) {
     toast.error?.("저장 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
@@ -775,7 +805,7 @@ onBeforeUnmount(() => {
               <div v-if="p.startAt" class="pinRow">🕒 {{ pinTimeText(p) }}</div>
               <div v-else class="pinRow muted">
                 📍 장소 미정
-                <RlButton size="sm" variant="ghost" @click="openPinEditPlace(p)">장소 추가</RlButton>
+                <RlButton size="sm" variant="ghost" @click="openPinEdit(p)">수정</RlButton>
               </div>
             </div>
           </div>
@@ -901,24 +931,47 @@ onBeforeUnmount(() => {
 
     <RlModal
         :open="pinEditOpen"
-        title="📍 장소 수정"
-        subtitle="약속 장소를 입력해 주세요."
+        title="✏️ 핀 수정"
+        subtitle="제목/시간/장소를 수정할 수 있어요."
         :blockClose="pinEditLoading"
         :closeOnBackdrop="!pinEditLoading"
-        @close="closePinEditPlace"
+        @close="closePinEdit"
     >
       <div class="pinEditBody">
-        <input
-            class="pinEditInput"
-            v-model="pinEditPlace"
-            placeholder="예: 홍대입구 3번출구 / 회사 앞 / ○○ 술집"
-            :disabled="pinEditLoading"
-        />
+        <label class="pinEditField">
+          <div class="pinEditLabel">제목</div>
+          <input
+              class="pinEditInput"
+              v-model="pinEditTitle"
+              placeholder="예: 홍대에서 저녁 약속"
+              :disabled="pinEditLoading"
+          />
+        </label>
+
+        <label class="pinEditField">
+          <div class="pinEditLabel">시간</div>
+          <input
+              class="pinEditInput"
+              v-model="pinEditStartAtLocal"
+              type="datetime-local"
+              :disabled="pinEditLoading"
+          />
+        </label>
+
+        <label class="pinEditField">
+          <div class="pinEditLabel">장소</div>
+          <input
+              class="pinEditInput"
+              v-model="pinEditPlaceText"
+              placeholder="예: 홍대입구 3번출구 / 회사 앞 / ○○ 술집"
+              :disabled="pinEditLoading"
+          />
+        </label>
       </div>
 
       <template #actions>
-        <RlButton block variant="primary" :loading="pinEditLoading" @click="submitPinEditPlace">저장</RlButton>
-        <RlButton block variant="ghost" :disabled="pinEditLoading" @click="closePinEditPlace">닫기</RlButton>
+        <RlButton block variant="primary" :loading="pinEditLoading" @click="submitPinEdit">저장</RlButton>
+        <RlButton block variant="ghost" :disabled="pinEditLoading" @click="closePinEdit">닫기</RlButton>
       </template>
     </RlModal>
 
@@ -1327,4 +1380,6 @@ onBeforeUnmount(() => {
   color: var(--text);
   padding: 0 12px;
 }
+.pinEditField { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+.pinEditLabel { font-size:12px; font-weight:900; color: var(--muted); }
 </style>
