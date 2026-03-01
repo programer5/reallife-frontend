@@ -81,13 +81,37 @@ async function handlePinRemindToastAndBadge(notiPayload) {
     }
 }
 
-sse.onEvent?.((evt) => {
+sse.onEvent?.(async (evt) => {
     if (!auth.isAuthed) return;
 
     const type = evt?.type;
     const data = parse(evt?.data);
 
-    if (type === "ping" || type === "connected") return;
+    if (type === "ping") return;
+
+    if (type === "connected") {
+        // ✅ SSE 재연결/초기 연결 시 누락 보정
+        try {
+            await noti.refresh?.();
+            conv.softSyncSoon?.();
+        } catch {}
+        return;
+    }
+
+    if (type === "error") {
+        // ✅ 끊겼을 때도 한 번 보정 (과도 호출 방지용 간단한 디바운스)
+        if (!window.__sseErrSyncOnce) {
+            window.__sseErrSyncOnce = true;
+            setTimeout(async () => {
+                try {
+                    await noti.refresh?.();
+                    conv.softSyncSoon?.();
+                } catch {}
+                window.__sseErrSyncOnce = false;
+            }, 1500);
+        }
+        return;
+    }
 
     if (type === "notification-created") {
         if (noti.ingestFromSse) noti.ingestFromSse(data);
