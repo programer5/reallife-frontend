@@ -1,6 +1,7 @@
 // src/stores/conversations.js
 import { defineStore } from "pinia";
 import { fetchConversations } from "../api/conversations";
+import { useAuthStore } from "@/stores/auth";
 
 function preview(text) {
     const s = (text ?? "").toString().trim();
@@ -68,6 +69,10 @@ export const useConversationsStore = defineStore("conversations", {
             const cid = String(payload.conversationId);
             const createdAt = payload.createdAt || new Date().toISOString();
             const lastMessagePreview = preview(payload.content);
+            const auth = useAuthStore();
+            const myId = auth.me?.id ? String(auth.me.id) : null;
+            const senderId = payload?.senderId ? String(payload.senderId) : null;
+            const isMine = !!(myId && senderId && myId === senderId);
 
             const active = this.activeConversationId && String(this.activeConversationId) === cid;
 
@@ -79,7 +84,9 @@ export const useConversationsStore = defineStore("conversations", {
                     ...cur,
                     lastMessageAt: createdAt,
                     lastMessagePreview,
-                    unreadCount: active ? (cur.unreadCount || 0) : (cur.unreadCount || 0) + 1,
+                    unreadCount: active
+                        ? 0
+                        : (cur.unreadCount || 0) + (isMine ? 0 : 1),
                 };
 
                 // ✅ 리스트 맨 위로
@@ -96,7 +103,7 @@ export const useConversationsStore = defineStore("conversations", {
                 peerUser: null,
                 lastMessageAt: createdAt,
                 lastMessagePreview,
-                unreadCount: active ? 0 : 1,
+                unreadCount: active ? 0 : (isMine ? 0 : 1),
             };
 
             this.items = [placeholder, ...(this.items || [])];
@@ -113,6 +120,21 @@ export const useConversationsStore = defineStore("conversations", {
             this._softSyncTimer = setTimeout(() => {
                 this.refresh();
             }, 800);
+        },
+
+        markRead(conversationId) {
+            if (!conversationId) return;
+            const cid = String(conversationId);
+
+            const idx = this.items.findIndex((c) => String(c.conversationId) === cid);
+            if (idx < 0) return;
+
+            const cur = this.items[idx];
+            if ((cur.unreadCount || 0) === 0) return;
+
+            const copy = this.items.slice();
+            copy[idx] = { ...cur, unreadCount: 0 };
+            this.items = copy;
         },
     },
 });

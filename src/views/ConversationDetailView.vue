@@ -505,7 +505,7 @@ async function loadFirst({ keepScroll = false } = {}) {
     hasNext.value = !!res.hasNext;
 
     await markConversationRead(conversationId.value);
-
+    convStore.markRead?.(conversationId.value); // ✅ NEW: 목록 unread 즉시 0 반영
     convStore.setActiveConversation?.(conversationId.value);
     convStore.softSyncSoon?.();
 
