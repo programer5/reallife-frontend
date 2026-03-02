@@ -198,8 +198,11 @@ const modalPin = ref(null);
 const busy = ref(false);
 
 function goConversation(p) {
-  // ✅ 카드 탭 = 대화 상세로 이동
-  router.push(`/conversations/${conversationId.value}`);
+  // ✅ named route로 이동하면 /inbox 하위 경로도 자동으로 맞춰짐
+  router.push({
+    name: "conversation-detail",
+    params: { conversationId: conversationId.value },
+  });
 }
 
 function openManage(pin) {

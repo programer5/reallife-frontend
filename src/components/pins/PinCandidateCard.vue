@@ -1,6 +1,6 @@
 <!-- src/components/pins/PinCandidateCard.vue -->
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, nextTick  } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import RlModal from "@/components/ui/RlModal.vue";
 
@@ -166,14 +166,20 @@ function confirmDefault() {
   });
 }
 
-function confirmEdited() {
+async function confirmEdited() {
+  // ✅ 한글 IME 조합중이면 blur + nextTick으로 값 확정
+  const el = document.activeElement;
+  if (el && typeof el.blur === "function") el.blur();
+  await nextTick();
+
   emit("confirm", {
     candidateId: props.candidate?.candidateId,
     overrideTitle: title.value.trim() ? title.value.trim() : null,
     overridePlaceText: placeText.value.trim() ? placeText.value.trim() : null,
     overrideStartAt: fromLocalInput(startAtLocal.value),
-    overrideRemindMinutes: overrideRemindMinutesToSend.value, // ✅ 없음(0) -> null
+    overrideRemindMinutes: overrideRemindMinutesToSend.value,
   });
+
   editOpen.value = false;
 }
 
