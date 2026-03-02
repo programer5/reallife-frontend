@@ -46,6 +46,9 @@ function resetFilters() {
   onlyHasPlace.value = false;
   onlyHasTime.value = false;
   sortKey.value = "CREATED_DESC";
+
+  // 선택: 사용자가 "초기화 됐다"를 체감하게 포커스 이동
+  nextTick(() => document.querySelector(".search")?.focus());
 }
 
 const availableStatuses = computed(() => {
@@ -59,183 +62,125 @@ const availableStatuses = computed(() => {
 });
 
 const statusChips = computed(() => {
-  // ✅ 실제로 존재하는 status만 칩으로 보여줌 (불필요한 DONE/CANCELED 칩 숨김)
-  const list = availableStatuses.value;
-  const chips = [{ value: "ALL", label: "전체" }];
-  for (const s of list) {
-    if (s === "ACTIVE") chips.push({ value: "ACTIVE", label: "ACTIVE" });
-    else if (s === "DONE") chips.push({ value: "DONE", label: "DONE" });
-    else if (s === "CANCELED") chips.push({ value: "CANCELED", label: "CANCELED" });
-    else if (s === "DISMISSED") chips.push({ value: "DISMISSED", label: "DISMISSED" });
-    else chips.push({ value: s, label: s });
-  }
-  return chips;
+  const base = [{ value: "ALL", label: "전체" }];
+
+  const map = {
+    ACTIVE: "진행중",
+    DONE: "완료",
+    CANCELED: "취소",
+    DISMISSED: "숨김",
+  };
+
+  const extra = availableStatuses.value
+      .filter((s) => s && s !== "ALL")
+      .map((s) => ({ value: s, label: map[s] || s }));
+
+  // ACTIVE가 없으면 그래도 노출되게
+  const existsActive = extra.some((x) => x.value === "ACTIVE");
+  if (!existsActive) extra.unshift({ value: "ACTIVE", label: "진행중" });
+
+  return base.concat(extra);
 });
 
-function safeLower(v) {
-  return String(v || "").toLowerCase();
+function normalize(s) {
+  return String(s || "").toLowerCase().trim();
 }
 
-function toTimeMs(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  const t = d.getTime();
-  if (Number.isNaN(t)) return null;
-  return t;
-}
-
-function createdMs(p) {
-  return toTimeMs(p?.createdAt) ?? 0;
-}
-function startMs(p) {
-  return toTimeMs(p?.startAt); // null 가능
-}
-function bumpMs(p) {
-  return Number(p?.__bumpAt || 0);
-}
-
-function applySort(list) {
-  const key = sortKey.value;
-
-  const arr = [...list];
-
-  if (key === "CREATED_DESC") {
-    arr.sort((a, b) => (bumpMs(b) - bumpMs(a)) || (createdMs(b) - createdMs(a)));
-    return arr;
-  }
-  if (key === "CREATED_ASC") {
-    arr.sort((a, b) => (bumpMs(b) - bumpMs(a)) || (createdMs(a) - createdMs(b)));
-    return arr;
-  }
-  if (key === "START_ASC") {
-    arr.sort((a, b) => {
-      const bump = bumpMs(b) - bumpMs(a);
-      if (bump) return bump;
-
-      const ta = startMs(a);
-      const tb = startMs(b);
-      if (ta == null && tb == null) return createdMs(b) - createdMs(a);
-      if (ta == null) return 1;
-      if (tb == null) return -1;
-      return ta - tb;
-    });
-    return arr;
-  }
-  if (key === "START_DESC") {
-    arr.sort((a, b) => {
-      const bump = bumpMs(b) - bumpMs(a);
-      if (bump) return bump;
-
-      const ta = startMs(a);
-      const tb = startMs(b);
-      if (ta == null && tb == null) return createdMs(b) - createdMs(a);
-      if (ta == null) return 1;
-      if (tb == null) return -1;
-      return tb - ta;
-    });
-    return arr;
-  }
-  if (key === "TITLE_ASC") {
-    arr.sort((a, b) => {
-      const bump = bumpMs(b) - bumpMs(a);
-      if (bump) return bump;
-      return safeLower(a?.title).localeCompare(safeLower(b?.title));
-    });
-  }
-
-  return arr;
+function safeTimeValue(s) {
+  const t = Date.parse(s || "");
+  return Number.isFinite(t) ? t : null;
 }
 
 const filteredPins = computed(() => {
-  const list = Array.isArray(pins.value) ? pins.value : [];
-  const qq = safeLower(q.value).trim();
+  let arr = [...pins.value];
 
-  let out = list;
-
-  // status
+  // filter: status
   if (statusFilter.value !== "ALL") {
-    out = out.filter((p) => String(p?.status || "") === String(statusFilter.value));
+    arr = arr.filter((p) => String(p.status || "") === statusFilter.value);
   }
 
-  // place/time toggles
-  if (onlyHasPlace.value) {
-    out = out.filter((p) => !!String(p?.placeText || "").trim());
-  }
-  if (onlyHasTime.value) {
-    out = out.filter((p) => !!p?.startAt);
-  }
+  // filter: has place/time
+  if (onlyHasPlace.value) arr = arr.filter((p) => !!p.placeText);
+  if (onlyHasTime.value) arr = arr.filter((p) => !!p.startAt);
 
-  // search (title + place)
+  // filter: query
+  const qq = normalize(q.value);
   if (qq) {
-    out = out.filter((p) => {
-      const title = safeLower(p?.title);
-      const place = safeLower(p?.placeText);
-      return title.includes(qq) || place.includes(qq);
+    arr = arr.filter((p) => {
+      const t = normalize(p.title);
+      const pl = normalize(p.placeText);
+      return t.includes(qq) || pl.includes(qq);
     });
   }
 
   // sort
-  return applySort(out);
-});
+  if (sortKey.value === "CREATED_DESC") {
+    arr.sort((a, b) => (safeTimeValue(b.createdAt) ?? 0) - (safeTimeValue(a.createdAt) ?? 0));
+  } else if (sortKey.value === "CREATED_ASC") {
+    arr.sort((a, b) => (safeTimeValue(a.createdAt) ?? 0) - (safeTimeValue(b.createdAt) ?? 0));
+  } else if (sortKey.value === "START_ASC") {
+    arr.sort((a, b) => (safeTimeValue(a.startAt) ?? 1e18) - (safeTimeValue(b.startAt) ?? 1e18));
+  } else if (sortKey.value === "START_DESC") {
+    arr.sort((a, b) => (safeTimeValue(b.startAt) ?? -1e18) - (safeTimeValue(a.startAt) ?? -1e18));
+  } else if (sortKey.value === "TITLE_ASC") {
+    arr.sort((a, b) => normalize(a.title).localeCompare(normalize(b.title)));
+  }
 
-const totalCount = computed(() => pins.value.length);
-const filteredCount = computed(() => filteredPins.value.length);
+  return arr;
+});
 
 const subtitleText = computed(() => {
-  if (totalCount.value === filteredCount.value) return `총 ${totalCount.value}개`;
-  return `총 ${totalCount.value}개 · 필터 ${filteredCount.value}개`;
+  const total = pins.value.length;
+  const shown = filteredPins.value.length;
+  if (!total) return "핀을 저장하면 여기서 모아볼 수 있어요.";
+  if (shown === total) return `총 ${total}개`;
+  return `총 ${total}개 중 ${shown}개 표시`;
 });
+
+/** ====== flash pin (remind noti) ====== */
+const flashPinId = ref("");
+const pinEls = new Map();
+
+function setPinEl(pinId, el) {
+  if (!pinId) return;
+  if (!el) {
+    pinEls.delete(String(pinId));
+  } else {
+    pinEls.set(String(pinId), el);
+  }
+}
+
+async function scrollToPin(pinId) {
+  await nextTick();
+  const el = pinEls.get(String(pinId));
+  if (el?.scrollIntoView) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+watch(
+    () => route.query?.pinId,
+    async (pinId) => {
+      if (!pinId) return;
+      flashPinId.value = String(pinId);
+      await scrollToPin(pinId);
+
+      // 2초 후 강조 제거
+      setTimeout(() => {
+        if (flashPinId.value === String(pinId)) flashPinId.value = "";
+      }, 2000);
+    },
+    { immediate: true }
+);
 
 /** ====== load ====== */
 async function load() {
   if (!conversationId.value) return;
-  // 서버 max 50으로 쓰는게 안전 (기존 코드 유지)
   await pinsStore.refresh(conversationId.value, { size: 50 });
 }
 
-/** ===== focus specific pin (by query pinId) ===== */
-const flashPinId = ref(""); // 현재 반짝일 pinId
-const pinElMap = new Map(); // pinId -> element
-
-function setPinEl(pinId, el) {
-  const k = String(pinId || "");
-  if (!k) return;
-  if (el) pinElMap.set(k, el);
-  else pinElMap.delete(k);
-}
-
-async function focusPinFromQuery() {
-  const qPinId = route.query?.pinId ? String(route.query.pinId) : "";
-  if (!qPinId) return;
-
-  // DOM 렌더 후 요소 확보
-  await nextTick();
-
-  const el = pinElMap.get(qPinId);
-  if (!el) return;
-
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-
-  flashPinId.value = qPinId;
-  setTimeout(() => {
-    if (flashPinId.value === qPinId) flashPinId.value = "";
-  }, 2000);
-  // ✅ 처리 끝났으면 URL query 정리
-  router.replace({ query: {} });
-}
-
-// pinId 쿼리가 바뀌거나, 목록이 다시 렌더될 때도 재시도
-watch(
-    [() => route.query?.pinId, () => filteredPins.value.length],
-    () => focusPinFromQuery(),
-    { immediate: true }
-);
-
 onMounted(async () => {
-  // ✅ pins 화면을 열었으면 리마인드 배지는 자동 해제
-  pinsStore.clearRemindBadge?.(conversationId.value);
-
-  // ✅ 토스트 딥링크로 넘어온 notiId가 있으면 읽음 처리
+  // ✅ 알림으로 들어온 notiId가 있으면 읽음 처리
   const notiId = route.query?.notiId ? String(route.query.notiId) : "";
   if (notiId) {
     try {
@@ -244,18 +189,20 @@ onMounted(async () => {
     } catch {}
   }
 
-  // 기존 로딩
   load();
 });
 
-/** ===== actions modal ===== */
+/** ===== actions modal (UX 개선 버전) ===== */
 const modalOpen = ref(false);
-const modalAction = ref("DONE"); // DONE | CANCELED | DISMISSED
 const modalPin = ref(null);
 const busy = ref(false);
 
-function openAction(action, pin) {
-  modalAction.value = action;
+function goConversation(p) {
+  // ✅ 카드 탭 = 대화 상세로 이동
+  router.push(`/conversations/${conversationId.value}`);
+}
+
+function openManage(pin) {
   modalPin.value = pin;
   modalOpen.value = true;
 }
@@ -265,45 +212,33 @@ function closeAction() {
   modalPin.value = null;
 }
 
-const modalTitle = computed(() => {
-  if (modalAction.value === "DONE") return "✅ 핀 완료";
-  if (modalAction.value === "CANCELED") return "❌ 핀 취소";
-  return "🙈 핀 숨김";
-});
-
-const modalSubtitle = computed(() => {
-  if (modalAction.value === "DONE") return "이 핀을 완료 처리할까요? (대화방 전체에 적용)";
-  if (modalAction.value === "CANCELED") return "이 핀을 취소 처리할까요? (대화방 전체에 적용)";
-  return "이 핀을 내 화면에서 숨길까요? (상대방은 그대로 보일 수 있어요)";
-});
-
-const confirmText = computed(() => {
-  if (modalAction.value === "DONE") return "완료 처리";
-  if (modalAction.value === "CANCELED") return "취소 처리";
-  return "숨김 처리";
-});
-
-const confirmVariant = computed(() => {
-  if (modalAction.value === "DONE") return "primary";
-  if (modalAction.value === "CANCELED") return "danger";
-  return "ghost";
-});
-
-async function confirm() {
+async function performAction(action) {
   const p = modalPin.value;
   if (!p?.pinId) return;
 
   busy.value = true;
+
   try {
-    if (modalAction.value === "DONE") await pinDone(p.pinId);
-    else if (modalAction.value === "CANCELED") await pinCancel(p.pinId);
+    if (action === "DONE") await pinDone(p.pinId);
+    else if (action === "CANCELED") await pinCancel(p.pinId);
     else await pinDismiss(p.pinId);
 
-    // ✅ 낙관적으로 즉시 제거
+    // 스토어에서 제거
     pinsStore.removePin(conversationId.value, p.pinId);
 
-    toast.success?.("완료", "처리했습니다.");
-    closeAction();
+    // ✅ 여기서 먼저 모달 닫기
+    modalOpen.value = false;
+    modalPin.value = null;
+
+    const msg =
+        action === "DONE"
+            ? "완료 처리했습니다."
+            : action === "CANCELED"
+                ? "취소 처리했습니다."
+                : "숨김 처리했습니다.";
+
+    toast.success?.("완료", msg);
+
   } catch (e) {
     toast.error?.("실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
@@ -315,291 +250,408 @@ function fmtTime(s) {
   if (!s) return "시간 미정";
   return String(s).replace("T", " ").slice(0, 16);
 }
+
+function fmtRemind(pin) {
+  if (!pin?.startAt || !pin?.remindAt) return "리마인드 없음";
+
+  const s = Date.parse(pin.startAt);
+  const r = Date.parse(pin.remindAt);
+  if (!Number.isFinite(s) || !Number.isFinite(r)) return "리마인드 없음";
+
+  const mins = Math.round((s - r) / 60000);
+  if (mins === 60) return "1시간 전";
+  if (mins === 30) return "30분 전";
+  if (mins === 10) return "10분 전";
+  if (mins === 5) return "5분 전";
+  return "리마인드";
+}
 </script>
 
 <template>
   <div class="page">
-    <div class="topbar">
-      <RlButton size="sm" variant="soft" @click="router.back()">←</RlButton>
-      <div class="title">
-        <div class="t1">📌 Pinned 전체</div>
-        <div class="t2">{{ subtitleText }}</div>
-      </div>
-      <RlButton size="sm" variant="soft" @click="load" :loading="loading">새로고침</RlButton>
-    </div>
-
-    <!-- ✅ controls -->
-    <div class="controls">
-      <div class="searchRow">
-        <input
-            class="search"
-            v-model="q"
-            placeholder="제목/장소 검색…"
-            autocomplete="off"
-        />
-        <select class="select" v-model="sortKey">
-          <option v-for="o in sortOptions" :key="o.value" :value="o.value">
-            {{ o.label }}
-          </option>
-        </select>
+    <div class="container">
+      <div class="topbar">
+        <RlButton size="sm" variant="soft" @click="router.back()">←</RlButton>
+        <div class="title">
+          <div class="t1">📌 Pinned 전체</div>
+          <div class="t2">{{ subtitleText }}</div>
+        </div>
+        <RlButton size="xs" variant="ghost" @click="load" :loading="loading">새로고침</RlButton>
       </div>
 
-      <div class="chips">
-        <button
-            v-for="c in statusChips"
-            :key="c.value"
-            type="button"
-            class="chip"
-            :class="{ on: statusFilter === c.value }"
-            @click="statusFilter = c.value"
+      <!-- ✅ controls -->
+      <div class="controls">
+        <div class="searchRow">
+          <input
+              class="search"
+              v-model="q"
+              placeholder="제목/장소 검색…"
+              autocomplete="off"
+          />
+          <select class="select" v-model="sortKey">
+            <option v-for="o in sortOptions" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="chips">
+          <button
+              v-for="c in statusChips"
+              :key="c.value"
+              type="button"
+              class="chip"
+              :class="{ on: statusFilter === c.value }"
+              @click="statusFilter = c.value"
+          >
+            {{ c.label }}
+          </button>
+        </div>
+
+        <div class="toggles">
+          <label class="toggle">
+            <input type="checkbox" v-model="onlyHasTime" />
+            <span>시간 있는 핀만</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" v-model="onlyHasPlace" />
+            <span>장소 있는 핀만</span>
+          </label>
+
+          <button type="button" class="reset" @click.prevent.stop="resetFilters">초기화</button>
+        </div>
+      </div>
+
+      <div v-if="error" class="state err">{{ error }}</div>
+      <div v-else-if="loading && !pins.length" class="state">불러오는 중…</div>
+
+      <div v-else class="list">
+        <div v-if="!filteredPins.length" class="empty">
+          조건에 맞는 핀이 없어요.
+        </div>
+
+        <div
+            v-for="p in filteredPins"
+            :key="p.pinId"
+            class="card"
+            @click="goConversation(p)"
+            :data-pin-id="String(p.pinId)"
+            :ref="(el) => setPinEl(p.pinId, el)"
+            :class="{ 'card--flash': flashPinId === String(p.pinId) }"
         >
-          {{ c.label }}
-        </button>
+          <div class="rowTop">
+            <div class="name">
+              {{ p.title || "약속" }}
+              <span v-if="flashPinId === String(p.pinId)" class="remindTag">리마인드 도착</span>
+            </div>
+
+            <div class="actions">
+              <RlButton
+                  size="sm"
+                  variant="soft"
+                  :loading="busy"
+                  @click.stop="openManage(p)"
+              >
+                관리
+              </RlButton>
+            </div>
+          </div>
+
+          <div class="meta">
+            <div class="line">📍 {{ p.placeText || "장소 미정" }}</div>
+            <div class="line">🕒 {{ fmtTime(p.startAt) }}</div>
+            <div class="line">⏰ {{ fmtRemind(p) }}</div>
+          </div>
+        </div>
       </div>
 
-      <div class="toggles">
-        <label class="toggle">
-          <input type="checkbox" v-model="onlyHasTime" />
-          <span>시간 있는 핀만</span>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" v-model="onlyHasPlace" />
-          <span>장소 있는 핀만</span>
-        </label>
-
-        <button type="button" class="reset" @click="resetFilters">초기화</button>
-      </div>
-    </div>
-
-    <div v-if="error" class="state err">{{ error }}</div>
-    <div v-else-if="loading && !pins.length" class="state">불러오는 중…</div>
-
-    <div v-else class="list">
-      <div v-if="!filteredPins.length" class="empty">
-        조건에 맞는 핀이 없어요.
-      </div>
-
-      <div
-          v-for="p in filteredPins"
-          :key="p.pinId"
-          class="card"
-          :data-pin-id="String(p.pinId)"
-          :ref="(el) => setPinEl(p.pinId, el)"
-          :class="{ 'card--flash': flashPinId === String(p.pinId) }"
+      <!-- ✅ 관리 모달 -->
+      <RlModal
+          :open="modalOpen"
+          title="핀 관리"
+          subtitle="완료/취소/숨김 중 하나를 선택하세요."
+          :blockClose="busy"
+          :closeOnBackdrop="!busy"
+          @close="closeAction"
       >
-        <div class="rowTop">
-          <div class="name">
-            {{ p.title || "약속" }}
-            <span v-if="flashPinId === String(p.pinId)" class="remindTag">리마인드 도착</span>
-          </div>
+        <div class="mBody2">
+          <div class="kv"><span class="k">제목</span><span class="v">{{ modalPin?.title || "약속" }}</span></div>
+          <div class="kv"><span class="k">장소</span><span class="v">{{ modalPin?.placeText || "미정" }}</span></div>
+          <div class="kv"><span class="k">시간</span><span class="v">{{ fmtTime(modalPin?.startAt) }}</span></div>
+          <div class="kv"><span class="k">리마인드</span><span class="v">{{ fmtRemind(modalPin) }}</span></div>
 
-          <div class="actions">
-            <RlButton size="sm" variant="soft" :loading="busy" @click="openAction('DONE', p)">완료</RlButton>
-            <RlButton size="sm" variant="danger" :loading="busy" @click="openAction('CANCELED', p)">취소</RlButton>
-            <RlButton size="sm" variant="ghost" :loading="busy" @click="openAction('DISMISSED', p)">숨김</RlButton>
+          <div class="manageBtns">
+            <RlButton block variant="soft" :loading="busy" @click="performAction('DONE')">완료</RlButton>
+            <RlButton block variant="danger" :loading="busy" @click="performAction('CANCELED')">취소</RlButton>
+            <RlButton block variant="ghost" :loading="busy" @click="performAction('DISMISSED')">숨김</RlButton>
           </div>
         </div>
 
-        <div class="meta">
-          <div class="line">📍 {{ p.placeText || "장소 미정" }}</div>
-          <div class="line">🕒 {{ fmtTime(p.startAt) }}</div>
-        </div>
-      </div>
+        <template #actions>
+          <RlButton block variant="ghost" :disabled="busy" @click="closeAction">닫기</RlButton>
+        </template>
+      </RlModal>
     </div>
-
-    <RlModal
-        :open="modalOpen"
-        :title="modalTitle"
-        :subtitle="modalSubtitle"
-        :blockClose="busy"
-        :closeOnBackdrop="!busy"
-        @close="closeAction"
-    >
-      <div class="mBody2">
-        <div class="kv"><span class="k">제목</span><span class="v">{{ modalPin?.title || "약속" }}</span></div>
-        <div class="kv"><span class="k">장소</span><span class="v">{{ modalPin?.placeText || "미정" }}</span></div>
-        <div class="kv"><span class="k">시간</span><span class="v">{{ fmtTime(modalPin?.startAt) }}</span></div>
-      </div>
-
-      <template #actions>
-        <RlButton block :variant="confirmVariant" :loading="busy" @click="confirm">{{ confirmText }}</RlButton>
-        <RlButton block variant="ghost" :disabled="busy" @click="closeAction">닫기</RlButton>
-      </template>
-    </RlModal>
   </div>
 </template>
 
 <style scoped>
-.page{padding:18px 14px 90px;max-width:760px;margin:0 auto}
+.page {
+  position: fixed;
+  left: 0;
+  right: 0;
+
+  top: var(--app-header-h, 64px);
+  bottom: var(--app-bottombar-h, 72px);
+
+  overflow: auto;
+
+  padding: 12px 12px 20px;
+
+  /* ✅ width 제한 */
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* ✅ 내용 폭 제한 + 중앙 정렬 */
+.container{
+  max-width: 720px;
+  margin: 0 auto;
+}
+
 .topbar{
-  display:grid;
-  grid-template-columns:auto 1fr auto;
-  align-items:center;
-  gap:10px;
-  margin-bottom:12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+
+  padding: 6px 4px 14px;
+
+  /* 카드 스타일 제거 */
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
-.title{display:flex;flex-direction:column;align-items:center;gap:2px}
-.t1{font-weight:950;text-align:center}
-.t2{font-size:12px;color:var(--muted)}
 
-.state{text-align:center;color:var(--muted);padding:18px 0}
-.state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
+.title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 
-.controls{
-  border:1px solid color-mix(in oklab, var(--border) 70%, transparent);
-  border-radius: var(--r-lg);
-  background: color-mix(in oklab, var(--surface) 86%, transparent);
+.t1{
+  font-weight: 950;
+  font-size: 15px;
+  letter-spacing: .2px;
+}
+
+.t2 {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.controls {
   padding: 12px;
-  display:grid;
-  gap: 10px;
-  margin-bottom: 12px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  backdrop-filter: blur(10px);
 }
 
-.searchRow{
-  display:grid;
-  grid-template-columns: 1fr auto;
+.searchRow {
+  display: flex;
   gap: 10px;
-  align-items:center;
+  align-items: center;
 }
-.search{
+
+.search {
+  flex: 1;
   height: 42px;
   border-radius: 14px;
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
   color: var(--text);
   padding: 0 12px;
   outline: none;
 }
-.search:focus{
-  border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
-}
 
-.select{
+.select {
   height: 42px;
   border-radius: 14px;
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
   color: var(--text);
   padding: 0 10px;
 }
 
-.chips{
-  display:flex;
-  gap: 8px;
+.chips {
+  margin-top: 10px;
+  display: flex;
   flex-wrap: wrap;
+  gap: 8px;
 }
-.chip{
-  height: 34px;
-  padding: 0 12px;
+
+.chip {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  padding: 8px 10px;
   border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.chip.on {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.toggles {
+  margin-top: 10px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reset {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   background: transparent;
   color: var(--text);
-  font-weight: 900;
+  border-radius: 999px;
+  padding: 8px 10px;
   font-size: 12px;
+}
+
+.state {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.state.err {
+  border-color: color-mix(in oklab, #ff6b6b 40%, transparent);
+}
+
+.list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.empty {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  color: var(--muted);
+  text-align: center;
+}
+
+.card {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  backdrop-filter: blur(10px);
   cursor: pointer;
 }
-.chip.on{
-  border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
+
+.card--flash {
+  outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent);
 }
 
-.toggles{
-  display:flex;
-  gap: 12px;
-  align-items:center;
+.rowTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.name {
+  flex: 1;
+  font-weight: 950;
+  font-size: 13px;
+  color: var(--text);
+  display: flex;
+  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
 }
-.toggle{
-  display:flex;
+
+.remindTag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  opacity: 0.9;
+}
+
+.actions {
+  display: flex;
   gap: 8px;
-  align-items:center;
-  font-size: 12px;
-  color: color-mix(in oklab, var(--text) 92%, var(--muted));
+  flex-wrap: wrap;
 }
-.toggle input{accent-color: var(--accent)}
-.reset{
-  margin-left:auto;
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
+
+.meta {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: color-mix(in oklab, var(--text) 82%, var(--muted));
+}
+
+.line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.manageBtns {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mBody2 {
+  padding: 8px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kv {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.k {
+  width: 56px;
+  color: var(--muted);
   font-weight: 900;
-  font-size: 12px;
-  cursor:pointer;
 }
 
-.list{display:grid;gap:10px}
-.empty{
-  text-align:center;
-  color:var(--muted);
-  border:1px dashed color-mix(in oklab,var(--border) 70%,transparent);
-  border-radius: var(--r-lg);
-  padding: 18px 12px;
-}
-
-.card{
-  border:1px solid color-mix(in oklab, var(--border) 88%, transparent);
-  background:color-mix(in oklab, var(--surface) 86%, transparent);
-  box-shadow:
-      0 18px 60px rgba(0,0,0,.28),
-      0 1px 0 rgba(255,255,255,.06) inset;
-  border-radius: var(--r-lg);
-  padding: 14px;
-  backdrop-filter: blur(14px);
-}
-.rowTop{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-}
-.name{font-weight:950;font-size:14px}
-.actions{display:flex;gap:6px;flex-wrap:wrap}
-.meta{margin-top:10px;display:grid;gap:6px}
-.line{font-size:12px;color:color-mix(in oklab, var(--text) 92%, var(--muted))}
-
-.mBody2{display:flex;flex-direction:column;gap:8px;padding:10px 0 2px}
-.kv{display:flex;justify-content:space-between;gap:10px;font-size:12px}
-.k{color:var(--muted);font-weight:800}
-/* ✅ focus flash */
-.card--flash{
-  animation: pinFlash 1s ease;
-}
-@keyframes pinFlash{
-  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
-  30%  { box-shadow: 0 0 0 8px color-mix(in oklab, var(--accent) 22%, transparent); }
-  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent); }
-}
-.remindTag{
-  display:inline-block;
-  margin-left:8px;
-  padding:2px 8px;
-  border-radius:999px;
-  font-size:11px;
-  line-height:1.6;
-  background: color-mix(in oklab, var(--accent) 18%, transparent);
-  border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent);
-  vertical-align: middle;
-}
-@media (max-width: 520px) {
-  .topbar{
-    padding-left: 10px;
-    padding-right: 10px;
-  }
-
-  .actions{
-    justify-content: flex-end;
-  }
-
-  .card{
-    padding: 12px;
-  }
-
-  .name{
-    font-size: 13px;
-  }
+.v {
+  flex: 1;
+  color: var(--text);
 }
 </style>

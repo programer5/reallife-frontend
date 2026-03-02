@@ -34,30 +34,105 @@ function fromLocalInput(v) {
   return v;
 }
 
-const editOpen = ref(false);
-
-const title = ref("");
-const placeText = ref("");
-const startAtLocal = ref("");
-
-const remindMinutes = ref(60);
+/* =========================
+ * ✅ Remind UX 개선 (칩 + 기억 + 없음)
+ * ========================= */
+const REMIND_KEY = "rl:lastRemindMinutes";
 
 const REMIND_OPTIONS = [
+  { label: "없음", value: 0 },
   { label: "5분 전", value: 5 },
   { label: "10분 전", value: 10 },
   { label: "30분 전", value: 30 },
   { label: "1시간 전", value: 60 },
 ];
 
-function guessRemindMinutes(candidate) {
+function readLastRemind() {
+  const v = Number(localStorage.getItem(REMIND_KEY));
+  return Number.isFinite(v) ? v : null;
+}
+function writeLastRemind(v) {
+  localStorage.setItem(REMIND_KEY, String(v));
+}
+
+// 후보 startAt 기준 스마트 기본값 (후보에 remindAt이 없을 때 사용)
+function smartDefaultRemind(startAt) {
+  try {
+    const s = startAt ? Date.parse(startAt) : NaN;
+    if (!Number.isFinite(s)) return 30;
+    const diffMin = Math.max(0, Math.round((s - Date.now()) / 60000));
+
+    if (diffMin <= 30) return 10;
+    if (diffMin <= 90) return 30;
+    return 60;
+  } catch {
+    return 30;
+  }
+}
+
+// 후보에 remindAt이 있으면 startAt-remindAt을 역산해서 기본 선택
+function guessFromCandidate(candidate) {
   try {
     const s = candidate?.startAt ? Date.parse(candidate.startAt) : NaN;
     const r = candidate?.remindAt ? Date.parse(candidate.remindAt) : NaN;
-    const diff = Math.round((s - r) / 60000);
-    if ([5, 10, 30, 60].includes(diff)) return diff;
-  } catch {}
-  return 60;
+    if (!Number.isFinite(s) || !Number.isFinite(r)) return null;
+
+    const mins = Math.round((s - r) / 60000);
+    return [0, 5, 10, 30, 60].includes(mins) ? mins : null;
+  } catch {
+    return null;
+  }
 }
+
+const remindMinutes = ref(30);
+
+// candidate 바뀔 때 기본값 세팅
+watch(
+    () => props.candidate,
+    (c) => {
+      const last = readLastRemind();
+      const guessed = guessFromCandidate(c);
+      const smart = smartDefaultRemind(c?.startAt);
+
+      // 우선순위: 마지막 선택 > 후보값 추정(remindAt) > 스마트 기본값
+      const next =
+          last !== null && [0, 5, 10, 30, 60].includes(last)
+              ? last
+              : guessed !== null
+                  ? guessed
+                  : smart;
+
+      remindMinutes.value = next;
+    },
+    { immediate: true }
+);
+
+// 사용자가 선택하면 기억
+watch(
+    () => remindMinutes.value,
+    (v) => {
+      if ([0, 5, 10, 30, 60].includes(v)) writeLastRemind(v);
+    }
+);
+
+const remindLabel = computed(() => {
+  const opt = REMIND_OPTIONS.find((o) => o.value === remindMinutes.value);
+  return opt?.label || "30분 전";
+});
+
+// 서버로 보낼 값(없음이면 null)
+const overrideRemindMinutesToSend = computed(() => {
+  return remindMinutes.value === 0 ? null : remindMinutes.value;
+});
+
+/* =========================
+ * ✅ Edit Modal
+ * ========================= */
+const editOpen = ref(false);
+
+const title = ref("");
+const placeText = ref("");
+const startAtLocal = ref("");
 
 const canSave = computed(() => {
   // 제목은 빈값이면 서버가 기본값 처리하도록 null로 보내도 되지만,
@@ -70,8 +145,8 @@ function openEdit() {
   placeText.value = props.candidate?.placeText || "";
   startAtLocal.value = toLocalInput(props.candidate?.startAt || "");
 
-  // ✅ NEW: 후보가 가지고 있던 remindAt이 있으면 그걸 기반으로 기본 선택
-  remindMinutes.value = guessRemindMinutes(props.candidate);
+  // ✅ 주의: 사용자가 이미 칩에서 선택했으면 그 값을 유지하는 게 UX상 좋음
+  // 따라서 여기서 remindMinutes를 다시 덮어쓰지 않음.
 
   editOpen.value = true;
 }
@@ -87,7 +162,7 @@ function confirmDefault() {
     overrideTitle: null,
     overridePlaceText: null,
     overrideStartAt: null,
-    overrideRemindMinutes: remindMinutes.value, // ✅ NEW
+    overrideRemindMinutes: overrideRemindMinutesToSend.value, // ✅ 없음(0) -> null
   });
 }
 
@@ -97,7 +172,7 @@ function confirmEdited() {
     overrideTitle: title.value.trim() ? title.value.trim() : null,
     overridePlaceText: placeText.value.trim() ? placeText.value.trim() : null,
     overrideStartAt: fromLocalInput(startAtLocal.value),
-    overrideRemindMinutes: remindMinutes.value, // ✅ NEW
+    overrideRemindMinutes: overrideRemindMinutesToSend.value, // ✅ 없음(0) -> null
   });
   editOpen.value = false;
 }
@@ -125,24 +200,31 @@ watch(
       </div>
     </div>
 
-    <div class="editBody" style="padding: 8px 0 2px;">
-      <label class="field">
-        <div class="label">리마인드</div>
-        <select v-model.number="remindMinutes" class="input">
-          <option v-for="o in REMIND_OPTIONS" :key="o.value" :value="o.value">
-            {{ o.label }}
-          </option>
-        </select>
-      </label>
+    <!-- ✅ 리마인드: 드롭다운 -> 원탭 칩 -->
+    <div class="remindRow">
+      <div class="remindLabel">리마인드</div>
+      <div class="remindChips">
+        <button
+            v-for="o in REMIND_OPTIONS"
+            :key="o.value"
+            type="button"
+            class="chip"
+            :class="{ on: remindMinutes === o.value }"
+            :disabled="busy"
+            @click="remindMinutes = o.value"
+        >
+          {{ o.label }}
+        </button>
+      </div>
     </div>
 
     <div class="actions">
       <RlButton size="sm" variant="soft" :loading="busy" @click="confirmDefault">
-        핀으로 저장
+        핀으로 저장 · {{ remindLabel }}
       </RlButton>
 
       <RlButton size="sm" variant="ghost" :disabled="busy" @click="openEdit">
-        수정 후 저장
+        수정 후 저장 · {{ remindLabel }}
       </RlButton>
 
       <RlButton size="sm" variant="ghost" :disabled="busy" @click="emit('dismiss', candidate)">
@@ -189,11 +271,29 @@ watch(
               :disabled="busy"
           />
         </label>
+
+        <!-- ✅ 모달에서도 리마인드 변경 가능 -->
+        <div class="remindRow">
+          <div class="remindLabel">리마인드</div>
+          <div class="remindChips">
+            <button
+                v-for="o in REMIND_OPTIONS"
+                :key="o.value"
+                type="button"
+                class="chip"
+                :class="{ on: remindMinutes === o.value }"
+                :disabled="busy"
+                @click="remindMinutes = o.value"
+            >
+              {{ o.label }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <template #actions>
         <RlButton block variant="soft" :loading="busy" :disabled="!canSave" @click="confirmEdited">
-          수정 내용으로 저장
+          수정 내용으로 저장 · {{ remindLabel }}
         </RlButton>
         <RlButton block variant="ghost" :disabled="busy" @click="closeEdit">
           닫기
@@ -240,6 +340,38 @@ watch(
   display:flex;
   gap:8px;
   flex-wrap: wrap;
+}
+
+/* ✅ Remind chips */
+.remindRow{
+  padding: 8px 0 2px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.remindLabel{
+  font-size:12px;
+  font-weight: 900;
+  color: var(--muted);
+}
+.remindChips{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.chip{
+  border:1px solid rgba(255,255,255,.12);
+  background:transparent;
+  padding:8px 10px;
+  border-radius:999px;
+  font-size:12px;
+  color: var(--text);
+}
+.chip.on{
+  border-color: rgba(255,255,255,.28);
+}
+.chip:disabled{
+  opacity:.5;
 }
 
 /* modal form */
