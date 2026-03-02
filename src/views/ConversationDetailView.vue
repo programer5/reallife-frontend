@@ -402,6 +402,39 @@ function normalizeMessages(arr) {
   if (!Array.isArray(arr)) return [];
   return [...arr].reverse();
 }
+function getScrollAnchor(el) {
+  // 현재 화면에서 "제일 위에 걸쳐있는 메시지"를 앵커로 잡는다
+  const nodes = el.querySelectorAll("[data-mid]");
+  if (!nodes.length) return null;
+
+  const top = el.getBoundingClientRect().top;
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const n of nodes) {
+    const r = n.getBoundingClientRect();
+    // scroller 안에 있는 메시지들 중, top에 가장 가까운 걸 선택
+    const dist = Math.abs(r.top - top);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = n;
+    }
+  }
+
+  if (!best) return null;
+  return { mid: best.getAttribute("data-mid"), topOffset: best.getBoundingClientRect().top - top };
+}
+
+function restoreScrollAnchor(el, anchor) {
+  if (!anchor?.mid) return;
+  const node = el.querySelector(`[data-mid="${CSS.escape(anchor.mid)}"]`);
+  if (!node) return;
+
+  const top = el.getBoundingClientRect().top;
+  const nowOffset = node.getBoundingClientRect().top - top;
+  el.scrollTop += (nowOffset - anchor.topOffset);
+}
+
 function scrollToBottom({ smooth = false } = {}) {
   nextTick(() => {
     requestAnimationFrame(() => {
@@ -440,16 +473,24 @@ function appendIncomingMessage(payload) {
   if (!payload?.messageId) return;
   if (hasMessage(payload.messageId)) return;
 
+  const el = scrollerRef.value;
+  const shouldAutoScroll = el ? isNearBottom(el) : true;
+
   items.value.push(payload);
 
-  const hasCandidates = Array.isArray(payload?.pinCandidates) && payload.pinCandidates.length > 0;
+  const hasCandidates =
+      Array.isArray(payload?.pinCandidates) && payload.pinCandidates.length > 0;
 
-  if (isNearBottom()) {
+  if (shouldAutoScroll) {
     newMsgCount.value = 0;
     scrollToBottom({ smooth: true });
-    if (hasCandidates) nextTick(() => scrollToBottom({ smooth: true }));
+
+    // pinCandidates 렌더로 높이 늘 수 있어서 한 번 더
+    if (hasCandidates) {
+      nextTick(() => scrollToBottom({ smooth: true }));
+    }
   } else {
-    newMsgCount.value += 1;
+    newMsgCount.value = (newMsgCount.value || 0) + 1;
   }
 }
 
@@ -549,7 +590,8 @@ async function loadMore() {
   if (!hasNext.value || !nextCursor.value) return;
   if (!canViewConversation.value) return;
 
-  const prevScrollHeight = scrollerRef.value?.scrollHeight ?? 0;
+  const el = scrollerRef.value;
+  const anchor = el ? getScrollAnchor(el) : null;
 
   const res = await fetchMessages({
     conversationId: conversationId.value,
@@ -563,10 +605,14 @@ async function loadMore() {
   hasNext.value = !!res.hasNext;
 
   nextTick(() => {
-    const el = scrollerRef.value;
-    if (!el) return;
-    const newHeight = el.scrollHeight;
-    el.scrollTop += newHeight - prevScrollHeight;
+    const el2 = scrollerRef.value;
+    if (!el2) return;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        restoreScrollAnchor(el2, anchor);
+      });
+    });
   });
 }
 
@@ -976,6 +1022,7 @@ onBeforeUnmount(() => {
             :key="m.messageId"
             class="msg"
             :class="{ mine: isMineMessage(m) }"
+            :data-mid="m.messageId"
         >
           <div class="bubble">
             <!-- ✅ 저장됨 배지 -->
