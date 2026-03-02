@@ -1274,7 +1274,9 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   right: 0;
-  top: 0;
+
+  /* ✅ AppHeader에 가리지 않게 */
+  top: var(--app-header-h, 64px);
 
   /* ✅ 하단 탭바가 있다면 이 값만큼 비워둠(기본 72px) */
   bottom: var(--app-bottombar-h, 72px);
