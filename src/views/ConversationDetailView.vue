@@ -394,6 +394,19 @@ const sending = ref(false);
 const scrollerRef = ref(null);
 const newMsgCount = ref(0);
 
+const pageRef = ref(null);
+const composerRef = ref(null);
+
+function syncComposerHeightVar() {
+  const pageEl = pageRef.value;
+  const composerEl = composerRef.value;
+  if (!pageEl || !composerEl) return;
+
+  const h = Math.ceil(composerEl.getBoundingClientRect().height || 0);
+  // ✅ CSS에서 쓰는 --composer-h 값을 실제 높이로 동기화
+  pageEl.style.setProperty("--composer-h", `${h}px`);
+}
+
 function hasMessage(messageId) {
   if (!messageId) return false;
   return items.value.some((m) => String(m.messageId) === String(messageId));
@@ -734,6 +747,7 @@ async function onSend() {
     if (idx >= 0) items.value[idx]._status = "failed";
   } finally {
     sending.value = false;
+    nextTick(syncComposerHeightVar); // ✅ 추가
   }
 }
 async function retrySend(m) {
@@ -897,7 +911,13 @@ onMounted(async () => {
 
   nextTick(() => {
     if (scrollerRef.value) scrollerRef.value.addEventListener("scroll", onScroll);
+
+    // ✅ composer 높이 실측 → CSS 변수 동기화
+    syncComposerHeightVar();
   });
+
+  // ✅ 화면 크기/주소창 변화/키보드 등으로 높이 달라질 때 다시 측정
+  window.addEventListener("resize", syncComposerHeightVar);
 
   offEvent = sse.onEvent((evt) => {
     const type = evt?.type;
@@ -936,6 +956,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("resize", syncComposerHeightVar); // ✅ 추가
+
   if (scrollerRef.value) scrollerRef.value.removeEventListener("scroll", onScroll);
   if (offEvent) offEvent();
   convStore.setActiveConversation?.(null);
@@ -946,7 +968,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="page">
+  <div ref="pageRef" class="page">
     <div class="topbar">
       <RlButton size="sm" variant="soft" @click="router.back()">←</RlButton>
 
@@ -1097,7 +1119,7 @@ onBeforeUnmount(() => {
     </button>
 
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
-    <div class="composerWrap" v-if="canViewConversation">
+    <div ref="composerRef" class="composerWrap" v-if="canViewConversation">
       <div class="composerInner">
         <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
         <button class="btn" type="button" @click="onSend" :disabled="sending">

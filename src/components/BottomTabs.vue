@@ -58,7 +58,8 @@ const showInboxDot = computed(() => noti.hasUnread);
 
 <style scoped>
 .tabs{
-  height:72px;
+  height: var(--app-bottombar-h);
+  padding-bottom: calc(12px + var(--app-safe-bottom));
   position: sticky;
   bottom: 0;
   z-index: 50;
