@@ -625,6 +625,17 @@ function removeMessageById(id) {
   if (idx >= 0) items.value.splice(idx, 1);
 }
 
+function replaceMessageById(id, nextMsg) {
+  const idx = items.value.findIndex((x) => String(x?.messageId) === String(id));
+  if (idx >= 0) {
+    // ✅ temp 메시지를 서버 메시지로 교체
+    items.value.splice(idx, 1, { ...nextMsg });
+  } else {
+    // 혹시 temp가 이미 없어졌으면(예: 다른 로직) 그냥 추가
+    items.value.push({ ...nextMsg });
+  }
+}
+
 function upsertServerMessage(tempId, serverMsg) {
   const mid = serverMsg?.messageId;
   if (!mid) {
@@ -668,7 +679,7 @@ async function onSend() {
   items.value.push(tempMsg);
   content.value = "";
   newMsgCount.value = 0;
-  scrollToBottom({ smooth: true });
+  scrollToBottom({smooth: true});
 
   sending.value = true;
   try {
@@ -676,7 +687,7 @@ async function onSend() {
       conversationId: conversationId.value,
       content: text,
       attachmentIds: [],
-      unlockToken: lockEnabled.value ? unlockToken.value : null,
+      unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
     });
 
     // ✅ 성공: SSE가 먼저 왔을 수도 있으니 "중복 방지 upsert"
@@ -689,17 +700,33 @@ async function onSend() {
     });
 
     const hasCandidates = Array.isArray(msg?.pinCandidates) && msg.pinCandidates.length > 0;
-    scrollToBottom({ smooth: true });
-    if (hasCandidates) nextTick(() => scrollToBottom({ smooth: true }));
+    scrollToBottom({smooth: true});
+    if (hasCandidates) nextTick(() => scrollToBottom({smooth: true}));
   } catch (e) {
-    // ✅ 실패: temp 상태만 failed로 바꾸기
-    if (e?.response?.status === 423) {
+    const status = e?.response?.status;
+    const serverMsg = e?.response?.data?.message;
+    const url = e?.config?.url;
+
+    // ✅ 401/403은 사실상 "로그인/권한 문제"
+    if (status === 401) {
+      toast.error?.("전송 실패", "로그인이 만료됐어요. 다시 로그인해 주세요.");
+      // 선택: 로그인 페이지가 있으면 이동
+      // router.push("/login");
+    } else if (status === 403) {
+      toast.error?.("전송 실패", "권한이 없어요. (403)");
+    } else if (status === 404) {
+      toast.error?.("전송 실패", `API 경로를 찾을 수 없어요. (404) ${url || ""}`);
+    } else if (status === 423) {
       lockEnabled.value = true;
       unlocked.value = false;
       clearToken();
       toast.error?.("전송 실패", "이 대화는 잠금 상태입니다. 먼저 잠금을 해제하세요.");
     } else {
-      toast.error?.("전송 실패", e?.response?.data?.message || "잠시 후 다시 시도해 주세요.");
+      // ✅ 여기서 status를 같이 보여주면 원인 파악이 바로 됨
+      toast.error?.(
+          "전송 실패",
+          serverMsg || (status ? `요청 실패 (status=${status})` : "네트워크 오류/서버 응답 없음")
+      );
     }
 
     // temp 메시지에 실패 상태 부여 → 재시도 버튼 활성화
@@ -709,7 +736,6 @@ async function onSend() {
     sending.value = false;
   }
 }
-
 async function retrySend(m) {
   // 실패 상태 메시지만 재시도
   if (!m || m._status !== "failed") return;
@@ -728,7 +754,7 @@ async function retrySend(m) {
       conversationId: conversationId.value,
       content: m.content,
       attachmentIds: [],
-      unlockToken: lockEnabled.value ? unlockToken.value : null,
+      unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
     });
 
     // 성공하면 temp를 실제 메시지로 교체
@@ -737,16 +763,21 @@ async function retrySend(m) {
     newMsgCount.value = 0;
     scrollToBottom({ smooth: true });
   } catch (e) {
-    if (e?.response?.status === 423) {
+    const status = e?.response?.status;
+    const serverMsg = e?.response?.data?.message;
+
+    if (status === 401) {
+      toast.error?.("재시도 실패", "로그인이 만료됐어요. 다시 로그인해 주세요.");
+    } else if (status === 423) {
       lockEnabled.value = true;
       unlocked.value = false;
       clearToken();
       toast.error?.("재시도 실패", "이 대화는 잠금 상태입니다. 먼저 잠금을 해제하세요.");
-      m._status = "failed";
-      return;
+    } else {
+      toast.error?.("재시도 실패", serverMsg || (status ? `요청 실패 (status=${status})` : "네트워크 오류"));
     }
+
     m._status = "failed";
-    toast.error?.("재시도 실패", e?.response?.data?.message || "잠시 후 다시 시도해 주세요.");
   }
 }
 
@@ -952,8 +983,8 @@ onBeforeUnmount(() => {
               size="sm"
               variant="ghost"
               @click="
-        clearPinRemindBadge();
-        router.push(`/inbox/conversations/${conversationId}/pins`)
+              clearPinRemindBadge();
+              router.push(`/inbox/conversations/${conversationId}/pins`)
             "
           >
             더보기
@@ -1009,6 +1040,7 @@ onBeforeUnmount(() => {
     <div v-else-if="loading" class="state">불러오는 중…</div>
     <div v-else-if="error" class="state err">{{ error }}</div>
 
+    <!-- ✅ 메시지 스크롤 -->
     <div v-else ref="scrollerRef" class="scroller rl-scroll rl-scroll--premium">
       <div class="inner">
         <div class="more">
@@ -1029,7 +1061,8 @@ onBeforeUnmount(() => {
             <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
 
             <div class="text">{{ m.content }}</div>
-            <!-- ✅ NEW: optimistic send 상태 -->
+
+            <!-- ✅ optimistic send 상태 -->
             <div v-if="m._status" class="sendState" :data-status="m._status">
               <template v-if="m._status === 'sending'">전송 중…</template>
 
@@ -1058,10 +1091,12 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- ✅ 새 메시지 배너 -->
     <button v-if="newMsgCount > 0" class="newBanner" type="button" @click="jumpToNewest">
       새 메시지 {{ newMsgCount }}개 · 아래로
     </button>
 
+    <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
     <div class="composerWrap" v-if="canViewConversation">
       <div class="composerInner">
         <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
@@ -1209,13 +1244,24 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* =========================
+   핵심: 화면 고정 레이아웃
+   ========================= */
 .page{
-  height: calc(100dvh - 72px);
+  /* ✅ window(바디) 스크롤이 생기지 않게, 화면을 고정 */
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+
+  /* ✅ 하단 탭바가 있다면 이 값만큼 비워둠(기본 72px) */
+  bottom: var(--app-bottombar-h, 72px);
+
   display:flex;
   flex-direction:column;
   min-height:0;
   overflow:hidden;
-  position: relative;
+  background: transparent;
 }
 
 /* 상단바 */
@@ -1264,9 +1310,7 @@ onBeforeUnmount(() => {
 .state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 
 /* ✅ Pinned */
-.pinnedWrap--flash{
-  animation: pinnedFlash 0.8s ease;
-}
+.pinnedWrap--flash{ animation: pinnedFlash 0.8s ease; }
 @keyframes pinnedFlash{
   0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent);
     background: color-mix(in oklab, var(--surface) 100%, transparent); }
@@ -1275,11 +1319,9 @@ onBeforeUnmount(() => {
   100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent);
     background: color-mix(in oklab, var(--surface) 100%, transparent); }
 }
-/* ✅ PIN_REMIND badge dot */
 .pinRemindDot{
   display:inline-block;
-  width:8px;
-  height:8px;
+  width:8px;height:8px;
   margin-left:8px;
   border-radius:999px;
   background: var(--accent);
@@ -1298,15 +1340,8 @@ onBeforeUnmount(() => {
   justify-content:space-between;
   margin-bottom: 8px;
 }
-.pinnedTitle{
-  font-weight: 950;
-  font-size: 13px;
-  opacity: .92;
-}
-.pinList{
-  display:grid;
-  gap: 8px;
-}
+.pinnedTitle{ font-weight: 950; font-size: 13px; opacity: .92; }
+.pinList{ display:grid; gap: 8px; }
 .pinCard{
   border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
   background: color-mix(in oklab, var(--surface) 86%, transparent);
@@ -1321,40 +1356,15 @@ onBeforeUnmount(() => {
   gap: 10px;
   margin-bottom: 6px;
 }
-.pinName{
-  font-weight: 950;
-  font-size: 13px;
-}
-.pinActions{
-  display:flex;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-.pinMeta{
-  display:grid;
-  gap: 4px;
-}
-.pinRow{
-  font-size: 12px;
-  opacity: .92;
-}
-.muted{
-  opacity: .55;
-}
+.pinName{ font-weight: 950; font-size: 13px; }
+.pinActions{ display:flex; gap: 6px; flex: 0 0 auto; }
+.pinMeta{ display:grid; gap: 4px; }
+.pinRow{ font-size: 12px; opacity: .92; }
+.muted{ opacity: .55; }
 
 /* pin modal body */
-.pinModalBody{
-  display:flex;
-  flex-direction:column;
-  gap: 8px;
-  padding: 10px 0 2px;
-}
-.pinModalLine{
-  display:flex;
-  justify-content:space-between;
-  gap: 10px;
-  font-size: 12px;
-}
+.pinModalBody{ display:flex; flex-direction:column; gap: 8px; padding: 10px 0 2px; }
+.pinModalLine{ display:flex; justify-content:space-between; gap: 10px; font-size: 12px; }
 .pinModalLine .k{ color: var(--muted); font-weight: 800; }
 .pinModalLine .v{ color: var(--text); font-weight: 900; }
 
@@ -1404,13 +1414,18 @@ onBeforeUnmount(() => {
   background:transparent;
 }
 
-/* 스크롤 */
+/* =========================
+   메시지 스크롤 영역
+   ========================= */
 .scroller{
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0 12px;
+
+  /* ✅ composer가 sticky로 떠도 마지막 메시지가 가려지지 않게 */
+  padding-bottom: calc(var(--composer-h, 82px) + 18px);
 }
 .inner{
   max-width: 760px;
@@ -1437,7 +1452,7 @@ onBeforeUnmount(() => {
 .msg.mine{align-items:flex-end}
 
 .bubble{
-  position: relative; /* ✅ 배지 위치 기준 */
+  position: relative;
   max-width:75%;
   padding:10px 14px;
   border-radius:18px;
@@ -1452,22 +1467,16 @@ onBeforeUnmount(() => {
   border-color:color-mix(in oklab,var(--accent) 40%,var(--border));
 }
 .text{white-space:pre-wrap}
-
 .time{font-size:11px;color:var(--muted);margin-top:4px}
-
-.candidates{
-  margin-top: 10px;
-  display: grid;
-  gap: 8px;
-}
-
+.candidates{ margin-top: 10px; display: grid; gap: 8px; }
 .bottomSpacer{height:10px}
 
+/* ✅ 새 메시지 배너: composer 위에 안정적으로 */
 .newBanner{
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 86px;
+  bottom: calc(var(--composer-h, 82px) + 16px);
   z-index: 50;
 
   height: 36px;
@@ -1479,12 +1488,22 @@ onBeforeUnmount(() => {
   font-weight: 950;
 }
 
-/* composer */
+/* =========================
+   composer: 항상 하단 고정
+   ========================= */
 .composerWrap{
+  position: sticky;
+  bottom: 0;
+  z-index: 60;
+
   padding: 10px 12px 14px;
   max-width: 760px;
   margin: 0 auto;
   width: 100%;
+
+  background: color-mix(in oklab, var(--bg) 92%, transparent);
+  border-top: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+  backdrop-filter: blur(10px);
 }
 .composerInner{
   display:flex;
@@ -1573,41 +1592,58 @@ onBeforeUnmount(() => {
 }
 .pinEditField { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
 .pinEditLabel { font-size:12px; font-weight:900; color: var(--muted); }
+
+.sendState{
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sendState[data-status="sending"]{ opacity: .9; }
+.sendState[data-status="failed"]{
+  color: color-mix(in oklab, var(--danger) 70%, var(--text));
+}
+.retryBtn{
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--danger) 35%, var(--border));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.retryBtn:hover{
+  border-color: color-mix(in oklab, var(--danger) 55%, var(--border));
+}
+
 /* ===== Mobile / Narrow ===== */
 @media (max-width: 520px) {
+  /* 모바일에서는 탭바 높이가 더 작을 수도 있어서 기본값 조정(필요시 수정) */
   .page{
-    height: calc(100dvh - 56px); /* 모바일에서 상단바 높이 체감 */
+    bottom: var(--app-bottombar-h, 56px);
   }
 
   .topbar{
     padding: 10px 10px 8px;
-    grid-template-columns: auto 1fr; /* 2열로 */
+    grid-template-columns: auto 1fr;
     grid-template-areas:
       "back peer"
       "lock lock";
     gap: 8px;
   }
-
-  /* topbar 내부 요소 배치 */
   .topbar > :first-child { grid-area: back; }
   .peer { grid-area: peer; }
   .right { grid-area: lock; justify-content: flex-start; }
 
-  .peer{
-    padding: 8px 10px;
-    border-radius: 14px;
-  }
+  .peer{ padding: 8px 10px; border-radius: 14px; }
   .peerAva{ width: 32px; height: 32px; }
   .peerName{ font-size: 12.5px; }
 
-  /* Pinned 카드 액션이 줄바꿈되도록 */
   .pinActions{
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 6px;
   }
 
-  /* 메시지/컴포저 */
   .composerWrap{
     padding: 10px 10px 12px;
   }
@@ -1623,20 +1659,17 @@ onBeforeUnmount(() => {
     height: 44px;
   }
 
-  /* 새 메시지 배너 위치가 너무 위로 뜨면 */
   .newBanner{
     left: 10px;
     right: 10px;
     width: auto;
+    transform: none;
   }
 }
+
 /* ===== Custom Scrollbar (ConversationDetailView scroller) ===== */
-.scroller::-webkit-scrollbar {
-  width: 8px;
-}
-.scroller::-webkit-scrollbar-track {
-  background: transparent;
-}
+.scroller::-webkit-scrollbar { width: 8px; }
+.scroller::-webkit-scrollbar-track { background: transparent; }
 .scroller::-webkit-scrollbar-thumb {
   background: linear-gradient(
       180deg,
@@ -1646,69 +1679,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   transition: background 0.2s ease;
 }
-.scroller::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
-}
+.scroller::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 /* Firefox */
-.scroller {
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
-}
-@media (max-width: 520px) {
-  .topbar {
-    padding: 10px 10px 8px;
-    gap: 8px;
-  }
-
-  .peer {
-    padding: 8px 10px;
-    border-radius: 14px;
-  }
-  .peerAva { width: 32px; height: 32px; }
-  .peerName { font-size: 12.5px; }
-
-  .pinActions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 6px;
-  }
-
-  .composerWrap {
-    padding: 10px 10px 12px;
-  }
-  .composerInner .input {
-    height: 44px;
-    font-size: 16px; /* iOS 자동 줌 방지 */
-  }
-  .composerInner .btn {
-    min-width: 72px;
-    height: 44px;
-  }
-}
-.sendState{
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.sendState[data-status="sending"]{
-  opacity: .9;
-}
-
-.sendState[data-status="failed"]{
-  color: color-mix(in oklab, var(--danger) 70%, var(--text));
-}
-
-.retryBtn{
-  margin-left: 8px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--danger) 35%, var(--border));
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.retryBtn:hover{
-  border-color: color-mix(in oklab, var(--danger) 55%, var(--border));
-}
+.scroller { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 </style>
