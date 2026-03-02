@@ -574,9 +574,26 @@ function makeTempId() {
   return `tmp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-function replaceMessageById(id, newMsg) {
-  const idx = items.value.findIndex((x) => x?.messageId === id);
-  if (idx >= 0) items.value.splice(idx, 1, newMsg);
+function removeMessageById(id) {
+  const idx = items.value.findIndex((x) => String(x?.messageId) === String(id));
+  if (idx >= 0) items.value.splice(idx, 1);
+}
+
+function upsertServerMessage(tempId, serverMsg) {
+  const mid = serverMsg?.messageId;
+  if (!mid) {
+    // messageId가 없다면 안전하게 temp를 실패로 처리하는 편이 낫다
+    return;
+  }
+
+  // ✅ 이미 SSE로 같은 messageId가 들어와 있으면 temp는 제거만 한다 (중복 방지)
+  if (hasMessage(mid)) {
+    removeMessageById(tempId);
+    return;
+  }
+
+  // ✅ SSE로 아직 안 들어왔으면 temp를 서버 메시지로 교체
+  replaceMessageById(tempId, { ...serverMsg });
 }
 
 async function onSend() {
@@ -616,9 +633,8 @@ async function onSend() {
       unlockToken: lockEnabled.value ? unlockToken.value : null,
     });
 
-    // ✅ 성공: temp를 실제 msg로 교체
-    const cleaned = { ...msg };
-    replaceMessageById(tempId, cleaned);
+    // ✅ 성공: SSE가 먼저 왔을 수도 있으니 "중복 방지 upsert"
+    upsertServerMessage(tempId, msg);
 
     convStore.ingestMessageCreated?.({
       conversationId: conversationId.value,
@@ -670,8 +686,7 @@ async function retrySend(m) {
     });
 
     // 성공하면 temp를 실제 메시지로 교체
-    const cleaned = { ...msg };
-    replaceMessageById(m.messageId, cleaned);
+    upsertServerMessage(m.messageId, msg);
 
     newMsgCount.value = 0;
     scrollToBottom({ smooth: true });
