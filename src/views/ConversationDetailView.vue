@@ -1,6 +1,6 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, onBeforeUnmount } from "vue";
+import { computed, onMounted, ref, nextTick, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import RlModal from "@/components/ui/RlModal.vue";
@@ -21,6 +21,8 @@ import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
 import { useConversationPinsStore } from "@/stores/conversationPins";
+import { readNotification } from "@/api/notifications";
+import { useNotificationsStore } from "@/stores/notifications";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -29,6 +31,7 @@ const toast = useToastStore();
 const convStore = useConversationsStore();
 const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
+const notificationsStore = useNotificationsStore();
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
@@ -396,6 +399,8 @@ const newMsgCount = ref(0);
 
 const pageRef = ref(null);
 const composerRef = ref(null);
+
+const flashMid = ref("");
 
 function syncComposerHeightVar() {
   const pageEl = pageRef.value;
@@ -909,11 +914,40 @@ onMounted(async () => {
     await loadPins();
   }
 
+  // ✅ 알림으로 진입한 경우: 읽음 처리 + 하이라이트/스크롤
+  const notiId = route.query?.notiId ? String(route.query.notiId) : "";
+  const fromNoti = route.query?.fromNoti ? String(route.query.fromNoti) === "1" : false;
+
+  if (notiId) {
+    try {
+      await readNotification(notiId);
+      await notificationsStore.refresh?.();
+    } catch {}
+  }
+
   nextTick(() => {
     if (scrollerRef.value) scrollerRef.value.addEventListener("scroll", onScroll);
 
     // ✅ composer 높이 실측 → CSS 변수 동기화
     syncComposerHeightVar();
+
+    // ✅ (알림 진입) 최신 메시지로 스크롤 + 2초 하이라이트
+    if (fromNoti) {
+      // items가 computed/ref일 수도 있고 그냥 배열일 수도 있어서 둘 다 대응
+      const list = Array.isArray(items) ? items : items?.value;
+      const last = list?.length ? list[list.length - 1] : null;
+      const mid = last?.messageId;
+
+      if (mid) {
+        const el = document.querySelector(`[data-mid="${mid}"]`);
+        if (el?.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "end" });
+
+        flashMid.value = String(mid);
+        setTimeout(() => {
+          if (flashMid.value === String(mid)) flashMid.value = "";
+        }, 2000);
+      }
+    }
   });
 
   // ✅ 화면 크기/주소창 변화/키보드 등으로 높이 달라질 때 다시 측정
@@ -1075,7 +1109,7 @@ onBeforeUnmount(() => {
             v-for="m in items"
             :key="m.messageId"
             class="msg"
-            :class="{ mine: isMineMessage(m) }"
+            :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId) }"
             :data-mid="m.messageId"
         >
           <div class="bubble">
@@ -1706,4 +1740,9 @@ onBeforeUnmount(() => {
 .scroller::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 /* Firefox */
 .scroller { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+.msg--flash .bubble{
+  outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 15%, transparent);
+  transition: outline .2s ease, box-shadow .2s ease;
+}
 </style>

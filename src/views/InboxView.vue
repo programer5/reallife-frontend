@@ -101,9 +101,9 @@ async function routeForNotification(n) {
 
   // ✅ 메시지/대화 관련 (프로젝트 기존 규칙 유지)
   if (n.type === "MESSAGE_RECEIVED") {
-    // 예: n.refId가 conversationId인 구조면:
-    if (n.refId) return `/inbox/conversations/${enc(n.refId)}`;
-    return "/inbox/conversations";
+    if (!n.refId) return "/inbox/conversations";
+    // ✅ notiId + fromNoti=1 붙여서 대화 진입 시 스크롤/하이라이트 트리거
+    return `/inbox/conversations/${enc(n.refId)}?notiId=${enc(n.id)}&fromNoti=1`;
   }
 
   // 기본 fallback
