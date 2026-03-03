@@ -8,6 +8,7 @@ import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
+import { fetchConversationReadState } from "@/api/conversations";
 import {
   getConversationLock,
   setConversationLock,
@@ -35,6 +36,71 @@ const notificationsStore = useNotificationsStore();
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
+
+const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
+
+function parseTime(v) {
+  const t = Date.parse(v || "");
+  return Number.isFinite(t) ? t : null;
+}
+
+function computeUnreadDividerMid(lastReadAt) {
+  if (!lastReadAt) return null;
+
+  const base = parseTime(lastReadAt);
+  if (base == null) return null;
+
+  // items는 normalizeMessages로 "오래된->최신" 정렬 상태
+  // 읽음 기준: createdAt > lastReadAt 인 첫 메시지가 “첫 unread”
+  for (const m of items.value) {
+    const ct = parseTime(m.createdAt);
+    if (ct != null && ct > base) {
+      return String(m.messageId);
+    }
+  }
+  return null;
+}
+
+async function jumpToFirstUnread(lastReadAt) {
+  // 1) 현재 페이지에 read(<=lastReadAt) 메시지가 하나도 없으면,
+  //    unread의 "가장 처음"이 더 과거에 있을 수 있음 -> loadMore로 더 가져오기
+  const base = parseTime(lastReadAt);
+  if (!base) {
+    unreadDividerMid.value = null;
+    scrollToBottom({ smooth: false });
+    return;
+  }
+
+  const hasAnyReadInLoaded = () =>
+      items.value.some((m) => {
+        const ct = parseTime(m.createdAt);
+        return ct != null && ct <= base;
+      });
+
+  // 최대 10페이지까지만(무한루프 방지)
+  let guard = 0;
+  while (!hasAnyReadInLoaded() && hasNext.value && !loading.value && guard < 10) {
+    guard++;
+    await loadMore(); // 기존 함수 그대로 사용 (prepend + 스크롤 유지)
+    await nextTick();
+  }
+
+  // 2) divider mid 계산
+  const mid = computeUnreadDividerMid(lastReadAt);
+  unreadDividerMid.value = mid;
+
+  // 3) unread가 있으면 그 위치로, 없으면 맨 아래로
+  await nextTick();
+
+  if (mid) {
+    const el = scrollerRef.value?.querySelector(`[data-mid="${mid}"]`);
+    if (el?.scrollIntoView) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  } else {
+    scrollToBottom({ smooth: false });
+  }
+}
 
 function onPinRemindHighlight(e) {
   const cid = e?.detail?.conversationId;
@@ -491,23 +557,27 @@ function appendIncomingMessage(payload) {
   if (!payload?.messageId) return;
   if (hasMessage(payload.messageId)) return;
 
-  const el = scrollerRef.value;
-  const shouldAutoScroll = el ? isNearBottom(el) : true;
+  // ✅ 핵심: “지금 사용자가 바닥 근처를 보고 있나?”
+  const shouldAutoScroll = isNearBottom();
 
+  // ✅ 1) 일단 메시지는 append
   items.value.push(payload);
 
+  // pinCandidates 렌더로 높이가 늘 수 있어 1번 더 보정 필요
   const hasCandidates =
       Array.isArray(payload?.pinCandidates) && payload.pinCandidates.length > 0;
 
+  // ✅ 2) 바닥 근처면: 기존처럼 하단 유지 (배너 리셋)
   if (shouldAutoScroll) {
     newMsgCount.value = 0;
     scrollToBottom({ smooth: true });
 
-    // pinCandidates 렌더로 높이 늘 수 있어서 한 번 더
     if (hasCandidates) {
       nextTick(() => scrollToBottom({ smooth: true }));
     }
-  } else {
+  }
+  // ✅ 3) 바닥이 아니면: 자동 스크롤 금지 + 배너 카운트 증가
+  else {
     newMsgCount.value = (newMsgCount.value || 0) + 1;
   }
 }
@@ -522,6 +592,11 @@ function onScroll() {
 
   if (isNearBottom() && newMsgCount.value > 0) {
     newMsgCount.value = 0;
+  }
+
+  // ✅ unread divider 자동 제거: 바닥 근처까지 내려오면 '읽지 않은 메시지' 라인 제거
+  if (isNearBottom() && unreadDividerMid.value) {
+    unreadDividerMid.value = null;
   }
 }
 
@@ -548,9 +623,30 @@ async function loadFirst({ keepScroll = false } = {}) {
 
   const prevScrollHeight = scrollerRef.value?.scrollHeight ?? 0;
 
-  // ✅ NEW: fetch 끝난 뒤 어떤 스크롤을 할지 "예약"만 해둠
+  // ✅ fetch 끝난 뒤 어떤 스크롤을 할지 "예약"
   let shouldScrollToBottom = !keepScroll;
   let shouldKeepScroll = keepScroll;
+
+  // ✅ NEW: 첫 unread 이동 예약
+  let shouldJumpToUnread = false;
+  let initialLastReadAt = null;
+
+  // ✅ NEW: keepScroll(=loadMore 등)일 때는 unread 이동 안 함
+  if (!keepScroll) {
+    try {
+      const rs = await fetchConversationReadState(conversationId.value);
+      initialLastReadAt = rs?.lastReadAt ?? null;
+
+      // lastReadAt이 있으면 “맨 아래 자동 스크롤” 대신 unread로 이동할 거라 예약
+      if (initialLastReadAt) {
+        shouldScrollToBottom = false;
+        shouldJumpToUnread = true;
+      }
+    } catch {
+      initialLastReadAt = null;
+      shouldJumpToUnread = false;
+    }
+  }
 
   try {
     const res = await fetchMessages({
@@ -563,8 +659,10 @@ async function loadFirst({ keepScroll = false } = {}) {
     nextCursor.value = res.nextCursor ?? null;
     hasNext.value = !!res.hasNext;
 
+    // ✅ (중요) unread 기준값은 markRead "이전"에 받은 initialLastReadAt을 사용해야 함
+    // ✅ 따라서 markRead는 기존처럼 실행해도 됨
     await markConversationRead(conversationId.value);
-    convStore.markRead?.(conversationId.value); // ✅ NEW: 목록 unread 즉시 0 반영
+    convStore.markRead?.(conversationId.value);
     convStore.setActiveConversation?.(conversationId.value);
     convStore.softSyncSoon?.();
 
@@ -581,21 +679,34 @@ async function loadFirst({ keepScroll = false } = {}) {
     // 에러면 스크롤 예약 취소
     shouldScrollToBottom = false;
     shouldKeepScroll = false;
+    shouldJumpToUnread = false;
+    unreadDividerMid.value = null;
   } finally {
     loading.value = false;
 
-    // ✅ 핵심: DOM 렌더 1번 + 레이아웃 확정(rAF 2번) 이후 스크롤을 맞춘다
+    // ✅ DOM 렌더 + 레이아웃 확정 이후 스크롤 맞춤
     nextTick(() => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+        requestAnimationFrame(async () => {
           const el = scrollerRef.value;
           if (!el) return;
 
+          // 1) keepScroll(=더보기 prepend 보정)
           if (shouldKeepScroll) {
             const newHeight = el.scrollHeight;
             el.scrollTop += newHeight - prevScrollHeight;
-          } else if (shouldScrollToBottom) {
-            // scrollTo보다 이게 더 확실하게 "맨 아래"에 붙는 경우가 많음
+            return;
+          }
+
+          // 2) 첫 unread로 이동(최초 진입에서만)
+          if (shouldJumpToUnread && initialLastReadAt) {
+            // divider + 스크롤까지 처리
+            await jumpToFirstUnread(initialLastReadAt);
+            return;
+          }
+
+          // 3) 기본: 맨 아래로
+          if (shouldScrollToBottom) {
             el.scrollTop = el.scrollHeight;
           }
         });
@@ -802,6 +913,7 @@ async function retrySend(m) {
 
 function jumpToNewest() {
   newMsgCount.value = 0;
+  unreadDividerMid.value = null; // ✅ 추가
   scrollToBottom({ smooth: true });
 }
 
@@ -1141,6 +1253,13 @@ onBeforeUnmount(() => {
             :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId) }"
             :data-mid="m.messageId"
         >
+          <div
+              v-if="unreadDividerMid && String(m.messageId) === String(unreadDividerMid)"
+              class="unreadDivider"
+          >
+            <span>읽지 않은 메시지</span>
+          </div>
+
           <div class="bubble">
             <!-- ✅ 저장됨 배지 -->
             <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
@@ -1773,5 +1892,27 @@ onBeforeUnmount(() => {
   outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent);
   box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 15%, transparent);
   transition: outline .2s ease, box-shadow .2s ease;
+}
+.unreadDivider{
+  margin: 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: .8;
+}
+.unreadDivider::before,
+.unreadDivider::after{
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in oklab, var(--border) 80%, transparent);
+}
+.unreadDivider span{
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
 }
 </style>

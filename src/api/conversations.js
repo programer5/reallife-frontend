@@ -24,3 +24,8 @@ export async function markConversationRead(conversationId) {
     // 확실하게 하려면 api.post(url, null, { headers: ... })
     await api.post(`/api/conversations/${conversationId}/read`);
 }
+
+export async function fetchConversationReadState(conversationId) {
+    const res = await api.get(`/api/conversations/${conversationId}/read-state`);
+    return res.data; // { lastReadAt }
+}
