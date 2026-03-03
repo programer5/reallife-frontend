@@ -73,6 +73,15 @@ export const useConversationsStore = defineStore("conversations", {
         ingestMessageCreated(payload) {
             if (!payload?.conversationId) return;
 
+            // ✅ 중복 이벤트 방지(전역 SSE + send 성공 upsert 둘 다 대비)
+            const mid = payload?.messageId;
+            if (!window.__seenConvMsgIds) window.__seenConvMsgIds = new Set();
+            if (mid) {
+                if (window.__seenConvMsgIds.has(mid)) return;
+                window.__seenConvMsgIds.add(mid);
+                if (window.__seenConvMsgIds.size > 2000) window.__seenConvMsgIds.clear();
+            }
+
             const cid = String(payload.conversationId);
             const createdAt = payload.createdAt || new Date().toISOString();
             const lastMessagePreview = previewFromPayload(payload);
