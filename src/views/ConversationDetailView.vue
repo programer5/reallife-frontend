@@ -463,6 +463,11 @@ const sending = ref(false);
 const scrollerRef = ref(null);
 const newMsgCount = ref(0);
 
+// ✅ 메시지 시간 라벨 자동 갱신용 tick
+const nowTick = ref(Date.now());
+let _msgTimeTimer = null;
+let _msgTimeTimer2 = null;
+
 const pageRef = ref(null);
 const composerRef = ref(null);
 
@@ -547,10 +552,57 @@ function isMineMessage(m) {
 }
 
 function messageTimeText(m) {
-  const s = m?.createdAt ? String(m.createdAt) : "";
-  if (!s) return "";
-  // hh:mm
-  return s.replace("T", " ").slice(11, 16);
+  const raw = m?.createdAt ? String(m.createdAt) : "";
+  if (!raw) return "";
+
+  // ✅ createdAt 포맷 유연하게 처리 (ISO / "YYYY-MM-DD HH:mm:ss" 모두)
+  const iso = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return raw.replace("T", " ").slice(11, 16); // fallback hh:mm
+
+  const now = nowTick.value;
+  const diffMin = Math.floor((now - t) / 60000);
+
+  if (diffMin < 1) return "방금";
+  if (diffMin < 60) return `${diffMin}분 전`;
+
+  // 60분 이상이면 기존처럼 hh:mm
+  return iso.replace("T", " ").slice(11, 16);
+}
+
+// ✅ 메시지 그룹핑(같은 sender + 5분 이내면 같은 그룹)
+function isSameSender(a, b) {
+  const sa = a?.senderId;
+  const sb = b?.senderId;
+  if (sa == null || sb == null) return false;
+  return String(sa) === String(sb);
+}
+
+function minutesBetween(a, b) {
+  const ta = Date.parse(String(a?.createdAt || "").replace(" ", "T"));
+  const tb = Date.parse(String(b?.createdAt || "").replace(" ", "T"));
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 9999;
+  return Math.abs(tb - ta) / 60000;
+}
+
+// 현재 메시지가 "이전 메시지"와 같은 그룹인지
+function isGroupWithPrev(idx) {
+  if (idx <= 0) return false;
+  const cur = items.value[idx];
+  const prev = items.value[idx - 1];
+  if (!cur || !prev) return false;
+  if (!isSameSender(cur, prev)) return false;
+  return minutesBetween(prev, cur) <= 5;
+}
+
+// 현재 메시지가 "다음 메시지"와 같은 그룹인지
+function isGroupWithNext(idx) {
+  if (idx < 0 || idx >= items.value.length - 1) return false;
+  const cur = items.value[idx];
+  const next = items.value[idx + 1];
+  if (!cur || !next) return false;
+  if (!isSameSender(cur, next)) return false;
+  return minutesBetween(cur, next) <= 5;
 }
 
 function appendIncomingMessage(payload) {
@@ -823,9 +875,13 @@ async function onSend() {
     upsertServerMessage(tempId, msg);
 
     convStore.ingestMessageCreated?.({
+      messageId: msg?.messageId,
       conversationId: conversationId.value,
+      senderId: msg?.senderId, // ✅ 응답 payload에서 가져오기
       content: msg?.content,
       createdAt: msg?.createdAt,
+      attachments: msg?.attachments || [],
+      pinCandidates: msg?.pinCandidates || [],
     });
 
     const hasCandidates = Array.isArray(msg?.pinCandidates) && msg.pinCandidates.length > 0;
@@ -1128,6 +1184,14 @@ onMounted(async () => {
       return;
     }
   });
+  // ✅ 분 경계에 맞춰 갱신(방금/1분 전 자연스럽게)
+  const delay = 60000 - (Date.now() % 60000);
+  _msgTimeTimer = setTimeout(() => {
+    nowTick.value = Date.now();
+    _msgTimeTimer2 = setInterval(() => {
+      nowTick.value = Date.now();
+    }, 60000);
+  }, delay);
 });
 
 onBeforeUnmount(() => {
@@ -1139,6 +1203,11 @@ onBeforeUnmount(() => {
 
   for (const t of savedBadgeTimers.values()) clearTimeout(t);
   savedBadgeTimers.clear();
+
+  if (_msgTimeTimer) clearTimeout(_msgTimeTimer);
+  if (_msgTimeTimer2) clearInterval(_msgTimeTimer2);
+  _msgTimeTimer = null;
+  _msgTimeTimer2 = null;
 });
 </script>
 
@@ -1247,10 +1316,11 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-            v-for="m in items"
+            v-for="(m, i) in items"
             :key="m.messageId"
             class="msg"
-            :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId) }"
+            :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId),
+            'msg--groupPrev': isGroupWithPrev(i), 'msg--groupNext': isGroupWithNext(i),}"
             :data-mid="m.messageId"
         >
           <div
@@ -1288,7 +1358,7 @@ onBeforeUnmount(() => {
             />
           </div>
 
-          <div class="time">{{ messageTimeText(m) }}</div>
+          <div v-if="!isGroupWithNext(i)" class="time">{{ messageTimeText(m) }}</div>
         </div>
 
         <div class="bottomSpacer"></div>
@@ -1894,7 +1964,7 @@ onBeforeUnmount(() => {
   transition: outline .2s ease, box-shadow .2s ease;
 }
 .unreadDivider{
-  margin: 10px 0;
+  margin: 14px 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1914,5 +1984,24 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   background: color-mix(in oklab, var(--surface) 92%, transparent);
+}
+/* ✅ 같은 그룹(이전 메시지와 이어짐)이면 위 간격을 줄여서 '붙어보이게' */
+.msg.msg--groupPrev {
+  margin-top: -6px;
+}
+
+/* ✅ 버블 라운드도 살짝 다듬기: 그룹이면 위/아래 모서리를 덜 둥글게 */
+.msg.msg--groupPrev:not(.mine) .bubble {
+  border-top-left-radius: 10px;
+}
+.msg.msg--groupNext:not(.mine) .bubble {
+  border-bottom-left-radius: 10px;
+}
+
+.msg.msg--groupPrev.mine .bubble {
+  border-top-right-radius: 10px;
+}
+.msg.msg--groupNext.mine .bubble {
+  border-bottom-right-radius: 10px;
 }
 </style>

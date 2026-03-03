@@ -1,6 +1,6 @@
 <!-- src/views/ConversationsView.vue -->
 <script setup>
-import { computed, onMounted } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import { useConversationsStore } from "@/stores/conversations";
@@ -20,10 +20,75 @@ function goNewDm() {
   router.push("/inbox/new");
 }
 
+// ✅ 목록 시간 자동 갱신용 tick (분 경계 맞춤)
+const nowTick = ref(Date.now());
+let _timeTimer = null;
+let _timeTimer2 = null;
+
 onMounted(async () => {
+  // 목록 로딩
   await conv._refreshNow?.();
   if (!conv._refreshNow) await conv.refresh();
+
+  // 분 경계에 맞춰 시간 라벨 갱신
+  const delay = 60000 - (Date.now() % 60000);
+  _timeTimer = setTimeout(() => {
+    nowTick.value = Date.now();
+    _timeTimer2 = setInterval(() => {
+      nowTick.value = Date.now();
+    }, 60000);
+  }, delay);
 });
+
+onBeforeUnmount(() => {
+  if (_timeTimer) clearTimeout(_timeTimer);
+  if (_timeTimer2) clearInterval(_timeTimer2);
+  _timeTimer = null;
+  _timeTimer2 = null;
+});
+
+function fmtListTime(iso) {
+  const t = Date.parse(iso || "");
+  if (!Number.isFinite(t)) return "";
+
+  const now = nowTick.value; // ✅ 핵심: tick 사용
+
+  const diffMs = now - t;
+  const diffMin = Math.floor(diffMs / 60000);
+
+  if (diffMin < 1) return "방금";
+  if (diffMin < 60) return `${diffMin}분 전`;
+
+  const d = new Date(t);
+  const nowD = new Date(now);
+
+  const sameDay =
+      d.getFullYear() === nowD.getFullYear() &&
+      d.getMonth() === nowD.getMonth() &&
+      d.getDate() === nowD.getDate();
+
+  const y = new Date(nowD);
+  y.setDate(nowD.getDate() - 1);
+
+  const isYesterday =
+      d.getFullYear() === y.getFullYear() &&
+      d.getMonth() === y.getMonth() &&
+      d.getDate() === y.getDate();
+
+  if (sameDay) {
+    const h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2, "0");
+    const ap = h < 12 ? "오전" : "오후";
+    const hh = h % 12 === 0 ? 12 : h % 12;
+    return `${ap} ${hh}:${m}`;
+  }
+
+  if (isYesterday) return "어제";
+
+  const mm = d.getMonth() + 1;
+  const dd = d.getDate();
+  return `${mm}/${dd}`;
+}
 </script>
 
 <template>
@@ -59,7 +124,7 @@ onMounted(async () => {
         <div class="content">
           <div class="row1">
             <div class="name">{{ c.peerUser?.nickname || "상대" }}</div>
-            <div class="time">{{ (c.lastMessageAt || "").replace("T", " ").slice(0, 19) }}</div>
+            <div class="time">{{ fmtListTime(c.lastMessageAt || c.updatedAt) }}</div>
           </div>
           <div class="row2">
             <div class="preview">{{ c.lastMessagePreview || " " }}</div>

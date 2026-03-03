@@ -3,10 +3,17 @@ import { defineStore } from "pinia";
 import { fetchConversations } from "../api/conversations";
 import { useAuthStore } from "@/stores/auth";
 
-function preview(text) {
-    const s = (text ?? "").toString().trim();
-    if (!s) return "";
-    return s.length > 80 ? s.slice(0, 80) + "…" : s;
+function previewFromPayload(payload) {
+    const s = (payload?.content ?? "").toString().trim();
+    if (s) return s.length > 80 ? s.slice(0, 80) + "…" : s;
+
+    // ✅ content가 비었을 때 대체 미리보기
+    const attLen = Array.isArray(payload?.attachments) ? payload.attachments.length : 0;
+    const candLen = Array.isArray(payload?.pinCandidates) ? payload.pinCandidates.length : 0;
+
+    if (attLen > 0) return `📎 첨부파일 ${attLen}개`;
+    if (candLen > 0) return `📌 핀 후보 ${candLen}개`;
+    return "";
 }
 
 export const useConversationsStore = defineStore("conversations", {
@@ -68,7 +75,7 @@ export const useConversationsStore = defineStore("conversations", {
 
             const cid = String(payload.conversationId);
             const createdAt = payload.createdAt || new Date().toISOString();
-            const lastMessagePreview = preview(payload.content);
+            const lastMessagePreview = previewFromPayload(payload);
             const auth = useAuthStore();
             const myId = auth.me?.id ? String(auth.me.id) : null;
             const senderId = payload?.senderId ? String(payload.senderId) : null;
