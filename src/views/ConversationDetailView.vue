@@ -882,6 +882,41 @@ async function onConfirmCandidate(message, payload) {
   }
 }
 
+async function scrollAndFlashMessage(mid) {
+  if (!mid) return false;
+  await nextTick();
+
+  const el = document.querySelector(`[data-mid="${mid}"]`);
+  if (!el) return false;
+
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  flashMid.value = String(mid);
+  setTimeout(() => {
+    if (flashMid.value === String(mid)) flashMid.value = "";
+  }, 2000);
+
+  return true;
+}
+
+// ✅ mid가 안 보이면, 더 로드하면서 찾기(최대 N번)
+async function ensureMessageVisible(mid, maxTries = 5) {
+  for (let i = 0; i < maxTries; i++) {
+    const ok = await scrollAndFlashMessage(mid);
+    if (ok) return true;
+
+    // 🔻 여기만 너 프로젝트의 "이전 메시지 로드" 함수명에 맞춰 바꿔줘
+    // 예시: await loadMoreOlder();
+    if (typeof loadMore === "function") {
+      await loadMore();     // 너 코드에 맞는 함수로 교체 필요
+    } else if (typeof loadPrev === "function") {
+      await loadPrev();
+    } else {
+      return false;
+    }
+  }
+  return false;
+}
+
 function onDismissCandidate(message, candidate) {
   if (!message) return;
   if (!Array.isArray(message.pinCandidates)) return;
@@ -914,9 +949,10 @@ onMounted(async () => {
     await loadPins();
   }
 
-  // ✅ 알림으로 진입한 경우: 읽음 처리 + 하이라이트/스크롤
+  // ✅ 알림으로 진입한 경우: 읽음 처리 + 해당 메시지로 스크롤
   const notiId = route.query?.notiId ? String(route.query.notiId) : "";
   const fromNoti = route.query?.fromNoti ? String(route.query.fromNoti) === "1" : false;
+  const targetMid = route.query?.mid ? String(route.query.mid) : "";
 
   if (notiId) {
     try {
@@ -925,30 +961,23 @@ onMounted(async () => {
     } catch {}
   }
 
-  nextTick(() => {
-    if (scrollerRef.value) scrollerRef.value.addEventListener("scroll", onScroll);
+  await nextTick();
 
-    // ✅ composer 높이 실측 → CSS 변수 동기화
-    syncComposerHeightVar();
+  if (scrollerRef.value) scrollerRef.value.addEventListener("scroll", onScroll);
 
-    // ✅ (알림 진입) 최신 메시지로 스크롤 + 2초 하이라이트
-    if (fromNoti) {
-      // items가 computed/ref일 수도 있고 그냥 배열일 수도 있어서 둘 다 대응
-      const list = Array.isArray(items) ? items : items?.value;
-      const last = list?.length ? list[list.length - 1] : null;
-      const mid = last?.messageId;
+  // ✅ composer 높이 실측 → CSS 변수 동기화
+  syncComposerHeightVar();
 
-      if (mid) {
-        const el = document.querySelector(`[data-mid="${mid}"]`);
-        if (el?.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "end" });
-
-        flashMid.value = String(mid);
-        setTimeout(() => {
-          if (flashMid.value === String(mid)) flashMid.value = "";
-        }, 2000);
-      }
+  // ✅ (알림 진입) mid가 있으면 그 메시지로, 없으면 마지막 메시지로
+  if (fromNoti) {
+    if (targetMid) {
+      await ensureMessageVisible(targetMid, 6);
+    } else {
+      const last = items.value?.length ? items.value[items.value.length - 1] : null;
+      const lastMid = last?.messageId;
+      if (lastMid) await scrollAndFlashMessage(lastMid, { block: "end" });
     }
-  });
+  }
 
   // ✅ 화면 크기/주소창 변화/키보드 등으로 높이 달라질 때 다시 측정
   window.addEventListener("resize", syncComposerHeightVar);

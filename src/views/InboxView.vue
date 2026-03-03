@@ -101,8 +101,15 @@ async function routeForNotification(n) {
 
   // ✅ 메시지/대화 관련 (프로젝트 기존 규칙 유지)
   if (n.type === "MESSAGE_RECEIVED") {
+    // refId = conversationId
     if (!n.refId) return "/inbox/conversations";
-    // ✅ notiId + fromNoti=1 붙여서 대화 진입 시 스크롤/하이라이트 트리거
+
+    // ✅ messageId(ref2Id)가 있으면 해당 메시지로 스크롤
+    if (n.messageId) {
+      return `/inbox/conversations/${enc(n.refId)}?notiId=${enc(n.id)}&fromNoti=1&mid=${enc(n.messageId)}`;
+    }
+
+    // fallback
     return `/inbox/conversations/${enc(n.refId)}?notiId=${enc(n.id)}&fromNoti=1`;
   }
 
