@@ -47,6 +47,120 @@ const readReceipts = ref([]); // [{ userId, lastReadAt }]
 // ✅ RealLife v2: Dock(상단)에서 액션/제안 관리
 const dockMode = ref("active"); // 'active' | 'suggestions'
 const dockOpen = ref(false);
+const dockJustMovedPinId = ref(null);
+const savingCandidateId = ref(null);
+
+// ✅ v2.7: Dock → Active 'fly' animation (FLIP-ish)
+const flyLayer = ref(null);
+let _pendingFly = null; // { fromRect, cid }
+
+function rectOf(el){
+  if(!el) return null;
+  const r = el.getBoundingClientRect();
+  return { left:r.left, top:r.top, width:r.width, height:r.height };
+}
+
+function makeFlyGhost(fromRect, toRect, html){
+  try{
+    const ghost = document.createElement("div");
+    ghost.className = "flyGhost";
+    ghost.style.left = fromRect.left + "px";
+    ghost.style.top = fromRect.top + "px";
+    ghost.style.width = fromRect.width + "px";
+    ghost.style.height = fromRect.height + "px";
+    ghost.innerHTML = html || "";
+    document.body.appendChild(ghost);
+
+    // force layout
+    ghost.getBoundingClientRect();
+
+    ghost.style.left = toRect.left + "px";
+    ghost.style.top = toRect.top + "px";
+    ghost.style.width = toRect.width + "px";
+    ghost.style.height = toRect.height + "px";
+    ghost.style.opacity = "0.0";
+
+    const clean = () => { try{ ghost.remove(); }catch{} };
+    ghost.addEventListener("transitionend", clean, { once:true });
+    setTimeout(clean, 550);
+  }catch{}
+}
+
+async function runDockToActiveFly(createdPinId){
+  if(!_pendingFly?.fromRect) return;
+  // ensure dock open + active tab visible so target exists
+  try{
+    dockMode.value = "active";
+    dockOpen.value = true;
+    await nextTick();
+    await nextTick();
+  }catch{}
+
+  const target = document.querySelector(`[data-pin-id="${String(createdPinId)}"]`);
+  const toRect = rectOf(target);
+  if(toRect) makeFlyGhost(_pendingFly.fromRect, toRect, _pendingFly.html);
+  _pendingFly = null;
+}
+
+const dockAnimating = ref(false);
+const activeFilter = ref("ALL"); // ALL | PROMISE | TODO | PLACE
+
+function classifyPin(p) {
+  // 백엔드 스키마가 타입을 주면 우선 사용, 없으면 휴리스틱
+  const t = (p && (p.type || p.pinType || p.kind || p.category)) ? String(p.type || p.pinType || p.kind || p.category).toUpperCase() : "";
+  if (t.includes("PLACE")) return "PLACE";
+  if (t.includes("TODO") || t.includes("TASK")) return "TODO";
+  if (t.includes("PROMISE") || t.includes("APPOINT") || t.includes("MEET")) return "PROMISE";
+  // 휴리스틱: startAt 있으면 약속, placeText만 있으면 장소, 그 외 할일
+  if (p?.startAt) return "PROMISE";
+  if (p?.placeText) return "PLACE";
+  return "TODO";
+}
+
+const activeCounts = computed(() => {
+  const res = { PROMISE: 0, TODO: 0, PLACE: 0 };
+  (pins.value || []).forEach((p) => {
+    const k = classifyPin(p);
+    if (res[k] != null) res[k] += 1;
+  });
+  return res;
+});
+
+const filteredActivePins = computed(() => {
+  const list = Array.isArray(pins.value) ? [...pins.value] : [];
+  const f = activeFilter.value;
+  const out = f === "ALL" ? list : list.filter((p) => classifyPin(p) === f);
+  // 정렬: 약속(startAt) 우선 + 시간 오름차순, 나머지는 최근
+  out.sort((a, b) => {
+    const ak = classifyPin(a);
+    const bk = classifyPin(b);
+    if (ak !== bk) {
+      const order = { PROMISE: 0, TODO: 1, PLACE: 2 };
+      return (order[ak] ?? 9) - (order[bk] ?? 9);
+    }
+    const at = a?.startAt ? new Date(a.startAt).getTime() : 0;
+    const bt = b?.startAt ? new Date(b.startAt).getTime() : 0;
+    if (at && bt) return at - bt;
+    return 0;
+  });
+  return out;
+});
+
+const sortedDockCandidates = computed(() => {
+  const list = Array.isArray(dockCandidates.value) ? [...dockCandidates.value] : [];
+  // candidate가 startAt/score 같은 속성을 줄 수도 있어서 최대한 안정적으로 정렬
+  list.sort((a, b) => {
+    const at = a?.startAt ? new Date(a.startAt).getTime() : 0;
+    const bt = b?.startAt ? new Date(b.startAt).getTime() : 0;
+    if (at && bt) return at - bt;
+    const as = typeof a?.score === "number" ? -a.score : 0;
+    const bs = typeof b?.score === "number" ? -b.score : 0;
+    if (as !== bs) return as - bs;
+    return String(a?.candidateId || "").localeCompare(String(b?.candidateId || ""));
+  });
+  return list;
+});
+
 
 // 제안(후보) 표시용: 현재 선택된 메시지 기준
 const dockSourceMsg = ref(null); // message object
@@ -59,7 +173,9 @@ const suggestionCount = computed(() => {
 });
 
 function openActiveDock() {
-  dockMode.value = "active";
+  dockAnimating.value = true;
+  setTimeout(() => (dockAnimating.value = false), 220);
+dockMode.value = "active";
   dockOpen.value = !dockOpen.value;
 }
 
@@ -173,9 +289,14 @@ function onPinRemindHighlight(e) {
 }
 
 onMounted(() => {
+  detectTouchUi();
+  window.addEventListener('resize', detectTouchUi);
+
   window.addEventListener("pin-remind-highlight", onPinRemindHighlight);
 });
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', detectTouchUi);
+
   window.removeEventListener("pin-remind-highlight", onPinRemindHighlight);
 });
 const myId = computed(() => auth.me?.id || null);
@@ -741,6 +862,52 @@ async function copyMessage(m) {
 }
 
 // 기존 startEdit을 그대로 쓰되, 메뉴에서 누르면 메뉴를 닫게만 보강
+
+// ✅ Touch-friendly message actions (mobile/app)
+// WebView 환경에서 hover 판정이 불안정하므로, 모바일에서는 메시지 탭/롱프레스로 메뉴를 연다.
+const isTouchUi = ref(false);
+const _lpTimer = ref(null);
+const _lastTouch = ref({ x: 0, y: 0, el: null });
+
+function detectTouchUi() {
+  try {
+    const mq = window.matchMedia && window.matchMedia("(pointer: coarse)");
+    isTouchUi.value = !!mq?.matches;
+  } catch {
+    isTouchUi.value = false;
+  }
+}
+
+function onBubbleTouchStart(e, m) {
+  if (!isTouchUi.value) return;
+  const t = e?.target;
+  if (t?.closest?.("button, a, textarea, input, select, .hoverActions")) return;
+
+  const touch = e?.touches?.[0];
+  if (touch) {
+    _lastTouch.value = { x: touch.clientX, y: touch.clientY, el: e.currentTarget };
+  } else {
+    _lastTouch.value = { x: 0, y: 0, el: e.currentTarget };
+  }
+
+  clearTimeout(_lpTimer.value);
+  _lpTimer.value = setTimeout(() => {
+    openMsgMenu({ currentTarget: _lastTouch.value.el, clientX: _lastTouch.value.x, clientY: _lastTouch.value.y }, m);
+  }, 420);
+}
+
+function onBubbleTouchEnd() {
+  clearTimeout(_lpTimer.value);
+  _lpTimer.value = null;
+}
+
+function onBubbleClick(e, m) {
+  if (!isTouchUi.value) return;
+  const t = e?.target;
+  if (t?.closest?.("button, a, textarea, input, select, .hoverActions")) return;
+  openMsgMenu(e, m);
+}
+
 function startEditFromMenu(m) {
   if (!m) return;
   closeMsgMenu();
@@ -1274,6 +1441,25 @@ async function onConfirmCandidate(message, payload) {
   if (!message?.messageId) return;
   if (isConfirmBusy(message.messageId)) return;
   setConfirmBusy(message.messageId, true);
+  // v2.5: 제안 카드 '이동' 애니메이션
+const _cid = payload?.candidateId ?? payload?.id ?? null;
+if (_cid) savingCandidateId.value = String(_cid);
+
+// ✅ v2.7: capture source rect for fly animation (only when candidate is from dock)
+if (_cid) {
+  const srcEl = document.querySelector(`[data-cid="${String(_cid)}"]`);
+  const srcRect = rectOf(srcEl);
+  if (srcRect) {
+    const title = payload?.overrideTitle || payload?.title || "액션";
+    _pendingFly = {
+      cid: String(_cid),
+      fromRect: srcRect,
+      html: `<div class="flyGhostInner"><div class="flyGhostTitle">${String(title).slice(0, 22)}</div><div class="flyGhostSub">저장 중…</div></div>`,
+    };
+  }
+}
+
+
   try {
     const created = await confirmPinFromMessage({
       conversationId: conversationId.value,
@@ -1286,7 +1472,16 @@ async function onConfirmCandidate(message, payload) {
 
     if (created?.pinId) {
       pinsStore.appendPin(conversationId.value, created);
+
+      // ✅ v2.5: Dock에 "방금 이동" 애니메이션(제안 → 액션)
+      dockJustMovedPinId.value = String(created.pinId);
+      setTimeout(() => {
+        if (dockJustMovedPinId.value === String(created.pinId)) dockJustMovedPinId.value = null;
+      }, 900);
+
       toast.success?.("핀 생성", "Pinned에 저장했어요.");
+      await nextTick();
+      await runDockToActiveFly(created.pinId);
       showSavedBadge(message.messageId);
     }
 
@@ -1301,6 +1496,7 @@ async function onConfirmCandidate(message, payload) {
     }
     toast.error?.("핀 생성 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
   } finally {
+    savingCandidateId.value = null;
     setConfirmBusy(message.messageId, false);
   }
 }
@@ -1627,11 +1823,29 @@ onBeforeUnmount(() => {
     </RlButton>
   </div>
 
-  <div v-if="dockOpen" class="dockPanel">
+  <div v-if="dockOpen" class="dockPanel" :class="{ enter: dockAnimating }">
     <!-- Active -->
     <div v-if="dockMode==='active'" class="dockGrid">
+      <div class="dockFilterBar">
+        <button class="dockPill" :class="{ on: activeFilter==='ALL' }" type="button" @click="activeFilter='ALL'">
+          전체 <span class="dockPillCount">{{ activeCount }}</span>
+        </button>
+        <button class="dockPill" :class="{ on: activeFilter==='PROMISE' }" type="button" @click="activeFilter='PROMISE'">
+          📅 약속
+        <span class="dockPillCount">{{ activeCounts.PROMISE }}</span>
+        </button>
+        <button class="dockPill" :class="{ on: activeFilter==='TODO' }" type="button" @click="activeFilter='TODO'">
+          ✅ 할일
+        <span class="dockPillCount">{{ activeCounts.TODO }}</span>
+        </button>
+        <button class="dockPill" :class="{ on: activeFilter==='PLACE' }" type="button" @click="activeFilter='PLACE'">
+          📍 장소
+        <span class="dockPillCount">{{ activeCounts.PLACE }}</span>
+        </button>
+      </div>
+
       <div v-if="pins && pins.length" class="dockRow">
-        <div v-for="p in pins.slice(0, 6)" :key="p.pinId" class="dockCard" @click="openPinEdit(p)">
+        <div v-for="p in filteredActivePins.slice(0, 6)" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId) }" @click="openPinEdit(p)">
           <div class="dockCardTitle">{{ p.title || "약속" }}</div>
           <div class="dockCardMeta">
             <span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span>
@@ -1652,14 +1866,15 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="dockCandidates && dockCandidates.length" class="dockSuggestList">
+        <div v-for="(c, i) in sortedDockCandidates.slice(0, 3)" :key="c.candidateId" class="dockSlot" :data-cid="String(c.candidateId)">
         <PinCandidateCard
-          v-for="c in dockCandidates"
-          :key="c.candidateId"
           :candidate="c"
+          :class="{ leaving: savingCandidateId===String(c.candidateId) }"
           :busy="dockSourceMsg ? isConfirmBusy(dockSourceMsg.messageId) : false"
           @confirm="dockSourceMsg && confirmCandidate(dockSourceMsg, $event)"
           @dismiss="dockSourceMsg && dismissCandidate(dockSourceMsg, $event)"
         />
+      </div>
       </div>
 
       <div v-else class="dockEmpty">표시할 제안이 없어요.</div>
@@ -1714,7 +1929,13 @@ onBeforeUnmount(() => {
             <span>읽지 않은 메시지</span>
           </div>
 
-          <div class="bubble">
+          <div class="bubble"
+            @contextmenu.prevent.stop="openMsgMenu($event, m)"
+            @touchstart.passive="onBubbleTouchStart($event, m)"
+            @touchend="onBubbleTouchEnd"
+            @touchcancel="onBubbleTouchEnd"
+            @click="onBubbleClick($event, m)"
+          >
             <!-- ✅ Hover Action Bar (RealLife v1) -->
             <div
                 class="hoverActions"
@@ -1741,17 +1962,6 @@ onBeforeUnmount(() => {
                   @click.stop="toggleCandidates(m.messageId)"
               >✨</button>
             </div>
-
-            <!-- ✅ 모바일/앱: ⋯ 메뉴 버튼 (hover 없는 환경에서만 노출) -->
-            <button
-                v-if="isMineMessage(m) && (!editingMid || String(m.messageId) !== String(editingMid))"
-                class="msgActionBtn mobileOnly"
-                type="button"
-                aria-label="메시지 메뉴"
-                @click.stop="openMsgMenu($event, m)"
-            >
-              ⋯
-            </button>
 
             <!-- ✅ 저장됨 배지 -->
             <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
@@ -1834,7 +2044,9 @@ onBeforeUnmount(() => {
           <span class="v">{{ pinModalPin?.title || "약속" }}</span>
         </div>
         <div class="pinModalLine">
-          <span class="k">장소</span>
+          <span class="k">
+          📍 장소
+        </span>
           <span class="v">{{ pinModalPin?.placeText || "미정" }}</span>
         </div>
         <div class="pinModalLine">
@@ -1898,7 +2110,9 @@ onBeforeUnmount(() => {
         </label>
 
         <label class="pinEditField">
-          <div class="pinEditLabel">장소</div>
+          <div class="pinEditLabel">
+          📍 장소
+        </div>
           <input
               class="pinEditInput"
               v-model="pinEditPlaceText"
@@ -2549,6 +2763,19 @@ onBeforeUnmount(() => {
   background: rgba(255,255,255,.08);
 }
 @media (hover: none){
+  /* 모바일에서는 hover UI 숨기고 ⋯만 사용 */
+  .hoverActions{ display:none !important; }
+  .mobileOnly{ display:inline-flex; }
+}
+
+@media (pointer: coarse) and (max-width: 900px) and (max-width: 900px){
+  /* 일부 WebView는 hover:none 판정이 불안정 → 터치 디바이스 강제 */
+  .hoverActions{ display:none !important; }
+  .mobileOnly{ display:inline-flex; }
+}
+
+/* legacy */
+@media (hover: none){
   .msgMenuBtn{ opacity: .6; }
 }
 /* ✅ 버블 안 액션 버튼 (⋯) */
@@ -2807,9 +3034,16 @@ onBeforeUnmount(() => {
 }
 
 .dockSuggestList{
-  display:flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+@media (max-width: 520px){
+  .dockSuggestList{ grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+@media (min-width: 521px) and (max-width: 900px){
+  .dockSuggestList{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 
@@ -2954,8 +3188,193 @@ onBeforeUnmount(() => {
 }
 
 .dockSuggestList{
-  display:flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+@media (max-width: 520px){
+  .dockSuggestList{ grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+@media (min-width: 521px) and (max-width: 900px){
+  .dockSuggestList{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+
+/* ✅ Mobile/App: 강제 터치 모드(hover 없음 or coarse pointer) */
+.mobileOnly{ display:none; }
+
+@media (hover: none), (pointer: coarse){
+  .hoverActions{ display:none !important; }
+  .mobileOnly{ display:inline-flex; }
+}
+
+/* ✅ Dock animations */
+.dockPanel.enter{
+  animation: dockIn .22s ease-out;
+}
+@keyframes dockIn{
+  from{ opacity:0; transform: translateY(-6px) scale(.98); }
+  to{ opacity:1; transform: translateY(0) scale(1); }
+}
+.dockCard{
+  animation: cardPop .18s ease-out;
+}
+@keyframes cardPop{
+  from{ transform: translateY(6px); opacity:.0; }
+  to{ transform: translateY(0); opacity:1; }
+}
+
+/* =========================
+   v2.5 Dock polish (filter + stack + animations)
+   ========================= */
+.dockFilterBar{
+  display:flex;
+  gap:8px;
+  padding:10px 10px 6px;
+  overflow-x:auto;
+  -webkit-overflow-scrolling: touch;
+}
+.dockFilterBar::-webkit-scrollbar{ display:none; }
+.dockPill{
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: -.2px;
+}
+.dockPill.on{
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.18);
+  box-shadow: 0 10px 24px rgba(0,0,0,.22);
+}
+.dockPillCount{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:18px;
+  padding:0 6px;
+  border-radius:999px;
+  background: rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.10);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.dockSuggestList{
+  padding: 10px 12px 14px;
+}
+.dockSlot{
+  position: relative;
+}
+.dockStackItem + .dockSlot{
+  margin-top: 0;
+}
+.dockStackItem .leaving{
+  animation: rl-leave .22s ease forwards;
+}
+@keyframes rl-leave{
+  to { transform: translateY(-8px) scale(.98); opacity: 0; }
+}
+
+.dockCard.moved{
+  animation: rl-moved .65s ease;
+}
+@keyframes rl-moved{
+  0% { transform: translateY(0); box-shadow: 0 0 0 rgba(0,0,0,0); }
+  35% { transform: translateY(-6px); box-shadow: 0 18px 40px rgba(0,0,0,.35); }
+  100% { transform: translateY(0); box-shadow: 0 0 0 rgba(0,0,0,0); }
+}
+
+/* 모바일: hoverAction은 숨기고(세로로 쌓임 방지), 탭/롱프레스로 메뉴 */
+@media (pointer: coarse) and (max-width: 900px) and (max-width: 900px){
+  .hoverActions{ display:none !important; }
+}
+
+/* =========================
+   v2.6+ Dock visual polish
+   ========================= */
+.dockFilterBar{
+  display:flex;
+  gap:8px;
+  padding: 10px 10px 6px;
+  overflow-x:auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dockPill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.88);
+  font-weight: 900;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.dockPill.on{
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.18);
+}
+
+.dockPillCount{
+  margin-left: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+  font-size: 12px;
+}
+
+/* Suggestions: 1~3 slots */
+.dockSuggestList{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 10px;
+}
+@media (min-width: 720px){
+  .dockSuggestList{ grid-template-columns: 1fr 1fr 1fr; }
+}
+
+/* fly animation ghost */
+.flyGhost{
+  position: fixed;
+  z-index: 99999;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(20,25,35,.94);
+  box-shadow: 0 18px 46px rgba(0,0,0,.40);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  transition: left .42s cubic-bezier(.2,.9,.2,1), top .42s cubic-bezier(.2,.9,.2,1),
+              width .42s cubic-bezier(.2,.9,.2,1), height .42s cubic-bezier(.2,.9,.2,1),
+              opacity .42s ease;
+  opacity: 1;
+}
+
+.flyGhostInner{
+  padding: 10px 12px;
+}
+.flyGhostTitle{
+  font-weight: 900;
+  font-size: 13px;
+}
+.flyGhostSub{
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: .7;
 }
 </style>
