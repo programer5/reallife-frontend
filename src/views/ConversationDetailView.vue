@@ -1,6 +1,6 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, onBeforeUnmount, watch } from "vue";
+import { computed, onMounted, ref, nextTick, onBeforeUnmount} from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import RlModal from "@/components/ui/RlModal.vue";
@@ -43,6 +43,60 @@ const isPinnedHighlight = ref(false);
 const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
 
 const readReceipts = ref([]); // [{ userId, lastReadAt }]
+
+// ✅ RealLife v2: Dock(상단)에서 액션/제안 관리
+const dockMode = ref("active"); // 'active' | 'suggestions'
+const dockOpen = ref(false);
+
+// 제안(후보) 표시용: 현재 선택된 메시지 기준
+const dockSourceMsg = ref(null); // message object
+const dockCandidates = ref([]);  // candidate array
+
+const activeCount = computed(() => (Array.isArray(pins.value) ? pins.value.length : 0));
+const suggestionCount = computed(() => {
+  const arr = items.value || [];
+  return arr.reduce((acc, m) => acc + ((m?.pinCandidates && m.pinCandidates.length) ? m.pinCandidates.length : 0), 0);
+});
+
+function openActiveDock() {
+  dockMode.value = "active";
+  dockOpen.value = !dockOpen.value;
+}
+
+function openSuggestionsDock(message) {
+  if (!message || !message.pinCandidates || !message.pinCandidates.length) return;
+
+  // 같은 메시지 제안을 다시 누르면 닫기
+  const mid = String(message.messageId);
+  const curMid = dockSourceMsg.value ? String(dockSourceMsg.value.messageId) : null;
+
+  if (dockOpen.value && dockMode.value === "suggestions" && curMid === mid) {
+    dockOpen.value = false;
+    return;
+  }
+
+  dockMode.value = "suggestions";
+  dockOpen.value = true;
+  dockSourceMsg.value = message;
+  dockCandidates.value = Array.isArray(message.pinCandidates) ? message.pinCandidates : [];
+}
+
+// hoverActions의 ✨ 버튼이 호출
+function isCandidatesOpen(messageId) {
+  return (
+    dockOpen.value &&
+    dockMode.value === "suggestions" &&
+    dockSourceMsg.value &&
+    String(dockSourceMsg.value.messageId) === String(messageId)
+  );
+}
+
+function toggleCandidates(messageId) {
+  const mid = String(messageId);
+  const msg = (items.value || []).find((x) => String(x?.messageId) === mid);
+  if (!msg || !msg.pinCandidates || !msg.pinCandidates.length) return;
+  openSuggestionsDock(msg);
+}
 
 function parseTime(v) {
   const t = Date.parse(v || "");
@@ -161,6 +215,55 @@ const lockModalOpen = ref(false);
 const lockModalMode = ref("set"); // set | disable
 const lockPw1 = ref("");
 const lockPw2 = ref("");
+
+// ✅ Teleport 기반 메시지 메뉴 상태
+const menu = ref({
+  open: false,
+  top: 0,
+  left: 0,
+  msg: null,
+});
+
+function closeMsgMenu() {
+  menu.value.open = false;
+  menu.value.msg = null;
+}
+
+function openMsgMenu(e, m) {
+  if (!m) return;
+
+  const rect = e?.currentTarget?.getBoundingClientRect?.() || null;
+
+  const w = 140; // 팝오버 대략 폭
+  const h = 96;  // 팝오버 대략 높이(2개 메뉴)
+  const pad = 10;
+
+  let left = rect ? rect.right - w : (e?.clientX || 0);
+  let top = rect ? rect.bottom + 8 : (e?.clientY || 0);
+
+  // ✅ 화면 밖 보정
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  if (left + w + pad > vw) left = vw - w - pad;
+  if (left < pad) left = pad;
+  if (top + h + pad > vh) top = (rect ? rect.top - h - 8 : vh - h - pad);
+  if (top < pad) top = pad;
+
+  menu.value = { open: true, left, top, msg: m };
+}
+
+// ESC로 닫기
+function onKeydownForMenu(e) {
+  if (e.key === "Escape") closeMsgMenu();
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", onKeydownForMenu);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydownForMenu);
+});
 
 function tokenKey() {
   return `conv_unlock_${conversationId.value}`;
@@ -462,8 +565,7 @@ const items = ref([]);
 const editingMid = ref(null);      // 현재 편집 중 messageId (string)
 const editingText = ref("");       // 편집 텍스트
 const savingEdit = ref(false);     // 저장중 플래그
-// ✅ 메시지 ⋯ 메뉴 상태
-const msgMenuMid = ref(null); // 열려있는 메뉴의 messageId (string)
+
 const nextCursor = ref(null);
 const hasNext = ref(false);
 
@@ -631,41 +733,24 @@ async function saveEdit(m) {
   }
 }
 
-function toggleMsgMenu(m) {
-  const mid = String(m?.messageId || "");
-  if (!mid) return;
-  msgMenuMid.value = msgMenuMid.value === mid ? null : mid;
-}
-
-function closeMsgMenu() {
-  msgMenuMid.value = null;
-}
-
-function onDocClickForMenu(e) {
-  // 메뉴 버튼/메뉴 영역 클릭은 무시
-  const el = e?.target;
-  if (!el) return;
-  if (el.closest?.(".msgMenuWrap")) return;
-  closeMsgMenu();
-}
-
 async function copyMessage(m) {
-  try {
-    const txt = (m?.content ?? "").toString();
-    if (!txt) return;
-    await navigator.clipboard.writeText(txt);
-    toast.success?.("복사됨", "메시지를 클립보드에 복사했어요.");
-  } catch {
-    toast.error?.("복사 실패", "클립보드 접근이 허용되지 않았어요.");
-  } finally {
-    closeMsgMenu();
-  }
+  if (!m) return;
+  closeMsgMenu();
+  await navigator.clipboard.writeText(m.content || "");
+  toast?.success?.("복사됨", "메시지를 클립보드에 복사했어요.");
 }
 
 // 기존 startEdit을 그대로 쓰되, 메뉴에서 누르면 메뉴를 닫게만 보강
 function startEditFromMenu(m) {
+  if (!m) return;
   closeMsgMenu();
   startEdit(m);
+}
+
+function toggleCandidatesFromMenu(m) {
+  if (!m) return;
+  closeMsgMenu();
+  openSuggestionsDock(m);
 }
 
 const lastMyMessageId = computed(() => {
@@ -1019,10 +1104,11 @@ async function onSend() {
     return;
   }
 
-  // ✅ NEW: temp 메시지 먼저 넣기
+  // ✅ NEW: temp 메시지 먼저 넣기 (senderId를 반드시 세팅)
   const tempId = makeTempId();
   const tempMsg = {
     messageId: tempId,
+    senderId: myId.value, // ✅ 핵심: 내 메시지로 즉시 판별되게
     content: text,
     createdAt: new Date().toISOString(),
     pinCandidates: [],
@@ -1032,7 +1118,7 @@ async function onSend() {
   items.value.push(tempMsg);
   content.value = "";
   newMsgCount.value = 0;
-  scrollToBottom({smooth: true});
+  scrollToBottom({ smooth: true });
 
   sending.value = true;
   try {
@@ -1057,18 +1143,15 @@ async function onSend() {
     });
 
     const hasCandidates = Array.isArray(msg?.pinCandidates) && msg.pinCandidates.length > 0;
-    scrollToBottom({smooth: true});
-    if (hasCandidates) nextTick(() => scrollToBottom({smooth: true}));
+    scrollToBottom({ smooth: true });
+    if (hasCandidates) nextTick(() => scrollToBottom({ smooth: true }));
   } catch (e) {
     const status = e?.response?.status;
     const serverMsg = e?.response?.data?.message;
     const url = e?.config?.url;
 
-    // ✅ 401/403은 사실상 "로그인/권한 문제"
     if (status === 401) {
       toast.error?.("전송 실패", "로그인이 만료됐어요. 다시 로그인해 주세요.");
-      // 선택: 로그인 페이지가 있으면 이동
-      // router.push("/login");
     } else if (status === 403) {
       toast.error?.("전송 실패", "권한이 없어요. (403)");
     } else if (status === 404) {
@@ -1079,7 +1162,6 @@ async function onSend() {
       clearToken();
       toast.error?.("전송 실패", "이 대화는 잠금 상태입니다. 먼저 잠금을 해제하세요.");
     } else {
-      // ✅ 여기서 status를 같이 보여주면 원인 파악이 바로 됨
       toast.error?.(
           "전송 실패",
           serverMsg || (status ? `요청 실패 (status=${status})` : "네트워크 오류/서버 응답 없음")
@@ -1091,20 +1173,22 @@ async function onSend() {
     if (idx >= 0) items.value[idx]._status = "failed";
   } finally {
     sending.value = false;
-    nextTick(syncComposerHeightVar); // ✅ 추가
+    await nextTick();
+    syncComposerHeightVar();
   }
 }
+
 async function retrySend(m) {
-  // 실패 상태 메시지만 재시도
   if (!m || m._status !== "failed") return;
 
-  // 잠금이면 재시도 막기
   if (!canViewConversation.value) {
     toast.error?.("재시도 실패", "잠금이 해제되어야 전송할 수 있어요.");
     return;
   }
 
-  // 다시 sending 상태로
+  // ✅ 핵심: 재시도 메시지도 내 메시지로 고정
+  m.senderId = myId.value;
+
   m._status = "sending";
 
   try {
@@ -1115,7 +1199,6 @@ async function retrySend(m) {
       unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
     });
 
-    // 성공하면 temp를 실제 메시지로 교체
     upsertServerMessage(m.messageId, msg);
 
     newMsgCount.value = 0;
@@ -1438,8 +1521,6 @@ onMounted(async () => {
     }
   });
 
-  document.addEventListener("click", onDocClickForMenu, true);
-
   offStatus = sse.onStatus(({ connected }) => {
     // false -> true 로 바뀌는 순간만
     if (connected && !_wasConnected) {
@@ -1467,7 +1548,6 @@ onBeforeUnmount(() => {
   offStatus = null;
 
   convStore.setActiveConversation?.(null);
-  document.removeEventListener("click", onDocClickForMenu, true);
 
   for (const t of savedBadgeTimers.values()) clearTimeout(t);
   savedBadgeTimers.clear();
@@ -1508,53 +1588,85 @@ onBeforeUnmount(() => {
 
     <SseStatusBanner />
 
-    <!-- ✅ Pinned -->
-    <div class="pinnedWrap" :class="{ 'pinnedWrap--flash': isPinnedHighlight }">
-      <div v-if="showPinned" class="pinned">
-        <div class="pinnedHead">
-          <div class="pinnedTitle" @click="clearPinRemindBadge" style="cursor:pointer;">
-            📌 Pinned
-            <span v-if="hasPinRemindBadge" class="pinRemindDot" title="리마인드 도착"></span>
-          </div>
+    
+<!-- ✅ RealLife v2: Active Actions Dock -->
+<div class="dockWrap" v-if="canViewConversation">
+  <div class="dockBar">
+    <button
+      class="dockTab"
+      :class="{ on: dockMode==='active' }"
+      type="button"
+      @click="openActiveDock"
+    >
+      📌 액션 <span class="dockCount">{{ activeCount }}</span>
+    </button>
 
-          <RlButton
-              size="sm"
-              variant="ghost"
-              @click="
-              clearPinRemindBadge();
-              router.push(`/inbox/conversations/${conversationId}/pins`)
-            "
-          >
-            더보기
-          </RlButton>
-        </div>
+    <button
+      class="dockTab"
+      :class="{ on: dockMode==='suggestions' }"
+      type="button"
+      :disabled="suggestionCount===0"
+      @click="dockMode='suggestions'; dockOpen=!dockOpen"
+    >
+      ✨ 제안 <span class="dockCount">{{ suggestionCount }}</span>
+    </button>
 
-        <div class="pinList">
-          <div v-for="p in pins.slice(0, 3)" :key="p.pinId" class="pinCard">
-            <div class="pinTop">
-              <div class="pinName">{{ p.title || "약속" }}</div>
+    <div class="dockSpacer"></div>
 
-              <div class="pinActions">
-                <RlButton size="sm" variant="soft" :loading="pinActionLoading" @click="openPinActionModal('DONE', p)">완료</RlButton>
-                <RlButton size="sm" variant="danger" :loading="pinActionLoading" @click="openPinActionModal('CANCELED', p)">취소</RlButton>
-                <RlButton size="sm" variant="ghost" :loading="pinActionLoading" @click="openPinActionModal('DISMISSED', p)">숨김</RlButton>
-              </div>
-            </div>
+    <RlButton
+      size="sm"
+      variant="ghost"
+      class="dockMore"
+      @click="
+        clearPinRemindBadge();
+        router.push(`/inbox/conversations/${conversationId}/pins`)
+      "
+    >
+      전체
+      <span v-if="hasPinRemindBadge" class="pinRemindDot" title="리마인드 도착"></span>
+    </RlButton>
+  </div>
 
-            <div class="pinMeta">
-              <div v-if="p.placeText" class="pinRow">📍 {{ p.placeText }}</div>
-              <div v-if="p.startAt" class="pinRow">🕒 {{ pinTimeText(p) }}</div>
-              <div v-else class="pinRow muted">
-                📍 장소 미정
-                <RlButton size="sm" variant="ghost" @click="openPinEdit(p)">수정</RlButton>
-              </div>
-            </div>
+  <div v-if="dockOpen" class="dockPanel">
+    <!-- Active -->
+    <div v-if="dockMode==='active'" class="dockGrid">
+      <div v-if="pins && pins.length" class="dockRow">
+        <div v-for="p in pins.slice(0, 6)" :key="p.pinId" class="dockCard" @click="openPinEdit(p)">
+          <div class="dockCardTitle">{{ p.title || "약속" }}</div>
+          <div class="dockCardMeta">
+            <span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span>
+            <span v-else class="muted">🕒 시간 미정</span>
+            <span v-if="p.placeText" class="sep">·</span>
+            <span v-if="p.placeText">📍 {{ p.placeText }}</span>
           </div>
         </div>
       </div>
+      <div v-else class="dockEmpty">아직 저장된 액션이 없어요. 메시지의 ✨로 약속/할일을 바로 만들어보세요.</div>
     </div>
 
-    <!-- ✅ 잠금 게이트 -->
+    <!-- Suggestions -->
+    <div v-else class="dockGrid">
+      <div v-if="dockSourceMsg" class="dockSuggestHead">
+        <div class="dockSuggestTitle">✨ 제안</div>
+        <div class="dockSuggestSub">“{{ dockSourceMsg.content }}”에서 생성된 후보</div>
+      </div>
+
+      <div v-if="dockCandidates && dockCandidates.length" class="dockSuggestList">
+        <PinCandidateCard
+          v-for="c in dockCandidates"
+          :key="c.candidateId"
+          :candidate="c"
+          :busy="dockSourceMsg ? isConfirmBusy(dockSourceMsg.messageId) : false"
+          @confirm="dockSourceMsg && confirmCandidate(dockSourceMsg, $event)"
+          @dismiss="dockSourceMsg && dismissCandidate(dockSourceMsg, $event)"
+        />
+      </div>
+
+      <div v-else class="dockEmpty">표시할 제안이 없어요.</div>
+    </div>
+  </div>
+</div>
+<!-- ✅ 잠금 게이트 -->
     <div v-if="lockEnabled && !unlocked" class="lockGate">
       <div class="lockCard">
         <div class="lockTitle">🔒 잠금된 대화</div>
@@ -1603,22 +1715,46 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="bubble">
+            <!-- ✅ Hover Action Bar (RealLife v1) -->
+            <div
+                class="hoverActions"
+                v-if="!editingMid || String(m.messageId) !== String(editingMid)"
+            >
+              <!-- 복사: 내/상대 모두 가능 -->
+              <button class="haBtn" type="button" title="복사" @click.stop="copyMessage(m)">⧉</button>
+
+              <!-- 수정: 내 메시지만 -->
+              <button
+                  v-if="isMineMessage(m)"
+                  class="haBtn"
+                  type="button"
+                  title="수정"
+                  @click.stop="startEdit(m)"
+              >✎</button>
+
+              <!-- 후보(약속/핀) 펼치기: 후보 있을 때만 -->
+              <button
+                  v-if="m.pinCandidates && m.pinCandidates.length"
+                  class="haBtn"
+                  type="button"
+                  :title="isCandidatesOpen(m.messageId) ? '후보 닫기' : '후보 보기'"
+                  @click.stop="toggleCandidates(m.messageId)"
+              >✨</button>
+            </div>
+
+            <!-- ✅ 모바일/앱: ⋯ 메뉴 버튼 (hover 없는 환경에서만 노출) -->
+            <button
+                v-if="isMineMessage(m) && (!editingMid || String(m.messageId) !== String(editingMid))"
+                class="msgActionBtn mobileOnly"
+                type="button"
+                aria-label="메시지 메뉴"
+                @click.stop="openMsgMenu($event, m)"
+            >
+              ⋯
+            </button>
+
             <!-- ✅ 저장됨 배지 -->
             <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
-
-            <!-- ✅ ⋯ 메뉴 (내 메시지 + 편집 중 아닐 때만) -->
-            <div
-                v-if="isMineMessage(m) && (!editingMid || String(m.messageId) !== String(editingMid))"
-                class="msgMenuWrap"
-                @click.stop
-            >
-              <button class="msgMenuBtn" type="button" @click.stop="toggleMsgMenu(m)">⋯</button>
-
-              <div v-if="msgMenuMid && String(msgMenuMid) === String(m.messageId)" class="msgMenu">
-                <button class="msgMenuItem" type="button" @click="startEditFromMenu(m)">수정</button>
-                <button class="msgMenuItem" type="button" @click="copyMessage(m)">복사</button>
-              </div>
-            </div>
 
             <!-- ✅ 본문 -->
             <div class="text">
@@ -1641,10 +1777,10 @@ onBeforeUnmount(() => {
 
               <!-- 일반 모드 -->
               <template v-else>
-                <div>{{ m.content }}</div>
-
-                <!-- ✅ 수정됨 표시 -->
-                <div v-if="m.editedAt" class="editedMark">수정됨</div>
+                <div>
+                  {{ m.content }}
+                  <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
+                </div>
               </template>
             </div>
 
@@ -1660,17 +1796,6 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="getReadLabel(m)" class="readReceipt">{{ getReadLabel(m) }}</div>
-
-          <div v-if="m.pinCandidates && m.pinCandidates.length" class="candidates">
-            <PinCandidateCard
-                v-for="c in m.pinCandidates"
-                :key="c.candidateId"
-                :candidate="c"
-                :busy="isConfirmBusy(m.messageId)"
-                @confirm="confirmCandidate(m, $event)"
-                @dismiss="dismissCandidate(m, $event)"
-            />
-          </div>
 
           <div v-if="!isGroupWithNext(i)" class="time">{{ messageTimeText(m) }}</div>
         </div>
@@ -1829,6 +1954,35 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+  <Teleport to="body">
+    <div v-if="menu.open" class="msgMenuOverlay" @mousedown="closeMsgMenu">
+      <div
+          class="msgMenuPopover"
+          :style="{ top: menu.top + 'px', left: menu.left + 'px' }"
+          @mousedown.stop
+      >
+        <button class="msgMenuItem" type="button" @click="copyMessage(menu.msg)">복사</button>
+
+        <button
+            v-if="menu.msg && isMineMessage(menu.msg)"
+            class="msgMenuItem"
+            type="button"
+            @click="startEditFromMenu(menu.msg)"
+        >
+          수정
+        </button>
+
+        <button
+            v-if="menu.msg && menu.msg.pinCandidates && menu.msg.pinCandidates.length"
+            class="msgMenuItem"
+            type="button"
+            @click="toggleCandidatesFromMenu(menu.msg)"
+        >
+          후보 보기/닫기
+        </button>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1899,16 +2053,6 @@ onBeforeUnmount(() => {
 .state{text-align:center;color:var(--muted);padding:18px 0}
 .state.err{color:color-mix(in oklab,var(--danger) 80%,white)}
 
-/* ✅ Pinned */
-.pinnedWrap--flash{ animation: pinnedFlash 0.8s ease; }
-@keyframes pinnedFlash{
-  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent);
-    background: color-mix(in oklab, var(--surface) 100%, transparent); }
-  30%  { box-shadow: 0 0 0 10px color-mix(in oklab, var(--accent) 28%, transparent);
-    background: color-mix(in oklab, var(--accent) 10%, var(--surface)); }
-  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 0%, transparent);
-    background: color-mix(in oklab, var(--surface) 100%, transparent); }
-}
 .pinRemindDot{
   display:inline-block;
   width:8px;height:8px;
@@ -1918,45 +2062,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
   vertical-align: middle;
 }
-.pinned{
-  max-width: 760px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 0 12px 8px;
-}
-.pinnedHead{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin-bottom: 8px;
-}
-.pinnedTitle{ font-weight: 950; font-size: 13px; opacity: .92; }
-.pinList{ display:grid; gap: 8px; }
-.pinCard{
-  border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
-  background: color-mix(in oklab, var(--surface) 86%, transparent);
-  box-shadow: 0 1px 0 rgba(255,255,255,.06) inset;
-  border-radius: 16px;
-  padding: 10px 12px;
-}
-.pinTop{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.pinName{ font-weight: 950; font-size: 13px; }
-.pinActions{ display:flex; gap: 6px; flex: 0 0 auto; }
-.pinMeta{ display:grid; gap: 4px; }
-.pinRow{ font-size: 12px; opacity: .92; }
-.muted{ opacity: .55; }
-
-/* pin modal body */
-.pinModalBody{ display:flex; flex-direction:column; gap: 8px; padding: 10px 0 2px; }
-.pinModalLine{ display:flex; justify-content:space-between; gap: 10px; font-size: 12px; }
-.pinModalLine .k{ color: var(--muted); font-weight: 800; }
-.pinModalLine .v{ color: var(--text); font-weight: 900; }
 
 /* 잠금 게이트 */
 .lockGate{
@@ -2043,6 +2148,7 @@ onBeforeUnmount(() => {
 
 .bubble{
   position: relative;
+  overflow: visible;
   max-width:75%;
   padding:10px 14px;
   border-radius:18px;
@@ -2338,68 +2444,70 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+/* ===== 편집 UI (bubble 안에서 자연스럽게) ===== */
 .editBox{
   width: 100%;
   resize: none;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(0,0,0,.12);
-  background: rgba(0,0,0,.03);
+  border: none;
   outline: none;
+  background: transparent;
+  color: inherit;
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.45;
+  padding: 4px 0;
 }
 
 .editActions{
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .editBtn{
-  border: 1px solid rgba(0,0,0,.14);
-  background: transparent;
+  padding: 5px 10px;
   border-radius: 10px;
-  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
   font-size: 12px;
-  font-weight: 800;
   cursor: pointer;
-  opacity: .9;
 }
 
 .editBtn--primary{
-  border-color: rgba(0,0,0,.22);
-  opacity: 1;
+  border: 1px solid rgba(80,160,255,.55);
+  background: rgba(80,160,255,.18);
 }
 
+/* “수정됨”은 줄바꿈 말고 옆에 살짝 */
 .editedMark{
-  margin-top: 6px;
+  margin-left: 6px;
   font-size: 11px;
-  font-weight: 800;
   opacity: .55;
-  text-align: right;
 }
-/* ===== 메시지 ⋯ 메뉴 ===== */
+/* ===== 메시지 ⋯ 메뉴 (개선) ===== */
+/* 메뉴 래퍼: bubble 우상단 고정 */
 .msgMenuWrap{
   position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 10;
+  top: 6px;
+  right: 6px;
+  z-index: 50;
 }
 
+/* 메뉴 버튼: 항상 "살짝" 보이게 (hover 없어도 어색하지 않게) */
 .msgMenuBtn{
-  width: 30px;
+  width: 28px;
   height: 26px;
   border-radius: 10px;
-  border: 1px solid rgba(0,0,0,.10);
-  background: rgba(255,255,255,.65);
-  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.08);
+  backdrop-filter: blur(8px);
+  color: rgba(255,255,255,.85);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  opacity: .0;
-  transition: opacity .15s ease;
+  opacity: .35;                 /* ✅ 0 → 0.35로 (항상 살짝 보임) */
+  transition: opacity .15s ease, transform .15s ease, background .15s ease;
 }
 
 /* hover 시만 보이게 (모바일은 터치라 클릭하면 보임) */
@@ -2407,13 +2515,81 @@ onBeforeUnmount(() => {
   opacity: .95;
 }
 
+.msgMenuBtn:active{
+  transform: scale(.98);
+}
+
+/* 메뉴: 레이아웃을 밀지 않도록 "absolute"로 띄우기 */
 .msgMenu{
-  margin-top: 6px;
-  width: 120px;
+  position: absolute;           /* ✅ 핵심 */
+  top: 30px;
+  right: 0;
+  min-width: 120px;
   border-radius: 14px;
-  border: 1px solid rgba(0,0,0,.10);
-  background: rgba(255,255,255,.92);
-  box-shadow: 0 12px 30px rgba(0,0,0,.12);
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(20,25,35,.95);
+  box-shadow: 0 14px 34px rgba(0,0,0,.35);
+  overflow: hidden;
+  z-index: 60;
+}
+
+.msgMenuItem{
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,.92);
+  cursor: pointer;
+}
+
+.msgMenuItem:hover{
+  background: rgba(255,255,255,.08);
+}
+@media (hover: none){
+  .msgMenuBtn{ opacity: .6; }
+}
+/* ✅ 버블 안 액션 버튼 (⋯) */
+.msg .bubble{ position: relative; overflow: visible; }
+
+.msgActionBtn{
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 26px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.08);
+  backdrop-filter: blur(8px);
+  color: rgba(255,255,255,.9);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .25;
+  transition: opacity .15s ease, transform .15s ease;
+}
+
+.msg:hover .msgActionBtn{ opacity: .95; }
+@media (hover: none){ .msgActionBtn{ opacity: .55; } }
+.msgActionBtn:active{ transform: scale(.98); }
+
+/* ✅ Teleport 메뉴 */
+.msgMenuOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+.msgMenuPopover{
+  position: fixed;
+  min-width: 140px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(20,25,35,.95);
+  box-shadow: 0 14px 34px rgba(0,0,0,.35);
   overflow: hidden;
 }
 
@@ -2422,13 +2598,364 @@ onBeforeUnmount(() => {
   text-align: left;
   padding: 10px 12px;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   border: none;
   background: transparent;
+  color: rgba(255,255,255,.92);
   cursor: pointer;
 }
 
 .msgMenuItem:hover{
-  background: rgba(0,0,0,.04);
+  background: rgba(255,255,255,.08);
+}
+/* =========================
+   RealLife v1: Hover Actions
+   ========================= */
+
+.bubble {
+  position: relative;
+  overflow: visible;
+}
+
+/* 기본은 안 보이게, hover 시 보이게 */
+.hoverActions{
+  position: absolute;
+  top: -10px;
+  right: 6px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity .15s ease, transform .15s ease;
+}
+
+.msg:hover .hoverActions{
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* 터치 환경에서는 hover가 없으니 “살짝 보이게” */
+
+
+.haBtn{
+  width: 30px;
+  height: 28px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.08);
+  backdrop-filter: blur(10px);
+  color: rgba(255,255,255,.92);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.haBtn:hover{
+  background: rgba(255,255,255,.12);
+}
+
+/* 모바일에서는 hover 액션 숨김 */
+@media (hover: none) {
+
+  .hoverActions{
+    display:none;
+  }
+
+}
+
+
+/* =========================
+   Mobile/App adjustments
+   ========================= */
+.mobileOnly{ display:none; }
+
+
+
+/* =========================
+   RealLife v2: Active Actions Dock
+   ========================= */
+.dockWrap{
+  position: sticky;
+  top: 54px; /* topbar 높이에 맞춤 (필요하면 52~60 조정) */
+  z-index: 20;
+  padding: 10px 12px 0;
+}
+
+.dockBar{
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(18,22,30,.78);
+  backdrop-filter: blur(14px);
+  padding: 8px 8px;
+}
+
+.dockTab{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
+  font-size: 12px;
+  font-weight: 900;
+  cursor:pointer;
+}
+.dockTab.on{
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.16);
+}
+.dockTab:disabled{
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.dockCount{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.12);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.dockSpacer{ flex: 1; }
+
+.dockMore{ white-space: nowrap; }
+
+.dockPanel{
+  max-width: 760px;
+  margin: 10px auto 0;
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(18,22,30,.64);
+  backdrop-filter: blur(14px);
+  padding: 10px;
+}
+
+.dockGrid{
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dockRow{
+  display:flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.dockRow::-webkit-scrollbar{ height: 6px; }
+.dockRow::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.12); border-radius: 999px; }
+.dockRow::-webkit-scrollbar-track{ background: transparent; }
+
+.dockCard{
+  min-width: 190px;
+  max-width: 240px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  padding: 10px 10px;
+  cursor: pointer;
+}
+.dockCardTitle{
+  font-size: 13px;
+  font-weight: 950;
+  margin-bottom: 6px;
+}
+.dockCardMeta{
+  font-size: 12px;
+  opacity: .9;
+  display:flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dockCardMeta .sep{ opacity: .55; }
+.dockEmpty{
+  padding: 10px 8px;
+  font-size: 12px;
+  opacity: .8;
+}
+
+.dockSuggestHead{
+  display:flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.dockSuggestTitle{
+  font-size: 13px;
+  font-weight: 950;
+}
+.dockSuggestSub{
+  font-size: 12px;
+  opacity: .8;
+}
+
+.dockSuggestList{
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+
+/* =========================
+   Mobile/App adjustments
+   ========================= */
+.mobileOnly{ display:none; }
+
+
+
+/* =========================
+   RealLife v2: Active Actions Dock
+   ========================= */
+.dockWrap{
+  position: sticky;
+  top: 54px; /* topbar 높이에 맞춤 (필요하면 52~60 조정) */
+  z-index: 20;
+  padding: 10px 12px 0;
+}
+
+.dockBar{
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(18,22,30,.78);
+  backdrop-filter: blur(14px);
+  padding: 8px 8px;
+}
+
+.dockTab{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
+  font-size: 12px;
+  font-weight: 900;
+  cursor:pointer;
+}
+.dockTab.on{
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.16);
+}
+.dockTab:disabled{
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.dockCount{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.12);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.dockSpacer{ flex: 1; }
+
+.dockMore{ white-space: nowrap; }
+
+.dockPanel{
+  max-width: 760px;
+  margin: 10px auto 0;
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(18,22,30,.64);
+  backdrop-filter: blur(14px);
+  padding: 10px;
+}
+
+.dockGrid{
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dockRow{
+  display:flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.dockRow::-webkit-scrollbar{ height: 6px; }
+.dockRow::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.12); border-radius: 999px; }
+.dockRow::-webkit-scrollbar-track{ background: transparent; }
+
+.dockCard{
+  min-width: 190px;
+  max-width: 240px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  padding: 10px 10px;
+  cursor: pointer;
+}
+.dockCardTitle{
+  font-size: 13px;
+  font-weight: 950;
+  margin-bottom: 6px;
+}
+.dockCardMeta{
+  font-size: 12px;
+  opacity: .9;
+  display:flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dockCardMeta .sep{ opacity: .55; }
+.dockEmpty{
+  padding: 10px 8px;
+  font-size: 12px;
+  opacity: .8;
+}
+
+.dockSuggestHead{
+  display:flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.dockSuggestTitle{
+  font-size: 13px;
+  font-weight: 950;
+}
+.dockSuggestSub{
+  font-size: 12px;
+  opacity: .8;
+}
+
+.dockSuggestList{
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
 }
 </style>

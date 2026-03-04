@@ -47,6 +47,12 @@ const REMIND_OPTIONS = [
   { label: "1시간 전", value: 60 },
 ];
 
+const REMIND_QUICK = [
+  { label: "없음", value: 0 },
+  { label: "10분", value: 10 },
+  { label: "30분", value: 30 },
+];
+
 function readLastRemind() {
   const v = Number(localStorage.getItem(REMIND_KEY));
   return Number.isFinite(v) ? v : null;
@@ -206,12 +212,13 @@ watch(
       </div>
     </div>
 
-    <!-- ✅ 리마인드: 드롭다운 -> 원탭 칩 -->
-    <div class="remindRow">
-      <div class="remindLabel">리마인드</div>
-      <div class="remindChips">
+    <!-- ✅ Chat Slim: 리마인드(퀵 3개) + 더보기 -->
+    <div class="remindSlim">
+      <span class="remindSlimLabel">리마인드</span>
+
+      <div class="remindQuick">
         <button
-            v-for="o in REMIND_OPTIONS"
+            v-for="o in REMIND_QUICK"
             :key="o.value"
             type="button"
             class="chip"
@@ -221,21 +228,25 @@ watch(
         >
           {{ o.label }}
         </button>
+
+        <button class="chip more" type="button" :disabled="busy" @click="openEdit">
+          더보기
+        </button>
       </div>
     </div>
 
-    <div class="actions">
+    <div class="actionsSlim">
       <RlButton size="sm" variant="soft" :loading="busy" @click="confirmDefault">
-        핀으로 저장 · {{ remindLabel }}
+        저장
       </RlButton>
 
       <RlButton size="sm" variant="ghost" :disabled="busy" @click="openEdit">
-        수정 후 저장 · {{ remindLabel }}
+        수정…
       </RlButton>
 
-      <RlButton size="sm" variant="ghost" :disabled="busy" @click="emit('dismiss', candidate)">
+      <button class="dismissLink" type="button" :disabled="busy" @click="emit('dismiss', candidate)">
         무시
-      </RlButton>
+      </button>
     </div>
 
     <!-- ✅ 수정 모달 -->
@@ -396,5 +407,57 @@ watch(
 }
 .input:focus{
   border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
+}
+.remindSlim{
+  margin-top: 8px;
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.remindSlimLabel{
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.remindQuick{
+  display:flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chip.more{
+  opacity: .85;
+}
+
+.actionsSlim{
+  margin-top: 10px;
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dismissLink{
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: color-mix(in oklab, var(--text) 70%, var(--muted));
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  opacity: .8;
+}
+.dismissLink:hover{
+  opacity: 1;
+  text-decoration: underline;
+}
+.dismissLink:disabled{
+  opacity: .4;
+  cursor: not-allowed;
 }
 </style>
