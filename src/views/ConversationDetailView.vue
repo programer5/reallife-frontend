@@ -24,6 +24,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useConversationPinsStore } from "@/stores/conversationPins";
 import { readNotification } from "@/api/notifications";
 import { useNotificationsStore } from "@/stores/notifications";
+import { fetchConversationReadReceipts } from "@/api/conversations";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -38,6 +39,8 @@ const conversationId = computed(() => String(route.params.conversationId || ""))
 const isPinnedHighlight = ref(false);
 
 const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
+
+const readReceipts = ref([]); // [{ userId, lastReadAt }]
 
 function parseTime(v) {
   const t = Date.parse(v || "");
@@ -551,6 +554,35 @@ function isMineMessage(m) {
   return String(m?.senderId) === String(myId.value);
 }
 
+const lastMyMessageId = computed(() => {
+  // items는 오래된 -> 최신 순서
+  for (let i = items.value.length - 1; i >= 0; i--) {
+    const m = items.value[i];
+    if (isMineMessage(m)) return String(m.messageId);
+  }
+  return null;
+});
+
+// 1:1 전용 "읽음" 라벨
+function getReadLabel(m) {
+  if (!isMineMessage(m)) return "";
+  if (!lastMyMessageId.value) return "";
+  if (String(m.messageId) !== String(lastMyMessageId.value)) return "";
+
+  const myMsgTime = parseTime(m.createdAt);
+  if (myMsgTime == null) return "";
+
+  // readReceipts에서 "나(myId)"가 아닌 상대 1명을 찾음
+  const peerItem = (readReceipts.value || []).find(
+      (x) => String(x.userId) !== String(myId.value)
+  );
+  const peerReadAt = peerItem?.lastReadAt;
+  const peerTime = parseTime(peerReadAt);
+
+  if (peerTime == null) return "";
+  return peerTime >= myMsgTime ? "읽음" : "";
+}
+
 function messageTimeText(m) {
   const raw = m?.createdAt ? String(m.createdAt) : "";
   if (!raw) return "";
@@ -710,6 +742,19 @@ async function loadFirst({ keepScroll = false } = {}) {
     items.value = normalizeMessages(res.items);
     nextCursor.value = res.nextCursor ?? null;
     hasNext.value = !!res.hasNext;
+
+    // ✅ NEW: (읽음표시용) 대화방 멤버들의 lastReadAt 목록 로드
+    // - 최초 진입/대화방 변경 시에만 로드 (keepScroll=loadMore 때는 스킵)
+    if (!keepScroll) {
+      let initialReadReceipts = [];
+      try {
+        const rr = await fetchConversationReadReceipts(conversationId.value);
+        initialReadReceipts = rr?.items || [];
+      } catch {
+        initialReadReceipts = [];
+      }
+      readReceipts.value = initialReadReceipts;
+    }
 
     // ✅ (중요) unread 기준값은 markRead "이전"에 받은 initialLastReadAt을 사용해야 함
     // ✅ 따라서 markRead는 기존처럼 실행해도 됨
@@ -1174,6 +1219,23 @@ onMounted(async () => {
       return;
     }
 
+    if (type === "conversation-read") {
+      if (String(payload?.conversationId) !== String(conversationId.value)) return;
+
+      const uid = String(payload?.userId || "");
+      const at = payload?.lastReadAt || null;
+      if (!uid) return;
+
+      const arr = [...(readReceipts.value || [])];
+      const idx = arr.findIndex((x) => String(x.userId) === uid);
+
+      if (idx >= 0) arr[idx] = { ...arr[idx], lastReadAt: at };
+      else arr.push({ userId: uid, lastReadAt: at });
+
+      readReceipts.value = arr;
+      return;
+    }
+
     if (type === "pin-created") {
       if (payload) pinsStore.ingestPinCreated?.(payload);
       return;
@@ -1346,6 +1408,8 @@ onBeforeUnmount(() => {
               </template>
             </div>
           </div>
+
+          <div v-if="getReadLabel(m)" class="readReceipt">{{ getReadLabel(m) }}</div>
 
           <div v-if="m.pinCandidates && m.pinCandidates.length" class="candidates">
             <PinCandidateCard
@@ -2003,5 +2067,13 @@ onBeforeUnmount(() => {
 }
 .msg.msg--groupNext.mine .bubble {
   border-bottom-right-radius: 10px;
+}
+.readReceipt{
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--muted);
+  opacity: .75;
+  text-align: right;
 }
 </style>

@@ -29,3 +29,8 @@ export async function fetchConversationReadState(conversationId) {
     const res = await api.get(`/api/conversations/${conversationId}/read-state`);
     return res.data; // { lastReadAt }
 }
+
+export async function fetchConversationReadReceipts(conversationId) {
+    const res = await api.get(`/api/conversations/${conversationId}/read-receipts`);
+    return res.data; // { items: [{ userId, lastReadAt }] }
+}
