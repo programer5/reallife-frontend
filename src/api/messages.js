@@ -36,3 +36,8 @@ export async function hideMessage(messageId) {
 export async function deleteMessageForAll(messageId) {
     await api.post(`/api/messages/${messageId}/delete-for-all`);
 }
+
+export async function updateMessage(conversationId, messageId, content) {
+    const res = await api.patch(`/api/conversations/${conversationId}/messages/${messageId}`, { content });
+    return res.data;
+}

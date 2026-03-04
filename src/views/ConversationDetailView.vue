@@ -26,6 +26,7 @@ import { useConversationPinsStore } from "@/stores/conversationPins";
 import { readNotification } from "@/api/notifications";
 import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
+import { updateMessage } from "@/api/messages";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -458,6 +459,11 @@ const loading = ref(false);
 const error = ref("");
 
 const items = ref([]);
+const editingMid = ref(null);      // 현재 편집 중 messageId (string)
+const editingText = ref("");       // 편집 텍스트
+const savingEdit = ref(false);     // 저장중 플래그
+// ✅ 메시지 ⋯ 메뉴 상태
+const msgMenuMid = ref(null); // 열려있는 메뉴의 messageId (string)
 const nextCursor = ref(null);
 const hasNext = ref(false);
 
@@ -553,6 +559,113 @@ function isNearBottom() {
 function isMineMessage(m) {
   if (!myId.value) return false;
   return String(m?.senderId) === String(myId.value);
+}
+
+function startEdit(m) {
+  if (!m) return;
+  if (!isMineMessage(m)) return;
+  editingMid.value = String(m.messageId);
+  editingText.value = (m.content ?? "").toString();
+}
+
+function cancelEdit() {
+  editingMid.value = null;
+  editingText.value = "";
+}
+
+async function saveEdit(m) {
+  if (!m) return;
+  if (!isMineMessage(m)) return;
+
+  const mid = String(m.messageId);
+  const nextText = (editingText.value ?? "").toString().trim();
+
+  if (!nextText) {
+    toast.error?.("수정 실패", "내용을 입력해 주세요.");
+    return;
+  }
+
+  // (선택) 길이 제한(백엔드 5000 기준)
+  if (nextText.length > 5000) {
+    toast.error?.("수정 실패", "최대 5000자까지 입력할 수 있어요.");
+    return;
+  }
+
+  // optimistic update 준비
+  const idx = items.value.findIndex(x => String(x.messageId) === mid);
+  const prev = idx >= 0 ? { ...items.value[idx] } : null;
+
+  savingEdit.value = true;
+  try {
+    // optimistic 반영(내 화면 즉시)
+    if (idx >= 0) {
+      items.value[idx] = {
+        ...items.value[idx],
+        content: nextText,
+        editedAt: new Date().toISOString(), // 임시 (서버 응답으로 덮임)
+      };
+    }
+
+    const res = await updateMessage(conversationId.value, mid, nextText);
+
+    // 서버 응답으로 확정
+    if (idx >= 0) {
+      items.value[idx] = {
+        ...items.value[idx],
+        content: res?.content ?? nextText,
+        editedAt: res?.editedAt ?? items.value[idx].editedAt,
+      };
+    }
+
+    cancelEdit();
+  } catch (e) {
+    // 실패 시 롤백
+    if (idx >= 0 && prev) items.value[idx] = prev;
+
+    const msg =
+        e?.response?.data?.message ||
+        (e?.response?.status ? `요청 실패 (status=${e.response.status})` : "네트워크 오류");
+    toast.error?.("수정 실패", msg);
+  } finally {
+    savingEdit.value = false;
+  }
+}
+
+function toggleMsgMenu(m) {
+  const mid = String(m?.messageId || "");
+  if (!mid) return;
+  msgMenuMid.value = msgMenuMid.value === mid ? null : mid;
+}
+
+function closeMsgMenu() {
+  msgMenuMid.value = null;
+}
+
+function onDocClickForMenu(e) {
+  // 메뉴 버튼/메뉴 영역 클릭은 무시
+  const el = e?.target;
+  if (!el) return;
+  if (el.closest?.(".msgMenuWrap")) return;
+  closeMsgMenu();
+}
+
+async function copyMessage(m) {
+  try {
+    const txt = (m?.content ?? "").toString();
+    if (!txt) return;
+    await navigator.clipboard.writeText(txt);
+    toast.success?.("복사됨", "메시지를 클립보드에 복사했어요.");
+  } catch {
+    toast.error?.("복사 실패", "클립보드 접근이 허용되지 않았어요.");
+  } finally {
+    closeMsgMenu();
+  }
+}
+
+// 기존 startEdit을 그대로 쓰되, 메뉴에서 누르면 메뉴를 닫게만 보강
+function startEditFromMenu(m) {
+  closeMsgMenu();
+  startEdit(m);
 }
 
 const lastMyMessageId = computed(() => {
@@ -1264,6 +1377,29 @@ onMounted(async () => {
       return;
     }
 
+    if (type === "message-updated") {
+      if (String(payload?.conversationId) !== String(conversationId.value)) return;
+
+      const mid = String(payload?.messageId || "");
+      if (!mid) return;
+
+      const idx = items.value.findIndex(m => String(m.messageId) === mid);
+      if (idx >= 0) {
+        items.value[idx] = {
+          ...items.value[idx],
+          content: payload?.content ?? items.value[idx].content,
+          editedAt: payload?.editedAt ?? items.value[idx].editedAt,
+        };
+      }
+
+      // 내가 편집 중인 메시지가 서버에서 업데이트되면 편집모드 종료(충돌 방지)
+      if (editingMid.value && String(editingMid.value) === mid) {
+        cancelEdit();
+      }
+
+      return;
+    }
+
     if (type === "conversation-read") {
       if (String(payload?.conversationId) !== String(conversationId.value)) return;
 
@@ -1302,6 +1438,8 @@ onMounted(async () => {
     }
   });
 
+  document.addEventListener("click", onDocClickForMenu, true);
+
   offStatus = sse.onStatus(({ connected }) => {
     // false -> true 로 바뀌는 순간만
     if (connected && !_wasConnected) {
@@ -1329,6 +1467,7 @@ onBeforeUnmount(() => {
   offStatus = null;
 
   convStore.setActiveConversation?.(null);
+  document.removeEventListener("click", onDocClickForMenu, true);
 
   for (const t of savedBadgeTimers.values()) clearTimeout(t);
   savedBadgeTimers.clear();
@@ -1467,7 +1606,47 @@ onBeforeUnmount(() => {
             <!-- ✅ 저장됨 배지 -->
             <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
 
-            <div class="text">{{ m.content }}</div>
+            <!-- ✅ ⋯ 메뉴 (내 메시지 + 편집 중 아닐 때만) -->
+            <div
+                v-if="isMineMessage(m) && (!editingMid || String(m.messageId) !== String(editingMid))"
+                class="msgMenuWrap"
+                @click.stop
+            >
+              <button class="msgMenuBtn" type="button" @click.stop="toggleMsgMenu(m)">⋯</button>
+
+              <div v-if="msgMenuMid && String(msgMenuMid) === String(m.messageId)" class="msgMenu">
+                <button class="msgMenuItem" type="button" @click="startEditFromMenu(m)">수정</button>
+                <button class="msgMenuItem" type="button" @click="copyMessage(m)">복사</button>
+              </div>
+            </div>
+
+            <!-- ✅ 본문 -->
+            <div class="text">
+              <!-- 편집 모드 -->
+              <template v-if="editingMid && String(m.messageId) === String(editingMid)">
+                <textarea
+                    v-model="editingText"
+                    class="editBox"
+                    rows="2"
+                    :disabled="savingEdit"
+                ></textarea>
+
+                <div class="editActions">
+                  <button class="editBtn" :disabled="savingEdit" @click="cancelEdit">취소</button>
+                  <button class="editBtn editBtn--primary" :disabled="savingEdit" @click="saveEdit(m)">
+                    저장
+                  </button>
+                </div>
+              </template>
+
+              <!-- 일반 모드 -->
+              <template v-else>
+                <div>{{ m.content }}</div>
+
+                <!-- ✅ 수정됨 표시 -->
+                <div v-if="m.editedAt" class="editedMark">수정됨</div>
+              </template>
+            </div>
 
             <!-- ✅ optimistic send 상태 -->
             <div v-if="m._status" class="sendState" :data-status="m._status">
@@ -2146,5 +2325,110 @@ onBeforeUnmount(() => {
   color: var(--muted);
   opacity: .75;
   text-align: right;
+}
+.editTrigger{
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  opacity: .65;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: right;
+  width: 100%;
+}
+
+.editBox{
+  width: 100%;
+  resize: none;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,.12);
+  background: rgba(0,0,0,.03);
+  outline: none;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.editActions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.editBtn{
+  border: 1px solid rgba(0,0,0,.14);
+  background: transparent;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  opacity: .9;
+}
+
+.editBtn--primary{
+  border-color: rgba(0,0,0,.22);
+  opacity: 1;
+}
+
+.editedMark{
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  opacity: .55;
+  text-align: right;
+}
+/* ===== 메시지 ⋯ 메뉴 ===== */
+.msgMenuWrap{
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
+
+.msgMenuBtn{
+  width: 30px;
+  height: 26px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(255,255,255,.65);
+  backdrop-filter: blur(6px);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .0;
+  transition: opacity .15s ease;
+}
+
+/* hover 시만 보이게 (모바일은 터치라 클릭하면 보임) */
+.msg:hover .msgMenuBtn{
+  opacity: .95;
+}
+
+.msgMenu{
+  margin-top: 6px;
+  width: 120px;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 12px 30px rgba(0,0,0,.12);
+  overflow: hidden;
+}
+
+.msgMenuItem{
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.msgMenuItem:hover{
+  background: rgba(0,0,0,.04);
 }
 </style>
