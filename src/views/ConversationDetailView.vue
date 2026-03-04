@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import RlModal from "@/components/ui/RlModal.vue";
 import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
+import SseStatusBanner from "@/components/SseStatusBanner.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -637,6 +638,16 @@ function isGroupWithNext(idx) {
   return minutesBetween(cur, next) <= 5;
 }
 
+let _readTouchTimer = null;
+function touchReadDebounced() {
+  if (_readTouchTimer) clearTimeout(_readTouchTimer);
+  _readTouchTimer = setTimeout(async () => {
+    try {
+      await markConversationRead(conversationId.value);
+    } catch {}
+  }, 350); // 너무 잦지 않게
+}
+
 function appendIncomingMessage(payload) {
   if (!payload?.messageId) return;
   if (hasMessage(payload.messageId)) return;
@@ -659,6 +670,9 @@ function appendIncomingMessage(payload) {
     if (hasCandidates) {
       nextTick(() => scrollToBottom({ smooth: true }));
     }
+
+    // ✅ NEW: 바닥에서 새 메시지를 받은 경우 = 사실상 읽음 처리
+    touchReadDebounced();
   }
   // ✅ 3) 바닥이 아니면: 자동 스크롤 금지 + 배너 카운트 증가
   else {
@@ -1149,6 +1163,37 @@ function dismissCandidate(m, cand) {
 
 /** ====== SSE ====== */
 let offEvent = null;
+let offStatus = null;
+let _wasConnected = false;
+
+async function syncTailAfterReconnect() {
+  try {
+    // 1) 최근 20개 다시 가져와서 merge
+    const res = await fetchMessages({
+      conversationId: conversationId.value,
+      size: 20,
+      unlockToken: lockEnabled.value ? unlockToken.value : null,
+    });
+
+    const incoming = normalizeMessages(res.items || []);
+    // 기존 items에 없는 것만 추가
+    for (const m of incoming) {
+      if (!hasMessage(m.messageId)) items.value.push(m);
+    }
+
+    // 2) 내가 바닥에 있으면 스크롤 유지 + 읽음 처리
+    if (isNearBottom()) {
+      scrollToBottom({ smooth: false });
+      touchReadDebounced();
+    }
+
+    // 3) readReceipts도 한 번 갱신(선택이지만 추천)
+    try {
+      const rr = await fetchConversationReadReceipts(conversationId.value);
+      readReceipts.value = rr?.items || [];
+    } catch {}
+  } catch {}
+}
 
 onMounted(async () => {
   const ok = await ensureSessionOrRedirect();
@@ -1229,6 +1274,16 @@ onMounted(async () => {
       const arr = [...(readReceipts.value || [])];
       const idx = arr.findIndex((x) => String(x.userId) === uid);
 
+      // ✅ NEW: 더 과거 lastReadAt이 들어오면 무시 (읽음이 뒤로 가는 것 방지)
+      if (idx >= 0) {
+        const cur = arr[idx]?.lastReadAt;
+        if (cur && at) {
+          const curT = parseTime(cur);
+          const newT = parseTime(at);
+          if (curT != null && newT != null && newT < curT) return;
+        }
+      }
+
       if (idx >= 0) arr[idx] = { ...arr[idx], lastReadAt: at };
       else arr.push({ userId: uid, lastReadAt: at });
 
@@ -1246,6 +1301,15 @@ onMounted(async () => {
       return;
     }
   });
+
+  offStatus = sse.onStatus(({ connected }) => {
+    // false -> true 로 바뀌는 순간만
+    if (connected && !_wasConnected) {
+      syncTailAfterReconnect();
+    }
+    _wasConnected = connected;
+  });
+
   // ✅ 분 경계에 맞춰 갱신(방금/1분 전 자연스럽게)
   const delay = 60000 - (Date.now() % 60000);
   _msgTimeTimer = setTimeout(() => {
@@ -1261,6 +1325,9 @@ onBeforeUnmount(() => {
 
   if (scrollerRef.value) scrollerRef.value.removeEventListener("scroll", onScroll);
   if (offEvent) offEvent();
+  if (offStatus) offStatus();
+  offStatus = null;
+
   convStore.setActiveConversation?.(null);
 
   for (const t of savedBadgeTimers.values()) clearTimeout(t);
@@ -1268,8 +1335,10 @@ onBeforeUnmount(() => {
 
   if (_msgTimeTimer) clearTimeout(_msgTimeTimer);
   if (_msgTimeTimer2) clearInterval(_msgTimeTimer2);
+  if (_readTouchTimer) clearTimeout(_readTouchTimer);
   _msgTimeTimer = null;
   _msgTimeTimer2 = null;
+  _readTouchTimer = null;
 });
 </script>
 
@@ -1297,6 +1366,8 @@ onBeforeUnmount(() => {
         </RlButton>
       </div>
     </div>
+
+    <SseStatusBanner />
 
     <!-- ✅ Pinned -->
     <div class="pinnedWrap" :class="{ 'pinnedWrap--flash': isPinnedHighlight }">

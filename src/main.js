@@ -12,6 +12,7 @@ import { useConversationsStore } from "@/stores/conversations";
 import { useConversationPinsStore } from "@/stores/conversationPins";
 import { useToastStore } from "@/stores/toast";
 import { useSettingsStore } from "@/stores/settings";
+import { useSseStore } from "@/stores/sse";
 import { bindSoundUnlockOnce, playDing } from "@/lib/sound";
 import sse from "@/lib/sse";
 
@@ -28,6 +29,7 @@ app.use(pinia);
 app.use(router);
 
 const auth = useAuthStore();
+const sseStore = useSseStore();
 const noti = useNotificationsStore();
 const conv = useConversationsStore();
 // ✅ noti.refresh 폭주 방지용 디바운스
@@ -232,6 +234,23 @@ sse.onEvent?.(async (evt) => {
         return;
     }
 
+    if (type === "conversation-read") {
+        // data: { conversationId, userId, lastReadAt }
+        const cid = data?.conversationId;
+        const uid = data?.userId;
+        if (!cid || !uid) return;
+
+        // ⚠️ 아래 meId는 auth store에 있는 “내 id” 필드명에 맞게 하나로 바꿔줘
+        const meId = auth.userId || auth.me?.id || auth.user?.id;
+
+        // “내가 읽었다” 이벤트일 때만 목록 unread를 즉시 끔 (1:1 DM 기준)
+        if (String(uid) === String(meId)) {
+            conv.markRead?.(cid);
+        }
+
+        return;
+    }
+
     if (type === "message-deleted") {
         conv.softSyncSoon?.();
         return;
@@ -264,6 +283,13 @@ sse.onEvent?.(async (evt) => {
 
         return;
     }
+});
+
+// ✅ SSE 연결 상태를 Pinia store에 반영
+sse.onStatus?.(({ running, connected }) => {
+    if (!running) sseStore.setStatus?.("idle");
+    else if (connected) sseStore.setStatus?.("connected");
+    else sseStore.setStatus?.("connecting");
 });
 
 watch(
