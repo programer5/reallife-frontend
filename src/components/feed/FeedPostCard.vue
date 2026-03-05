@@ -1,0 +1,432 @@
+<!-- src/components/feed/FeedPostCard.vue (v3.3: like animation + double tap like + comments + slider) -->
+<script setup>
+import { computed, ref } from "vue";
+import { useRouter } from "vue-router";
+import { useToastStore } from "../../stores/toast";
+import Lightbox from "../media/Lightbox.vue";
+
+const props = defineProps({
+  post: { type: Object, required: true },
+});
+
+const emit = defineEmits(["like"]);
+
+const router = useRouter();
+const toast = useToastStore();
+
+const images = computed(() => {
+  const p = props.post || {};
+  return p.imageUrls || p.images || [];
+});
+
+const previewComments = computed(() => {
+  const p = props.post || {};
+  const list = p.previewComments || p.recentComments || p.commentPreviews || [];
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 2);
+});
+
+const visBadge = computed(() => {
+  const v = String(props.post?.visibility || "PUBLIC").toUpperCase();
+  if (v.includes("PRIVATE") || v === "ME") return { icon: "🔒", label: "나만" };
+  if (v.includes("FOLLOW") || v.includes("FRIEND")) return { icon: "👥", label: "친구" };
+  return { icon: "🌐", label: "공개" };
+});
+
+const lightboxOpen = ref(false);
+const lightboxIndex = ref(0);
+
+// slider
+const slide = ref(0);
+const dragging = ref(false);
+let startX = 0;
+let startY = 0;
+
+const hasMany = computed(() => images.value.length > 1);
+const visibleImages = computed(() => images.value.slice(0, 8)); // cap
+
+function openDetail() {
+  const id = props.post?.postId;
+  if (!id) return;
+  router.push(`/posts/${id}`);
+}
+
+function fmtTime(t) {
+  if (!t) return "";
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return String(t);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}.${dd} ${hh}:${mi}`;
+}
+
+/* Like FX */
+const likeBump = ref(false);
+const burst = ref(false);
+
+function triggerLikeFX() {
+  likeBump.value = true;
+  burst.value = true;
+  setTimeout(() => (likeBump.value = false), 220);
+  setTimeout(() => (burst.value = false), 520);
+}
+
+function likeIfNeeded() {
+  if (props.post?.likedByMe) {
+    triggerLikeFX();
+    return;
+  }
+  triggerLikeFX();
+  emit("like", props.post);
+}
+
+function onLike(e) {
+  e?.stopPropagation?.();
+  triggerLikeFX();
+  emit("like", props.post);
+}
+
+/* Double-tap like on media */
+let lastTapAt = 0;
+function onMediaTap(e) {
+  if (!visibleImages.value.length) return;
+  const now = Date.now();
+  if (now - lastTapAt < 280) {
+    e?.stopPropagation?.();
+    likeIfNeeded();
+    lastTapAt = 0;
+    return;
+  }
+  lastTapAt = now;
+}
+
+function openLightbox(i, e) {
+  e?.stopPropagation?.();
+  lightboxIndex.value = i;
+  lightboxOpen.value = true;
+}
+
+/* Slider pointer handlers */
+function onPointerDown(e) {
+  if (!hasMany.value) return;
+  dragging.value = true;
+  startX = e.clientX;
+  startY = e.clientY;
+}
+function onPointerUp(e) {
+  if (!hasMany.value) return;
+  if (!dragging.value) return;
+  dragging.value = false;
+
+  const dx = e.clientX - startX;
+  const dy = e.clientY - startY;
+
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+    if (dx < 0) nextSlide();
+    else prevSlide();
+  }
+}
+function prevSlide() {
+  slide.value = Math.max(0, slide.value - 1);
+}
+function nextSlide() {
+  slide.value = Math.min(visibleImages.value.length - 1, slide.value + 1);
+}
+
+async function sharePost(e) {
+  e?.stopPropagation?.();
+  const id = props.post?.postId;
+  if (!id) return;
+
+  const url = `${location.origin}/posts/${id}`;
+  const title = "RealLife";
+  const text = props.post?.content ? String(props.post.content).slice(0, 80) : "게시글";
+
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text, url });
+      toast.success?.("공유됨", "공유가 완료됐어요.");
+      return;
+    }
+  } catch {}
+
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success?.("링크 복사", "클립보드에 복사했어요.");
+  } catch {
+    toast.error?.("공유 실패", "복사에 실패했어요.");
+  }
+}
+</script>
+
+<template>
+  <article class="card" role="article" @click="openDetail">
+    <div class="head">
+      <div class="avatar"></div>
+
+      <div class="meta">
+        <div class="authorRow">
+          <div class="author">{{ post.authorName || "User" }}</div>
+          <div class="handle">@{{ post.authorHandle || post.authorUsername || "handle" }}</div>
+          <div class="dot">·</div>
+          <div class="time">{{ fmtTime(post.createdAt || post.createdDateTime) }}</div>
+        </div>
+
+        <div class="subRow">
+          <span class="badge" :title="post.visibility || 'PUBLIC'">
+            <span class="bIco">{{ visBadge.icon }}</span>
+            <span class="bTxt">{{ visBadge.label }}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="post.content" class="content">{{ post.content }}</div>
+
+    <!-- Media slider + double-tap like -->
+    <div
+      v-if="visibleImages.length"
+      class="mediaSlider"
+      @click.stop="onMediaTap"
+      @pointerdown="onPointerDown"
+      @pointerup="onPointerUp"
+    >
+      <div class="track" :style="{ transform: `translateX(${-slide * 100}%)` }">
+        <button
+          v-for="(u,idx) in visibleImages"
+          :key="idx"
+          class="slide"
+          type="button"
+          @click.stop="openLightbox(idx, $event)"
+          :aria-label="`이미지 ${idx+1} 확대`"
+        >
+          <img class="img" :src="u" alt="post image" loading="lazy" />
+        </button>
+      </div>
+
+      <div v-if="visibleImages.length > 1" class="dots" aria-hidden="true">
+        <span v-for="(_,i) in visibleImages.length" :key="i" class="dot" :class="{ on: i===slide }"></span>
+      </div>
+
+      <div class="heartBurst" :class="{ on: burst }" aria-hidden="true">❤</div>
+
+      <button v-if="visibleImages.length>1" class="nav left" type="button" @click.stop="prevSlide" aria-label="이전">‹</button>
+      <button v-if="visibleImages.length>1" class="nav right" type="button" @click.stop="nextSlide" aria-label="다음">›</button>
+    </div>
+
+    <!-- Comment preview -->
+    <div v-if="previewComments.length" class="commentPreview" @click.stop="openDetail">
+      <div v-for="(c, idx) in previewComments" :key="idx" class="cRow">
+        <span class="cAuthor">{{ c.authorName || c.author || "user" }}</span>
+        <span class="cText">{{ c.content || c.text || "" }}</span>
+      </div>
+      <div class="cMore">댓글 더 보기</div>
+    </div>
+
+    <div class="actions" @click.stop>
+      <button class="act" :class="{ bump: likeBump }" type="button" :data-on="post.likedByMe" @click="onLike">
+        <span class="ico">❤</span>
+        <span class="num">{{ Number(post.likeCount ?? 0) }}</span>
+      </button>
+
+      <button class="act" type="button" @click="openDetail">
+        <span class="ico">💬</span>
+        <span class="num">{{ Number(post.commentCount ?? 0) }}</span>
+      </button>
+
+      <button class="act act--ghost" type="button" @click="sharePost">
+        <span class="ico">⤴</span>
+        <span class="num">공유</span>
+      </button>
+    </div>
+
+    <Lightbox
+      v-if="lightboxOpen"
+      :images="visibleImages"
+      :start-index="lightboxIndex"
+      @close="lightboxOpen=false"
+    />
+  </article>
+</template>
+
+<style scoped>
+.card{
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  border-radius: 18px;
+  padding: 14px;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease;
+  max-width: 100%;
+  overflow: hidden;
+}
+.card:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.065);
+}
+
+.head{ display:flex; gap: 10px; align-items: flex-start; }
+.avatar{
+  width: 38px; height: 38px; border-radius: 14px;
+  background: rgba(255,255,255,.10);
+  flex: 0 0 auto;
+}
+.meta{ flex: 1; min-width: 0; }
+.authorRow{ display:flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.author{ font-weight: 900; }
+.handle, .time, .dot{ opacity: .7; font-size: 12px; }
+.dot{ margin: 0 2px; }
+.subRow{ margin-top: 6px; }
+
+.badge{
+  display:inline-flex; align-items:center; gap: 6px;
+  height: 22px; padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  font-size: 11px;
+  font-weight: 900;
+  opacity: .85;
+}
+.bIco{ font-size: 12px; }
+.bTxt{ letter-spacing: -0.01em; }
+
+.content{ margin-top: 10px; white-space: pre-wrap; line-height: 1.45; }
+
+/* Media slider */
+.mediaSlider{
+  margin-top: 10px;
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.03);
+  overflow: hidden;
+  user-select: none;
+  touch-action: pan-y;
+}
+.track{
+  display:flex;
+  width: 100%;
+  transition: transform .28s cubic-bezier(.2,.9,.2,1);
+}
+.slide{
+  flex: 0 0 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: zoom-in;
+}
+.img{
+  width: 100%;
+  display:block;
+  object-fit: contain;
+  max-height: 520px;
+  background: rgba(255,255,255,.04);
+}
+
+/* dots */
+.dots{
+  position:absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 10px;
+  display:flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.25);
+  border: 1px solid rgba(255,255,255,.10);
+  backdrop-filter: blur(10px);
+}
+.dots .dot{
+  width: 6px; height: 6px; border-radius: 99px;
+  background: rgba(255,255,255,.35);
+}
+.dots .dot.on{ background: rgba(255,255,255,.92); }
+
+/* nav */
+.nav{
+  position:absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.20);
+  color: rgba(255,255,255,.92);
+  font-size: 24px;
+  font-weight: 900;
+  cursor:pointer;
+  backdrop-filter: blur(10px);
+}
+.left{ left: 10px; }
+.right{ right: 10px; }
+
+/* Heart burst */
+.heartBurst{
+  position:absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(.2);
+  opacity: 0;
+  font-size: 64px;
+  text-shadow: 0 12px 40px rgba(0,0,0,.5);
+  transition: transform .26s cubic-bezier(.2,1,.2,1), opacity .26s ease;
+  pointer-events: none;
+}
+.heartBurst.on{
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  animation: burstOut .52s ease forwards;
+}
+@keyframes burstOut{
+  0%{ opacity: 0; transform: translate(-50%,-50%) scale(.2); }
+  35%{ opacity: 1; transform: translate(-50%,-52%) scale(1.05); }
+  100%{ opacity: 0; transform: translate(-50%,-58%) scale(1.22); }
+}
+
+/* comment preview */
+.commentPreview{
+  margin-top: 10px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+.cRow{ display:flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.3; }
+.cRow + .cRow{ margin-top: 6px; }
+.cAuthor{ font-weight: 900; opacity: .9; white-space: nowrap; }
+.cText{ opacity: .78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cMore{ margin-top: 8px; font-size: 12px; font-weight: 900; opacity: .65; }
+
+/* actions */
+.actions{ margin-top: 12px; display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+.act{
+  display:inline-flex; align-items:center; gap: 8px;
+  height: 34px; padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
+  font-weight: 900;
+  font-size: 12px;
+  cursor: pointer;
+  transform: translateZ(0);
+}
+.act[data-on="true"]{ background: rgba(255,255,255,.14); }
+.act--ghost{ opacity: .85; background: transparent; }
+.num{ opacity: .85; font-weight: 800; }
+.ico{ font-size: 14px; }
+
+.act.bump{
+  animation: bump .22s cubic-bezier(.2,1,.2,1);
+}
+@keyframes bump{
+  0%{ transform: scale(1); }
+  55%{ transform: scale(1.08); }
+  100%{ transform: scale(1); }
+}
+</style>
