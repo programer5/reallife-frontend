@@ -49,10 +49,16 @@ const dockMode = ref("active"); // 'active' | 'suggestions'
 const dockOpen = ref(false);
 const dockJustMovedPinId = ref(null);
 const savingCandidateId = ref(null);
+const lastCreatedPinId = ref(null);
 
-// ✅ v2.7: Dock → Active 'fly' animation (FLIP-ish)
+// ✅ v2.10: placeholder slot for clearer FLIP destination
+const flipPlaceholder = ref(null); // { pinId, title, time, place, type }
+
+// ✅ v2.9: Dock → Active 'TRUE FLIP' animation + queue
 const flyLayer = ref(null);
-let _pendingFly = null; // { fromRect, cid }
+const _flyQueue = []; // [{ fromRect, html, createdPinId }]
+let _flyRunning = false;
+let _flySeq = 0; // v2.12: sequence for stacked fly ghosts
 
 function rectOf(el){
   if(!el) return null;
@@ -60,34 +66,193 @@ function rectOf(el){
   return { left:r.left, top:r.top, width:r.width, height:r.height };
 }
 
-function makeFlyGhost(fromRect, toRect, html){
+function makeFlyGhost(fromRect, toRect, html, fromStyle, toStyle, seq){
+  // Card-shaped ghost that flies (kept for UX delight)
   try{
     const ghost = document.createElement("div");
     ghost.className = "flyGhost";
-    ghost.style.left = fromRect.left + "px";
-    ghost.style.top = fromRect.top + "px";
+    const stack = (seq ? (seq % 3) : 0);
+    const ox = stack * 8;
+    const oy = stack * 6;
+    ghost.style.left = (fromRect.left + ox) + "px";
+    ghost.style.top = (fromRect.top + oy) + "px";
     ghost.style.width = fromRect.width + "px";
     ghost.style.height = fromRect.height + "px";
-    ghost.innerHTML = html || "";
+    ghost.style.zIndex = String(10000 + (seq || 0));
+
+    // v2.10+: interpolate radius/shadow/background too
+    if(fromStyle){
+      if(fromStyle.borderRadius) ghost.style.borderRadius = fromStyle.borderRadius;
+      if(fromStyle.boxShadow) ghost.style.boxShadow = fromStyle.boxShadow;
+      if(fromStyle.background) ghost.style.background = fromStyle.background;
+    }
+
+    // v2.12: keep card shape; animate tilt/scale on inner so outer can FLIP by transitions
+    ghost.innerHTML = `<div class="flyGhostInner">${html || ""}</div>`;
     document.body.appendChild(ghost);
 
     // force layout
     ghost.getBoundingClientRect();
 
-    ghost.style.left = toRect.left + "px";
-    ghost.style.top = toRect.top + "px";
+    // destination style
+    if(toStyle){
+      if(toStyle.borderRadius) ghost.style.borderRadius = toStyle.borderRadius;
+      if(toStyle.boxShadow) ghost.style.boxShadow = toStyle.boxShadow;
+      if(toStyle.background) ghost.style.background = toStyle.background;
+    }
+
+    ghost.style.left = (toRect.left) + "px";
+    ghost.style.top = (toRect.top) + "px";
     ghost.style.width = toRect.width + "px";
     ghost.style.height = toRect.height + "px";
     ghost.style.opacity = "0.0";
 
     const clean = () => { try{ ghost.remove(); }catch{} };
     ghost.addEventListener("transitionend", clean, { once:true });
-    setTimeout(clean, 550);
+    setTimeout(clean, 820);
   }catch{}
 }
 
-async function runDockToActiveFly(createdPinId){
-  if(!_pendingFly?.fromRect) return;
+function playTrueFlip(el, fromRect){
+  // Animate destination element from 'fromRect' to its current rect (FLIP)
+  try{
+    if(!el || !fromRect) return;
+    const last = rectOf(el);
+    if(!last) return;
+    const dx = fromRect.left - last.left;
+    const dy = fromRect.top - last.top;
+    const sx = fromRect.width / Math.max(1, last.width);
+    const sy = fromRect.height / Math.max(1, last.height);
+
+    el.style.willChange = "transform, opacity";
+    el.style.transformOrigin = "top left";
+    el.style.transition = "none";
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    el.style.opacity = "0.65";
+
+    // force
+    el.getBoundingClientRect();
+
+    el.style.transition = "transform 520ms cubic-bezier(.16,1,.3,1), opacity 420ms cubic-bezier(.16,1,.3,1)";
+    el.style.transform = "translate(0px, 0px) scale(1, 1)";
+    el.style.opacity = "1";
+
+    const clean = () => {
+      try{
+        el.style.willChange = "";
+        el.style.transformOrigin = "";
+        el.style.transition = "";
+        el.style.transform = "";
+      }catch{}
+    };
+    el.addEventListener("transitionend", clean, { once:true });
+    setTimeout(clean, 750);
+  }catch{}
+}
+
+function enqueueDockToActiveFly(job){
+  if(!job?.fromRect || !job?.createdPinId) return;
+  // v2.12: keep a sequence so rapid saves look like a stacked queue
+  const seq = (++_flySeq);
+  _flyQueue.push({ ...job, _seq: seq });
+  if(!_flyRunning) processFlyQueue();
+}
+
+async function processFlyQueue(){
+  if(_flyRunning) return;
+  _flyRunning = true;
+
+  while(_flyQueue.length){
+    const job = _flyQueue.shift();
+    try{
+      await runDockToActiveFly(job);
+      // small gap so rapid saves feel like a "stack queue"
+      await new Promise(r => setTimeout(r, 70));
+    }catch{}
+  }
+
+  _flyRunning = false;
+}
+
+
+function spawnSparks(x, y){
+  try{
+    const n = 9;
+    for(let i=0;i<n;i++){
+      const s = document.createElement("span");
+      s.className = "spark";
+      const a = (Math.PI * 2) * (i / n) + (Math.random()*0.4);
+      const d = 10 + Math.random()*14;
+      s.style.left = x + "px";
+      s.style.top = y + "px";
+      s.style.setProperty("--dx", (Math.cos(a)*d).toFixed(2)+"px");
+      s.style.setProperty("--dy", (Math.sin(a)*d).toFixed(2)+"px");
+      s.style.setProperty("--rot", (Math.random()*120-60).toFixed(1)+"deg");
+      document.body.appendChild(s);
+      s.addEventListener("animationend", () => { try{s.remove()}catch{} }, { once:true });
+    }
+  }catch{}
+}
+
+function safeText(v){
+  return (v==null) ? "" : String(v);
+}
+
+function formatCandidateTime(c){
+  const raw = c?.startAt || c?.whenAt || c?.datetime || c?.timeAt || c?.at || c?.dateTime;
+  if(!raw) return "";
+  try{
+    const d = new Date(raw);
+    if(!isNaN(d.getTime())){
+      const y = d.getFullYear();
+      const mo = String(d.getMonth()+1).padStart(2,"0");
+      const da = String(d.getDate()).padStart(2,"0");
+      const hh = String(d.getHours()).padStart(2,"0");
+      const mm = String(d.getMinutes()).padStart(2,"0");
+      return `${y}-${mo}-${da} ${hh}:${mm}`;
+    }
+  }catch{}
+  return safeText(raw).slice(0,16);
+}
+
+function formatCandidatePlace(c){
+  const p = c?.placeText || c?.place || c?.location || c?.where || c?.addr || c?.address;
+  return p ? safeText(p).slice(0,18) : "";
+}
+
+function makeCandidateGhostHtml(candidate, title){
+  const t = safeText(title || candidate?.title || "액션").slice(0,24);
+  const time = formatCandidateTime(candidate);
+  const place = formatCandidatePlace(candidate);
+  const metaParts = [];
+  if(time) metaParts.push(`🕒 ${time}`);
+  if(place) metaParts.push(`📍 ${place}`);
+  const meta = metaParts.length ? metaParts.join(" · ") : "저장 중…";
+  // minimal HTML, styled by .flyGhostInner
+  return `<div class="flyGhostInner">
+            <div class="flyGhostTitle">${t}</div>
+            <div class="flyGhostMeta">${meta}</div>
+          </div>`;
+}
+
+
+async function runDockToActiveFly(job){
+  const createdPinId = job?.createdPinId;
+  const fromRect = job?.fromRect;
+  const html = job?.html;
+
+  if(!fromRect || !createdPinId) return;
+
+  // remember so it can be force-rendered in dock row (in case list is sliced)
+  lastCreatedPinId.value = String(createdPinId);
+
+  // v2.10: render a placeholder slot so destination exists before real card appears
+  if(job?.meta){
+    flipPlaceholder.value = { pinId: String(createdPinId), ...job.meta };
+  } else {
+    flipPlaceholder.value = { pinId: String(createdPinId), title: "저장됨", time: "", place: "", type: "OTHER" };
+  }
+
   // ensure dock open + active tab visible so target exists
   try{
     dockMode.value = "active";
@@ -96,14 +261,78 @@ async function runDockToActiveFly(createdPinId){
     await nextTick();
   }catch{}
 
-  const target = document.querySelector(`[data-pin-id="${String(createdPinId)}"]`);
-  const toRect = rectOf(target);
-  if(toRect) makeFlyGhost(_pendingFly.fromRect, toRect, _pendingFly.html);
-  _pendingFly = null;
+  // try find target card
+  let target = document.querySelector(`[data-pin-id="${String(createdPinId)}"]`);
+
+  // if not found (filtered/sliced), try force filter to match the new pin type
+  if(!target){
+    const p = (pins.value || []).find(x => String(x.pinId)===String(createdPinId));
+    if(p){
+      const k = classifyPin(p);
+      activeFilter.value = k || "ALL";
+      await nextTick();
+      await nextTick();
+      target = document.querySelector(`[data-pin-id="${String(createdPinId)}"]`);
+    }
+  }
+
+  // fallback target: dock panel itself
+  const fallbackEl = document.querySelector(".dockPanel") || document.querySelector(".dockWrap");
+  const toRect = rectOf(target || fallbackEl);
+
+  if(toRect){
+    // 1) Fly the ghost card (visual continuity)
+    const toEl = (target || fallbackEl);
+    const tcs = toEl ? window.getComputedStyle(toEl) : null;
+    const toStyle = tcs ? { borderRadius: tcs.borderRadius, boxShadow: tcs.boxShadow, background: tcs.background } : null;
+
+    makeFlyGhost(fromRect, toRect, html, job?.fromStyle, toStyle, job?._seq);
+    // v2.12: tiny spark burst at destination (subtle)
+    try{ spawnSparks(toRect.left + toRect.width*0.75, toRect.top + 18); }catch{}
+
+    // 2) TRUE FLIP: animate the destination element from the source rect
+    // (only if target exists)
+    if(target){
+      // ensure it's visible in horizontal row
+      try{
+        target.scrollIntoView?.({ behavior: "smooth", block: "nearest", inline: "center" });
+      }catch{}
+      // play FLIP on next frame so scroll/layout settles a bit
+            requestAnimationFrame(() => playTrueFlip(target, fromRect));
+
+      // clear placeholder once real card is in DOM
+      setTimeout(() => {
+        try{
+          const exists = (pins.value || []).some(x => String(x.pinId)===String(createdPinId));
+          if(exists) flipPlaceholder.value = null;
+        }catch{}
+      }, 850);
+    }
+  }
+}
+
+
+const dockPulseOn = ref(false);
+function triggerDockPulse(){
+  dockPulseOn.value = true;
+  setTimeout(() => { dockPulseOn.value = false; }, 240);
 }
 
 const dockAnimating = ref(false);
 const activeFilter = ref("ALL"); // ALL | PROMISE | TODO | PLACE
+
+function classifyCandidate(c){
+  const t = c && (c.type || c.pinType || c.kind || c.category) ? String(c.type || c.pinType || c.kind || c.category).toUpperCase() : "";
+  if (t.includes("PLACE")) return "PLACE";
+  if (t.includes("TODO") || t.includes("TASK")) return "TODO";
+  if (t.includes("PROMISE") || t.includes("APPOINT") || t.includes("MEET")) return "PROMISE";
+
+  // heuristic
+  const text = String(c?.title || c?.content || c?.summary || "").toLowerCase();
+  if (text.includes("할일") || text.includes("todo") || text.includes("task")) return "TODO";
+  if (text.includes("장소") || text.includes("주소") || text.includes("place")) return "PLACE";
+  return "PROMISE"; // default: 약속 계열
+}
 
 function classifyPin(p) {
   // 백엔드 스키마가 타입을 주면 우선 사용, 없으면 휴리스틱
@@ -144,6 +373,38 @@ const filteredActivePins = computed(() => {
     return 0;
   });
   return out;
+});
+
+
+const dockActivePinsToShow = computed(() => {
+  const list = Array.isArray(filteredActivePins.value) ? [...filteredActivePins.value] : [];
+  const lastId = lastCreatedPinId.value ? String(lastCreatedPinId.value) : null;
+
+  // v2.10: placeholder slot to make FLIP destination visible immediately
+  const ph = flipPlaceholder.value && flipPlaceholder.value.pinId ? flipPlaceholder.value : null;
+  const hasReal = ph ? list.some(p => String(p.pinId) === String(ph.pinId)) : false;
+  const phItem = (ph && !hasReal) ? {
+    pinId: String(ph.pinId),
+    title: ph.title || "저장 중…",
+    placeName: ph.place || "",
+    startAt: ph.time || "",
+    __placeholder: true,
+    __type: ph.type || "OTHER",
+  } : null;
+
+  // show a bit more in dock and ensure last created is included
+  let show = list.slice(0, 10);
+
+  if (phItem && !show.some(p => String(p.pinId) === String(phItem.pinId))) {
+    show = [phItem, ...show].slice(0, 10);
+  }
+
+  if (lastId && !show.some(p => String(p.pinId) === lastId)) {
+    const found = list.find(p => String(p.pinId) === lastId);
+    if (found) show = [found, ...show].slice(0, 10);
+  }
+
+  return show;
 });
 
 const sortedDockCandidates = computed(() => {
@@ -1445,21 +1706,31 @@ async function onConfirmCandidate(message, payload) {
 const _cid = payload?.candidateId ?? payload?.id ?? null;
 if (_cid) savingCandidateId.value = String(_cid);
 
-// ✅ v2.7: capture source rect for fly animation (only when candidate is from dock)
+// ✅ v2.9: capture source rect + ghost html (enqueue after created)
+let flyDraft = null; // { fromRect, html, fromStyle, meta }
 if (_cid) {
   const srcEl = document.querySelector(`[data-cid="${String(_cid)}"]`);
   const srcRect = rectOf(srcEl);
+  const cs = srcEl ? window.getComputedStyle(srcEl) : null;
+  const fromStyle = cs ? {
+    borderRadius: cs.borderRadius,
+    boxShadow: cs.boxShadow,
+    background: cs.background,
+  } : null;
+
   if (srcRect) {
     const title = payload?.overrideTitle || payload?.title || "액션";
-    _pendingFly = {
-      cid: String(_cid),
+    const time = formatCandidateTime(payload);
+    const place = safeText(payload?.placeName || payload?.place || payload?.location || payload?.where || "");
+    const type = classifyCandidate(payload); // PROMISE | TODO | PLACE | OTHER
+    flyDraft = {
       fromRect: srcRect,
-      html: `<div class="flyGhostInner"><div class="flyGhostTitle">${String(title).slice(0, 22)}</div><div class="flyGhostSub">저장 중…</div></div>`,
+      fromStyle,
+      html: makeCandidateGhostHtml(payload, title),
+      meta: { title, time, place, type },
     };
   }
 }
-
-
   try {
     const created = await confirmPinFromMessage({
       conversationId: conversationId.value,
@@ -1473,6 +1744,8 @@ if (_cid) {
     if (created?.pinId) {
       pinsStore.appendPin(conversationId.value, created);
 
+      triggerDockPulse();
+
       // ✅ v2.5: Dock에 "방금 이동" 애니메이션(제안 → 액션)
       dockJustMovedPinId.value = String(created.pinId);
       setTimeout(() => {
@@ -1481,7 +1754,7 @@ if (_cid) {
 
       toast.success?.("핀 생성", "Pinned에 저장했어요.");
       await nextTick();
-      await runDockToActiveFly(created.pinId);
+      if (flyDraft) enqueueDockToActiveFly({ ...flyDraft, createdPinId: created.pinId });
       showSavedBadge(message.messageId);
     }
 
@@ -1786,7 +2059,7 @@ onBeforeUnmount(() => {
 
     
 <!-- ✅ RealLife v2: Active Actions Dock -->
-<div class="dockWrap" v-if="canViewConversation">
+<div class="dockWrap" v-if="canViewConversation" :class="{ dockPulse: dockPulseOn }">
   <div class="dockBar">
     <button
       class="dockTab"
@@ -1845,7 +2118,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="pins && pins.length" class="dockRow">
-        <div v-for="p in filteredActivePins.slice(0, 6)" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId) }" @click="openPinEdit(p)">
+        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder }" @click="p.__placeholder ? null : openPinEdit(p)">
           <div class="dockCardTitle">{{ p.title || "약속" }}</div>
           <div class="dockCardMeta">
             <span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span>
@@ -2999,6 +3272,36 @@ onBeforeUnmount(() => {
   padding: 10px 10px;
   cursor: pointer;
 }
+
+.dockCard.placeholder{
+  opacity: .65;
+  filter: saturate(.85);
+  border-style: dashed;
+}
+
+.dockCard.placeholder .dockCardTitle{
+  opacity: .75;
+}
+
+.dockCard.placeholder{
+  position: relative;
+  overflow: hidden;
+}
+.dockCard.placeholder::after{
+  content:"";
+  position:absolute;
+  inset:-40% -60%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.16), transparent);
+  transform: translateX(-30%);
+  animation: rlShimmer 1.1s linear infinite;
+  pointer-events:none;
+}
+@keyframes rlShimmer{
+  from{ transform: translateX(-40%); }
+  to{ transform: translateX(40%); }
+}
+
+
 .dockCardTitle{
   font-size: 13px;
   font-weight: 950;
@@ -3359,9 +3662,16 @@ onBeforeUnmount(() => {
   box-shadow: 0 18px 46px rgba(0,0,0,.40);
   backdrop-filter: blur(14px);
   overflow: hidden;
-  transition: left .42s cubic-bezier(.2,.9,.2,1), top .42s cubic-bezier(.2,.9,.2,1),
-              width .42s cubic-bezier(.2,.9,.2,1), height .42s cubic-bezier(.2,.9,.2,1),
-              opacity .42s ease;
+  transition:
+    left 560ms cubic-bezier(.16,1,.3,1),
+    top 560ms cubic-bezier(.16,1,.3,1),
+    width 560ms cubic-bezier(.16,1,.3,1),
+    height 560ms cubic-bezier(.16,1,.3,1),
+    border-radius 560ms cubic-bezier(.16,1,.3,1),
+    box-shadow 560ms cubic-bezier(.16,1,.3,1),
+    background 560ms cubic-bezier(.16,1,.3,1),
+    transform 560ms cubic-bezier(.16,1,.3,1),
+    opacity 520ms cubic-bezier(.2,.9,.2,1);
   opacity: 1;
 }
 
@@ -3372,9 +3682,86 @@ onBeforeUnmount(() => {
   font-weight: 900;
   font-size: 13px;
 }
+
+.flyGhostMeta{ font-size:12px; opacity:.88; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .flyGhostSub{
   margin-top: 4px;
   font-size: 12px;
   opacity: .7;
+}
+
+@keyframes rlDockPulse{
+  0%{ transform: translateY(0); }
+  50%{ transform: translateY(-1px); }
+  100%{ transform: translateY(0); }
+}
+.dockWrap.dockPulse .dockPanel{
+  animation: rlDockPulse 220ms cubic-bezier(.16,1,.3,1);
+}
+
+/* ===== v2.12 cinematic enhancements ===== */
+.flyGhost{
+  position: fixed;
+  pointer-events: none;
+  opacity: 0.98;
+  transition:
+    left 720ms cubic-bezier(.16,1,.3,1),
+    top 720ms cubic-bezier(.16,1,.3,1),
+    width 720ms cubic-bezier(.16,1,.3,1),
+    height 720ms cubic-bezier(.16,1,.3,1),
+    opacity 620ms cubic-bezier(.16,1,.3,1),
+    border-radius 720ms cubic-bezier(.16,1,.3,1),
+    box-shadow 720ms cubic-bezier(.16,1,.3,1),
+    background 720ms cubic-bezier(.16,1,.3,1);
+}
+
+.flyGhostInner{
+  width: 100%;
+  height: 100%;
+  animation: ghostTiltScale 720ms cubic-bezier(.16,1,.3,1) both;
+  transform-origin: 70% 30%;
+}
+
+@keyframes ghostTiltScale{
+  0%{ transform: rotate(-10deg) scale(1.03); }
+  45%{ transform: rotate(6deg) scale(0.99); }
+  100%{ transform: rotate(0deg) scale(1); }
+}
+
+/* subtle sparks */
+.spark{
+  position: fixed;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.85);
+  box-shadow: 0 0 10px rgba(255,255,255,.25);
+  transform: translate(-50%,-50%);
+  pointer-events:none;
+  z-index: 10050;
+  animation: sparkPop 520ms cubic-bezier(.2,.9,.2,1) both;
+}
+@keyframes sparkPop{
+  0%{ opacity: 0; transform: translate(-50%,-50%) scale(.6) rotate(0deg); }
+  15%{ opacity: 1; }
+  100%{ opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.8) rotate(var(--rot)); }
+}
+
+/* placeholder shimmer */
+.dockCard.placeholder{
+  position: relative;
+  overflow: hidden;
+}
+.dockCard.placeholder::after{
+  content:"";
+  position:absolute;
+  inset:-20%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent);
+  transform: translateX(-60%);
+  animation: shimmer 900ms linear infinite;
+}
+@keyframes shimmer{
+  0%{ transform: translateX(-60%); }
+  100%{ transform: translateX(60%); }
 }
 </style>
