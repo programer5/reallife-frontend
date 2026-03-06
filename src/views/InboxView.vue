@@ -6,6 +6,7 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { readAllNotifications, readNotification, clearReadNotifications } from "@/api/notifications";
 import { useToastStore } from "@/stores/toast";
 import { useRouter } from "vue-router";
+import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 
 const router = useRouter();
 const toast = useToastStore();
@@ -207,9 +208,35 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
       </div>
     </div>
 
-    <div v-if="loading && !items.length" class="state rl-cardish">불러오는 중…</div>
-    <div v-else-if="error" class="state err rl-cardish">{{ error }}</div>
-    <div v-else-if="items.length === 0" class="state rl-cardish">아직 알림이 없어요 ✨</div>
+    <AsyncStatePanel
+      v-if="loading && !items.length"
+      icon="⏳"
+      title="새 알림을 불러오는 중이에요"
+      description="메시지, 댓글, 좋아요 흐름을 모으고 있어요."
+      tone="loading"
+      :show-actions="false"
+    />
+    <AsyncStatePanel
+      v-else-if="error"
+      icon="⚠️"
+      title="알림을 불러오지 못했어요"
+      :description="error"
+      tone="danger"
+      primary-label="다시 시도"
+      secondary-label="읽은 알림 정리"
+      @primary="refreshNow"
+      @secondary="clearRead"
+    />
+    <AsyncStatePanel
+      v-else-if="items.length === 0"
+      icon="✨"
+      title="지금은 새 알림이 없어요"
+      description="새 메시지, 댓글, 좋아요가 오면 이곳에서 바로 이어갈 수 있어요."
+      primary-label="새로고침"
+      secondary-label="대화로 가기"
+      @primary="refreshNow"
+      @secondary="goConversations"
+    />
 
     <div v-else class="list">
       <button v-for="n in items" :key="n.id" class="item rl-cardish" :class="{ unread: !n.read }" type="button" @click="openItem(n)">

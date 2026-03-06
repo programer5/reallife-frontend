@@ -8,6 +8,7 @@ import { useToastStore } from "../stores/toast";
 import RlButton from "../components/ui/RlButton.vue";
 import PostComposer from "../components/PostComposer.vue";
 import FeedPostCard from "../components/feed/FeedPostCard.vue";
+import AsyncStatePanel from "../components/ui/AsyncStatePanel.vue";
 
 const toast = useToastStore();
 
@@ -23,6 +24,7 @@ const composerOpen = ref(false);
 const viewMode = ref("FOLLOWING");
 const sentinelRef = ref(null);
 const newPostCount = ref(0);
+const lastSyncedAt = ref(0);
 let io = null;
 let sseOff = null;
 let focusReloadTimer = null;
@@ -33,22 +35,40 @@ const modeMeta = computed(() => {
   return "가까운 곳의 생활 흐름을 준비 중이에요";
 });
 
-async function loadFirst() {
-  loading.value = true;
+const feedSummary = computed(() => ({
+  total: items.value.length,
+  liked: items.value.filter((p) => p?.likedByMe).length,
+  commented: items.value.filter((p) => Number(p?.commentCount || 0) > 0).length,
+}));
+
+const syncLabel = computed(() => {
+  if (!lastSyncedAt.value) return "방금 동기화됨";
+  const diffSec = Math.max(0, Math.floor((Date.now() - lastSyncedAt.value) / 1000));
+  if (diffSec < 15) return "방금 동기화됨";
+  if (diffSec < 60) return `${diffSec}초 전 동기화`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}분 전 동기화`;
+  return "조금 전 동기화";
+});
+
+async function loadFirst(opts = {}) {
+  const { silent = false } = opts;
+  if (!silent) loading.value = true;
   error.value = "";
   try {
     const res = await fetchFeed({ size: 10 });
     items.value = res.items || [];
     nextCursor.value = res.nextCursor ?? null;
     hasNext.value = !!res.hasNext;
+    lastSyncedAt.value = Date.now();
 
     await nextTick();
     if (io && sentinelRef.value) io.observe(sentinelRef.value);
   } catch {
     error.value = "피드를 불러오지 못했습니다.";
-    toast.error?.("피드 로딩 실패", "잠시 후 다시 시도해주세요.");
+    if (!silent) toast.error?.("피드 로딩 실패", "잠시 후 다시 시도해주세요.");
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -62,6 +82,7 @@ async function loadMore() {
     items.value.push(...(res.items || []));
     nextCursor.value = res.nextCursor ?? null;
     hasNext.value = !!res.hasNext;
+    lastSyncedAt.value = Date.now();
   } catch {
     toast.error?.("추가 로딩 실패", "잠시 후 다시 시도해주세요.");
   } finally {
@@ -119,22 +140,17 @@ function onNearbyClick() {
   onSwitchMode("NEARBY");
 }
 
-
 function bindFeedSse() {
   if (!sse?.onEvent) return;
   sseOff = sse.onEvent((evt) => {
     const type = String(evt?.type || "");
     const data = evt?.data || {};
 
-    // 현재 백엔드에는 post-created 이벤트가 없을 수 있으니,
-    // 향후 이벤트가 들어오면 바로 동작하게 열어두고,
-    // 내 게시글 작성 직후에는 onCreated()에서 count를 리셋한다.
     if (type === "post-created" || type === "feed-post-created") {
       newPostCount.value += 1;
       return;
     }
 
-    // 혹시 커스텀 payload가 넘어오는 경우도 대비
     if (type === "notification-created" && String(data?.kind || data?.subType || "").toUpperCase() === "POST_CREATED") {
       newPostCount.value += 1;
     }
@@ -143,9 +159,10 @@ function bindFeedSse() {
 
 function bindVisibilitySoftSync() {
   const onFocus = () => {
+    if (document.visibilityState === "hidden") return;
     if (focusReloadTimer) window.clearTimeout(focusReloadTimer);
     focusReloadTimer = window.setTimeout(() => {
-      if (!loading.value && !loadingMore.value) loadFirst();
+      if (!loading.value && !loadingMore.value) loadFirst({ silent: true });
     }, 250);
   };
   window.addEventListener("focus", onFocus);
@@ -222,27 +239,76 @@ onBeforeUnmount(() => {
           <span>오늘의 순간 공유하기</span>
         </button>
       </div>
-    </div>
 
-    <div v-if="loading" class="list">
-      <div v-for="i in 4" :key="i" class="skeleton-card">
-        <div class="sk-line sk-title"></div>
-        <div class="sk-line"></div>
-        <div class="sk-line short"></div>
+      <div class="overviewCard">
+        <div class="overviewLeft">
+          <div class="overviewTitle">오늘 피드 흐름</div>
+          <div class="overviewSub">{{ syncLabel }}</div>
+        </div>
+
+        <div class="overviewStats">
+          <div class="statPill">
+            <span class="statValue">{{ feedSummary.total }}</span>
+            <span class="statLabel">게시글</span>
+          </div>
+          <div class="statPill">
+            <span class="statValue">{{ feedSummary.commented }}</span>
+            <span class="statLabel">댓글 있는 글</span>
+          </div>
+          <div class="statPill">
+            <span class="statValue">{{ newPostCount }}</span>
+            <span class="statLabel">새 글 대기</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div v-else-if="error" class="state">
-      <div class="state-title">오류 발생</div>
-      <div class="state-sub">{{ error }}</div>
-      <RlButton @click="loadFirst">다시 시도</RlButton>
-    </div>
+    <AsyncStatePanel
+      v-if="loading"
+      icon="⏳"
+      title="새 순간을 불러오는 중이에요"
+      description="방금 올라온 순간과 연결된 액션 흐름을 준비하고 있어요."
+      tone="loading"
+      :show-actions="false"
+    >
+      <div class="list list--loading stateSkeletonWrap">
+        <div v-for="i in 4" :key="i" class="skeleton-card">
+          <div class="sk-head">
+            <div class="sk-avatar"></div>
+            <div class="sk-meta">
+              <div class="sk-line sk-title"></div>
+              <div class="sk-line sk-sub"></div>
+            </div>
+          </div>
+          <div class="sk-line"></div>
+          <div class="sk-line short"></div>
+          <div class="sk-media"></div>
+        </div>
+      </div>
+    </AsyncStatePanel>
 
-    <div v-else-if="items.length === 0" class="state">
-      <div class="state-title">아직 피드가 비어 있어요</div>
-      <div class="state-sub">첫 순간을 공유해보세요 ✨</div>
-      <RlButton variant="primary" @click="openComposer">게시글 작성</RlButton>
-    </div>
+    <AsyncStatePanel
+      v-else-if="error"
+      icon="⚠️"
+      title="피드를 불러오지 못했어요"
+      :description="error"
+      tone="danger"
+      primary-label="다시 불러오기"
+      secondary-label="직접 작성하기"
+      @primary="loadFirst"
+      @secondary="openComposer"
+    />
+
+    <AsyncStatePanel
+      v-else-if="items.length === 0"
+      icon="✨"
+      title="아직 피드가 비어 있어요"
+      description="첫 순간을 공유하면 댓글과 액션 흐름이 여기서 시작돼요."
+      primary-label="게시글 작성"
+      secondary-label="새로고침"
+      @primary="openComposer"
+      @secondary="loadFirst"
+    />
 
     <div v-else class="list">
       <button v-if="newPostCount > 0" class="newPostBanner" type="button" @click="reloadWithNewPosts">
@@ -256,7 +322,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div ref="sentinelRef" class="sentinel">
-        <div v-if="loadingMore" class="loadingMoreHint">불러오는 중…</div>
+        <div v-if="loadingMore" class="loadingMoreHint">더 많은 순간을 불러오는 중…</div>
         <div v-else-if="!hasNext" class="endHint">끝까지 다 봤어요 👀</div>
       </div>
     </div>
@@ -291,7 +357,7 @@ onBeforeUnmount(() => {
   margin-bottom: 16px;
   padding: 14px 0 14px;
   background:
-    linear-gradient(180deg, rgba(4, 8, 22, .90), rgba(4, 8, 22, .62) 78%, rgba(4, 8, 22, 0));
+    linear-gradient(180deg, rgba(4, 8, 22, .92), rgba(4, 8, 22, .68) 78%, rgba(4, 8, 22, 0));
   backdrop-filter: blur(12px);
 }
 
@@ -322,9 +388,7 @@ onBeforeUnmount(() => {
   flex-shrink:0;
 }
 
-.toolbarBtn{
-  min-width: 0;
-}
+.toolbarBtn{ min-width: 0; }
 
 .toolbarBottom{
   margin-top: 14px;
@@ -334,19 +398,8 @@ onBeforeUnmount(() => {
   align-items:end;
 }
 
-.modeRailWrap{
-  min-width: 0;
-  display:grid;
-  gap:8px;
-}
-
-.modeRail{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-}
-
+.modeRailWrap{ min-width: 0; display:grid; gap:8px; }
+.modeRail{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .modePill{
   min-height: 36px;
   padding: 0 14px;
@@ -359,19 +412,16 @@ onBeforeUnmount(() => {
   cursor:pointer;
   transition: transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
-
 .modePill:hover{
   transform: translateY(-1px);
   background: rgba(255,255,255,.07);
   border-color: rgba(255,255,255,.16);
 }
-
 .modePill.on{
   background: color-mix(in oklab, var(--accent) 18%, rgba(255,255,255,.08));
   border-color: color-mix(in oklab, var(--accent) 42%, rgba(255,255,255,.16));
   box-shadow: 0 8px 24px rgba(27, 44, 95, .20);
 }
-
 .modeMeta{
   min-height: 18px;
   font-size: 12px;
@@ -395,13 +445,11 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   transition: transform .18s ease, border-color .18s ease, background .18s ease;
 }
-
 .composerShortcut:hover{
   transform: translateY(-1px);
   border-color: rgba(255,255,255,.14);
   background: rgba(10, 18, 44, .52);
 }
-
 .composerShortcut__plus{
   display:inline-flex;
   width:16px;
@@ -410,12 +458,34 @@ onBeforeUnmount(() => {
   font-weight:900;
 }
 
-.list{
-  display:flex;
-  flex-direction: column;
+.overviewCard{
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
+  padding: 13px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
 }
+.overviewTitle{ font-size: 13px; font-weight: 900; }
+.overviewSub{ margin-top: 4px; font-size: 12px; color: rgba(255,255,255,.62); }
+.overviewStats{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.statPill{
+  min-width: 92px;
+  padding: 9px 11px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.035);
+  display:grid;
+  gap:4px;
+}
+.statValue{ font-size: 15px; font-weight: 950; }
+.statLabel{ font-size: 11px; color: rgba(255,255,255,.64); }
 
+.list{ display:flex; flex-direction: column; gap: 12px; }
+.list--loading{ gap: 14px; }
 .newPostBanner{
   align-self:center;
   min-height: 40px;
@@ -428,32 +498,12 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 30px rgba(25, 48, 110, .22);
 }
 
-.masonryFeed{
-  column-count: 2;
-  column-gap: 12px;
-}
+.masonryFeed{ column-count: 2; column-gap: 12px; }
+.masonryItem{ break-inside: avoid; margin-bottom: 12px; }
+.masonryItem :deep(.card){ margin-bottom: 0; }
 
-.masonryItem{
-  break-inside: avoid;
-  margin-bottom: 12px;
-}
-
-.masonryItem :deep(.card){
-  margin-bottom: 0;
-}
-
-
-.sentinel{
-  padding: 16px 0 6px;
-  display:flex;
-  justify-content:center;
-}
-
-.loadingMoreHint,
-.endHint{
-  font-size: 12px;
-}
-
+.sentinel{ padding: 16px 0 6px; display:flex; justify-content:center; }
+.loadingMoreHint,.endHint{ font-size: 12px; }
 .loadingMoreHint{ opacity: .75; }
 .endHint{ opacity: .65; }
 
@@ -461,170 +511,97 @@ onBeforeUnmount(() => {
   margin-top: 24px;
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(255,255,255,.05);
-  border-radius: 18px;
-  padding: 16px;
+  border-radius: 22px;
+  padding: 22px 18px;
   text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
 }
-
-.state-title{
-  font-weight: 900;
-  font-size: 14px;
-}
-
-.state-sub{
-  margin-top: 6px;
-  opacity: .75;
-  font-size: 13px;
-  margin-bottom: 12px;
+.stateIcon{ font-size: 22px; }
+.state-title{ margin-top: 10px; font-weight: 900; font-size: 15px; }
+.state-sub{ margin-top: 6px; opacity: .75; font-size: 13px; line-height: 1.45; }
+.state-actions{ margin-top: 14px; display:flex; justify-content:center; gap:8px; flex-wrap:wrap; }
+.state--error{
+  border-color: color-mix(in oklab, var(--danger) 28%, rgba(255,255,255,.10));
+  background: color-mix(in oklab, var(--danger) 8%, rgba(255,255,255,.05));
 }
 
 .skeleton-card{
   border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.05);
-  border-radius: 18px;
+  background: rgba(255,255,255,.045);
+  border-radius: 20px;
   padding: 14px;
+  overflow: hidden;
 }
-
+.sk-head{ display:flex; gap:10px; align-items:center; }
+.sk-avatar{ width: 38px; height: 38px; border-radius: 14px; background: rgba(255,255,255,.08); }
+.sk-meta{ flex:1; }
 .sk-line{
   height: 10px;
   border-radius: 999px;
-  background: rgba(255,255,255,.10);
+  background: linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.14), rgba(255,255,255,.08));
+  background-size: 180% 100%;
+  animation: shimmer 1.2s linear infinite;
   margin-top: 10px;
 }
-
 .sk-title{ height: 14px; width: 55%; margin-top: 0; }
+.sk-sub{ width: 32%; }
 .short{ width: 72%; }
+.sk-media{
+  margin-top: 12px;
+  border-radius: 16px;
+  aspect-ratio: 4 / 5;
+  background: linear-gradient(90deg, rgba(255,255,255,.07), rgba(255,255,255,.12), rgba(255,255,255,.07));
+  background-size: 180% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+@keyframes shimmer{
+  0%{ background-position: 180% 0; }
+  100%{ background-position: -20% 0; }
+}
 
 @media (min-width: 980px){
-  .page{
-    max-width: 1100px;
-  }
-
-  .masonryFeed{
-    column-count: 3;
-    column-gap: 14px;
-  }
+  .page{ max-width: 1100px; }
+  .masonryFeed{ column-count: 3; column-gap: 14px; }
 }
 
 @media (max-width: 720px){
-  .page{
-    padding: 14px 12px calc(106px + env(safe-area-inset-bottom));
-  }
-
-  .toolbarCard{
-    padding: 10px 0 12px;
-    margin-bottom: 14px;
-  }
-
-  .toolbarTop{
-    align-items:center;
-    gap:10px;
-  }
-
-  .brandTitle{
-    font-size: 20px;
-  }
-
-  .actionCluster{
-    gap:6px;
-  }
-
-  .toolbarBottom{
-    grid-template-columns:1fr;
-    gap:12px;
-    align-items:stretch;
-  }
-
-  .modeRailWrap{
-    gap:7px;
-  }
-
-  .modeRail{
-    gap:7px;
-  }
-
-  .modePill{
-    min-height: 34px;
-    padding: 0 13px;
-    font-size: 12px;
-  }
-
-  .composerShortcut{
-    width: 100%;
-    justify-content: center;
-    height: 42px;
-  }
+  .page{ padding: 14px 12px calc(106px + env(safe-area-inset-bottom)); }
+  .toolbarCard{ padding: 10px 0 12px; margin-bottom: 14px; }
+  .toolbarTop{ align-items:center; gap:10px; }
+  .brandTitle{ font-size: 20px; }
+  .actionCluster{ gap:6px; }
+  .toolbarBottom{ grid-template-columns:1fr; gap:12px; align-items:stretch; }
+  .modeRailWrap{ gap:7px; }
+  .modeRail{ gap:7px; }
+  .modePill{ min-height: 34px; padding: 0 13px; font-size: 12px; }
+  .composerShortcut{ width: 100%; justify-content: center; height: 42px; }
+  .overviewCard{ grid-template-columns: 1fr; }
+  .overviewStats{ justify-content:flex-start; }
 }
 
 @media (max-width: 700px){
-  .masonryFeed{
-    column-count: 1;
-  }
+  .masonryFeed{ column-count: 1; }
 }
 
 @media (max-width: 480px){
-  .page{
-    padding: 12px 10px calc(100px + env(safe-area-inset-bottom));
-  }
-
-  .toolbarTop{
-    align-items:flex-start;
-    gap:8px;
-  }
-
-  .actionCluster{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap:6px;
-  }
-
-  .modeRail{
-    display:grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap:7px;
-  }
-
-  .modePill{
-    width:100%;
-    justify-content:center;
-    padding: 0 10px;
-  }
-
-  .modeMeta{
-    font-size: 11.5px;
-  }
-
-  .composerShortcut{
-    font-size: 12px;
-    gap: 6px;
-  }
+  .page{ padding: 12px 10px calc(100px + env(safe-area-inset-bottom)); }
+  .toolbarTop{ align-items:flex-start; gap:8px; }
+  .actionCluster{ display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+  .modeRail{ display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:7px; }
+  .modePill{ width:100%; justify-content:center; padding: 0 10px; }
+  .modeMeta{ font-size: 11.5px; }
+  .composerShortcut{ font-size: 12px; gap: 6px; }
+  .overviewStats{ display:grid; grid-template-columns: 1fr 1fr 1fr; }
+  .statPill{ min-width: 0; }
 }
 
 @media (max-width: 360px){
-  .page{
-    padding: 10px 8px calc(96px + env(safe-area-inset-bottom));
-  }
-
-  .toolbarCard{
-    margin-bottom: 12px;
-  }
-
-  .brandTitle{
-    font-size: 18px;
-  }
-
-  .brandSub,
-  .modeMeta{
-    font-size: 11px;
-  }
-
-  .actionCluster{
-    width: 100%;
-  }
-
-  .toolbarTop{
-    display:grid;
-    grid-template-columns:1fr;
-  }
+  .page{ padding: 10px 8px calc(96px + env(safe-area-inset-bottom)); }
+  .toolbarCard{ margin-bottom: 12px; }
+  .brandTitle{ font-size: 18px; }
+  .brandSub,.modeMeta{ font-size: 11px; }
+  .actionCluster{ width: 100%; }
+  .toolbarTop{ display:grid; grid-template-columns:1fr; }
+  .overviewStats{ grid-template-columns:1fr; }
 }
 </style>

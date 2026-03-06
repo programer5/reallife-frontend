@@ -73,7 +73,7 @@ onMounted(() => {
 <style scoped>
 .tabs{
   height: var(--app-bottombar-h);
-  padding-bottom: calc(12px + var(--app-safe-bottom));
+  padding-bottom: calc(10px + var(--app-safe-bottom));
   position: sticky;
   bottom: 0;
   z-index: 50;
@@ -159,12 +159,17 @@ onMounted(() => {
 .active .lbl{ opacity: 1; }
 
 @media (max-width: 640px) {
+  .tabs{ padding: 8px 8px 10px; }
+  .tab{ gap: 5px; }
+  .ico{ width: 26px; height: 26px; }
+  .ico svg{ width: 22px; height: 22px; }
   .badge{
     min-width: 16px;
     height: 16px;
-    right: -8px;
-    top: -8px;
+    right: -7px;
+    top: -7px;
     font-size: 9px;
   }
+  .lbl{ font-size: 9px; }
 }
 </style>

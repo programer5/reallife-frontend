@@ -1,11 +1,12 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, onBeforeUnmount} from "vue";
+import { computed, onMounted, ref, nextTick, onBeforeUnmount, watch} from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import RlModal from "@/components/ui/RlModal.vue";
 import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
+import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -345,6 +346,57 @@ function classifyPin(p) {
   if (p?.placeText) return "PLACE";
   return "TODO";
 }
+
+
+function pinKindMeta(p) {
+  const kind = classifyPin(p);
+  if (kind === "PROMISE") return { emoji: "📅", label: "약속" };
+  if (kind === "TODO") return { emoji: "✅", label: "할일" };
+  return { emoji: "📍", label: "장소" };
+}
+
+function pinTimelineState(p) {
+  const kind = classifyPin(p);
+  const now = Date.now();
+  const startTs = p?.startAt ? new Date(p.startAt).getTime() : 0;
+
+  if (kind === "PLACE") {
+    return { stage: "saved", label: "저장됨", tone: "stable", progress: 34 };
+  }
+  if (kind === "TODO") {
+    return { stage: "working", label: "진행 준비", tone: "active", progress: 58 };
+  }
+  if (kind === "PROMISE") {
+    if (startTs && startTs > now) return { stage: "scheduled", label: "예정됨", tone: "accent", progress: 74 };
+    if (startTs && startTs <= now) return { stage: "started", label: "시간 지남", tone: "warn", progress: 90 };
+    return { stage: "saved", label: "저장됨", tone: "stable", progress: 48 };
+  }
+  return { stage: "saved", label: "저장됨", tone: "stable", progress: 40 };
+}
+
+const nextPromisePin = computed(() => {
+  const now = Date.now();
+  return (pins.value || [])
+    .filter((p) => classifyPin(p) === "PROMISE" && p?.startAt)
+    .map((p) => ({ pin: p, ts: new Date(p.startAt).getTime() }))
+    .filter((x) => x.ts && x.ts >= now)
+    .sort((a, b) => a.ts - b.ts)[0]?.pin || null;
+});
+
+const dockTimelineSummary = computed(() => {
+  const total = Array.isArray(pins.value) ? pins.value.length : 0;
+  const promises = activeCounts.value.PROMISE || 0;
+  const todos = activeCounts.value.TODO || 0;
+  const places = activeCounts.value.PLACE || 0;
+  return {
+    total,
+    promises,
+    todos,
+    places,
+    nextLabel: nextPromisePin.value ? pinTimeText(nextPromisePin.value) : "",
+    nextTitle: nextPromisePin.value?.title || "",
+  };
+});
 
 const activeCounts = computed(() => {
   const res = { PROMISE: 0, TODO: 0, PLACE: 0 };
@@ -784,6 +836,106 @@ const showPinned = computed(() => {
   return canViewConversation.value && Array.isArray(arr) && arr.length > 0;
 });
 
+
+function pinActivityStorageKey(cid) {
+  return `reallife:pinActivity:${cid || ""}`;
+}
+
+function loadPinActivityFromStorage(cid) {
+  try {
+    const raw = sessionStorage.getItem(pinActivityStorageKey(cid));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+const pinActivity = ref([]);
+
+function syncPinActivity(cid = conversationId.value) {
+  pinActivity.value = loadPinActivityFromStorage(cid).slice(0, 6);
+}
+
+function savePinActivity(cid = conversationId.value) {
+  try {
+    sessionStorage.setItem(pinActivityStorageKey(cid), JSON.stringify(pinActivity.value.slice(0, 6)));
+  } catch {}
+}
+
+function rememberPinAction(action, pin) {
+  const entry = {
+    id: `${action}-${pin?.pinId || Date.now()}-${Date.now()}`,
+    action,
+    pinId: pin?.pinId || null,
+    title: pin?.title || pinKindMeta(pin).label,
+    type: classifyPin(pin),
+    placeText: pin?.placeText || "",
+    startAt: pin?.startAt || "",
+    at: new Date().toISOString(),
+  };
+  pinActivity.value = [entry, ...pinActivity.value.filter((x) => String(x.pinId) !== String(entry.pinId))].slice(0, 6);
+  savePinActivity();
+}
+
+watch(conversationId, () => {
+  syncPinActivity();
+}, { immediate: true });
+
+
+const dockVisibleSummary = computed(() => {
+  const list = Array.isArray(dockActivePinsToShow.value) ? dockActivePinsToShow.value.filter((x) => !x?.__placeholder) : [];
+  return {
+    total: list.length,
+    hidden: Math.max(0, list.length - 4),
+    hasMany: list.length > 4,
+  };
+});
+
+const dockStatusSummary = computed(() => {
+  const now = Date.now();
+  const list = Array.isArray(pins.value) ? pins.value : [];
+  let overdue = 0;
+  let upcoming = 0;
+  let todoReady = 0;
+  let placeSaved = 0;
+  list.forEach((p) => {
+    const kind = classifyPin(p);
+    const ts = p?.startAt ? new Date(p.startAt).getTime() : 0;
+    if (kind === "PROMISE") {
+      if (ts && ts < now) overdue += 1;
+      else upcoming += 1;
+      return;
+    }
+    if (kind === "TODO") {
+      todoReady += 1;
+      return;
+    }
+    if (kind === "PLACE") placeSaved += 1;
+  });
+  return { overdue, upcoming, todoReady, placeSaved };
+});
+
+const recentPinActivity = computed(() => pinActivity.value.slice(0, 4));
+
+function pinActivityLabel(item) {
+  if (item?.action === "DONE") return "완료";
+  if (item?.action === "CANCELED") return "취소";
+  return "숨김";
+}
+
+function pinActivityTone(item) {
+  if (item?.action === "DONE") return "done";
+  if (item?.action === "CANCELED") return "cancel";
+  return "hide";
+}
+
+function pinActivityMeta(item) {
+  const when = item?.startAt ? pinTimeText(item) : "방금 처리";
+  const place = item?.placeText ? ` · ${item.placeText}` : "";
+  return `${when}${place}`;
+}
+
 async function loadPins() {
   if (!conversationId.value) return;
   if (!canViewConversation.value) return;
@@ -844,6 +996,7 @@ async function confirmPinAction() {
     else if (pinModalAction.value === "CANCELED") await pinCancel(p.pinId);
     else await pinDismiss(p.pinId);
 
+    rememberPinAction(pinModalAction.value, p);
     pinsStore.removePin(conversationId.value, p.pinId);
     closePinActionModal();
   } catch (e) {
@@ -2240,8 +2393,76 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="pins && pins.length" class="dockRow">
+      <div v-if="pins && pins.length" class="dockTimelineHero">
+        <div class="timelineHeroHead">
+          <div>
+            <div class="timelineHeroEyebrow">Action Timeline</div>
+            <div class="timelineHeroTitle">이 대화에서 바로 이어갈 액션</div>
+          </div>
+          <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}개</div>
+        </div>
+
+        <div class="timelineHeroStats">
+          <div class="timelineStat">
+            <span class="timelineStatK">📅 약속</span>
+            <strong>{{ dockTimelineSummary.promises }}</strong>
+          </div>
+          <div class="timelineStat">
+            <span class="timelineStatK">✅ 할일</span>
+            <strong>{{ dockTimelineSummary.todos }}</strong>
+          </div>
+          <div class="timelineStat">
+            <span class="timelineStatK">📍 장소</span>
+            <strong>{{ dockTimelineSummary.places }}</strong>
+          </div>
+        </div>
+
+        <div class="timelineFocusRow">
+          <div class="timelineFocusCard" data-tone="upcoming">
+            <span class="timelineFocusLabel">다가오는 일정</span>
+            <strong>{{ dockStatusSummary.upcoming }}</strong>
+            <span class="timelineFocusMeta">예정된 약속</span>
+          </div>
+          <div class="timelineFocusCard" data-tone="warn">
+            <span class="timelineFocusLabel">시간 지난 액션</span>
+            <strong>{{ dockStatusSummary.overdue }}</strong>
+            <span class="timelineFocusMeta">시간 확인 필요</span>
+          </div>
+          <div class="timelineFocusCard" data-tone="todo">
+            <span class="timelineFocusLabel">바로 할 일</span>
+            <strong>{{ dockStatusSummary.todoReady }}</strong>
+            <span class="timelineFocusMeta">체크 가능한 항목</span>
+          </div>
+        </div>
+
+        <div v-if="dockTimelineSummary.nextTitle" class="timelineHeroNext">
+          <span class="timelineHeroNextLabel">다음 약속</span>
+          <span class="timelineHeroNextTitle">{{ dockTimelineSummary.nextTitle }}</span>
+          <span class="timelineHeroNextTime">{{ dockTimelineSummary.nextLabel }}</span>
+        </div>
+
+        <div v-if="recentPinActivity.length" class="timelineRecent">
+          <div class="timelineRecentHead">최근 처리</div>
+          <div class="timelineRecentList">
+            <div v-for="item in recentPinActivity" :key="item.id" class="timelineRecentItem">
+              <span class="timelineRecentBadge" :data-tone="pinActivityTone(item)">{{ pinActivityLabel(item) }}</span>
+              <div class="timelineRecentBody">
+                <div class="timelineRecentTitle">{{ item.title }}</div>
+                <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="pins && pins.length" class="dockRowWrap">
+        <div v-if="dockVisibleSummary.hasMany" class="dockBrowseHint">아래 카드에서 이어지는 액션을 계속 볼 수 있어요.</div>
+        <div class="dockRow">
         <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder }" @click="p.__placeholder ? null : openPinEdit(p)">
+          <div class="dockCardTopline">
+            <span class="dockTypePill">{{ pinKindMeta(p).emoji }} {{ pinKindMeta(p).label }}</span>
+            <span class="dockStatePill" :data-tone="pinTimelineState(p).tone">{{ pinTimelineState(p).label }}</span>
+          </div>
           <div class="dockCardTitle">{{ p.title || "약속" }}</div>
           <div class="dockCardMeta">
             <span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span>
@@ -2249,6 +2470,16 @@ onBeforeUnmount(() => {
             <span v-if="p.placeText" class="sep">·</span>
             <span v-if="p.placeText">📍 {{ p.placeText }}</span>
           </div>
+          <div class="dockProgress">
+            <div class="dockProgressFill" :style="{ width: pinTimelineState(p).progress + '%' }"></div>
+          </div>
+          <div class="dockCardHint">수정·완료·취소를 빠르게 할 수 있어요</div>
+          <div v-if="!p.__placeholder" class="dockCardActions" @click.stop>
+            <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
+            <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
+            <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
+          </div>
+        </div>
         </div>
       </div>
       <div v-else class="dockEmpty">아직 저장된 액션이 없어요. 메시지의 ✨로 약속/할일을 바로 만들어보세요.</div>
@@ -2298,8 +2529,25 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-else-if="loading" class="state">불러오는 중…</div>
-    <div v-else-if="error" class="state err">{{ error }}</div>
+    <AsyncStatePanel
+      v-else-if="loading"
+      icon="⏳"
+      title="대화를 불러오는 중이에요"
+      description="메시지와 액션 흐름을 연결하고 있어요."
+      tone="loading"
+      :show-actions="false"
+    />
+    <AsyncStatePanel
+      v-else-if="error"
+      icon="⚠️"
+      title="대화를 불러오지 못했어요"
+      :description="error"
+      tone="danger"
+      primary-label="다시 시도"
+      secondary-label="뒤로 가기"
+      @primary="loadFirst"
+      @secondary="() => router.back()"
+    />
 
     <!-- ✅ 메시지 스크롤 -->
     <div v-else ref="scrollerRef" class="scroller rl-scroll rl-scroll--premium">
@@ -2833,6 +3081,163 @@ onBeforeUnmount(() => {
   border-top: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
   backdrop-filter: blur(10px);
 }
+
+.timelineHeroHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+.timelineHeroEyebrow{
+  font-size:11px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,.46);
+}
+.timelineHeroTitle{
+  margin-top:4px;
+  font-size:15px;
+  font-weight:900;
+  letter-spacing:-.02em;
+}
+.timelineHeroTotal{
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  color:rgba(255,255,255,.92);
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+}
+.dockTimelineHero{
+  margin-bottom:12px;
+  padding:14px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.08);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)),
+    color-mix(in oklab, var(--surface) 90%, rgba(10,18,40,.88));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+.timelineHeroStats{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+  margin-top:12px;
+}
+.timelineStat{
+  display:grid;
+  gap:4px;
+  padding:10px 11px;
+  border-radius:14px;
+  background:rgba(255,255,255,.03);
+  border:1px solid rgba(255,255,255,.06);
+}
+.timelineStatK{
+  font-size:12px;
+  color:rgba(255,255,255,.66);
+}
+.timelineStat strong{
+  font-size:18px;
+  line-height:1;
+}
+.timelineHeroNext{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid rgba(255,255,255,.06);
+}
+.timelineHeroNextLabel{
+  font-size:12px;
+  color:rgba(255,255,255,.58);
+}
+.timelineHeroNextTitle{
+  font-size:13px;
+  font-weight:800;
+}
+.timelineHeroNextTime{
+  font-size:12px;
+  color:rgba(255,255,255,.72);
+}
+.dockCardTopline{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+.dockTypePill,
+.dockStatePill{
+  display:inline-flex;
+  align-items:center;
+  height:24px;
+  padding:0 9px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:800;
+  border:1px solid rgba(255,255,255,.08);
+}
+.dockTypePill{
+  color:rgba(255,255,255,.86);
+  background:rgba(255,255,255,.035);
+}
+.dockStatePill{
+  color:rgba(255,255,255,.88);
+  background:rgba(255,255,255,.03);
+}
+.dockStatePill[data-tone="accent"]{
+  background:color-mix(in oklab, var(--accent) 18%, rgba(255,255,255,.03));
+  border-color:color-mix(in oklab, var(--accent) 42%, rgba(255,255,255,.08));
+}
+.dockStatePill[data-tone="active"]{
+  background:color-mix(in oklab, var(--success) 16%, rgba(255,255,255,.03));
+  border-color:color-mix(in oklab, var(--success) 34%, rgba(255,255,255,.08));
+}
+.dockStatePill[data-tone="warn"]{
+  background:color-mix(in oklab, var(--warning) 18%, rgba(255,255,255,.03));
+  border-color:color-mix(in oklab, var(--warning) 40%, rgba(255,255,255,.08));
+}
+.dockProgress{
+  height:7px;
+  margin-top:10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.06);
+  overflow:hidden;
+}
+.dockProgressFill{
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg, color-mix(in oklab, var(--accent) 88%, white), color-mix(in oklab, var(--success) 72%, white));
+}
+.dockCardHint{
+  margin-top:8px;
+  font-size:11px;
+  color:rgba(255,255,255,.58);
+}
+@media (max-width: 900px){
+  .dockPanel{
+    max-height: none;
+  }
+  .dockRow{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px){
+  .timelineHeroStats{
+    grid-template-columns:1fr;
+  }
+  .dockCardTopline{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .dockRow{
+    grid-template-columns: 1fr;
+  }
+}
+
 .pendingBridge{
   margin: 0 0 10px;
   padding: 10px 12px;
@@ -3047,6 +3452,28 @@ onBeforeUnmount(() => {
     right: 10px;
     width: auto;
     transform: none;
+  }
+
+  .dockWrap{
+    top: 50px;
+    padding: 10px 10px 0;
+  }
+  .dockBar{
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+  }
+  .dockTab{
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+    min-height: 40px;
+  }
+  .dockMore{
+    width: 100%;
+  }
+  .dockFilterBar{
+    padding-left: 0;
+    padding-right: 0;
   }
 }
 
@@ -3445,7 +3872,12 @@ onBeforeUnmount(() => {
   background: rgba(18,22,30,.64);
   backdrop-filter: blur(14px);
   padding: 10px;
+  max-height: min(62vh, 760px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+.dockPanel::-webkit-scrollbar{ width: 8px; }
+.dockPanel::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.14); border-radius: 999px; }
 
 .dockGrid{
   display:flex;
@@ -3453,19 +3885,25 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.dockRowWrap{
+  display:grid;
+  gap:10px;
+}
+.dockBrowseHint{
+  padding: 0 4px;
+  font-size: 11px;
+  color: rgba(255,255,255,.60);
+}
 .dockRow{
-  display:flex;
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  overflow-x: auto;
   padding-bottom: 6px;
 }
-.dockRow::-webkit-scrollbar{ height: 6px; }
-.dockRow::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.12); border-radius: 999px; }
-.dockRow::-webkit-scrollbar-track{ background: transparent; }
 
 .dockCard{
-  min-width: 190px;
-  max-width: 240px;
+  min-width: 0;
+  max-width: none;
   border-radius: 16px;
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(255,255,255,.06);
@@ -3964,4 +4402,145 @@ onBeforeUnmount(() => {
   0%{ transform: translateX(-60%); }
   100%{ transform: translateX(60%); }
 }
+
+
+/* ===== Final loop: dock visibility + unified states ===== */
+.dockBar{flex-wrap:wrap;}
+.dockSpacer{flex:1 1 auto;}
+.dockMore{margin-left:auto;}
+.dockPanel{
+  max-height:min(54vh, 540px);
+  overflow:auto;
+  overscroll-behavior:contain;
+  padding-bottom:14px;
+}
+.dockFilterBar{
+  flex-wrap:wrap;
+  overflow:visible;
+  padding-bottom:0;
+}
+.timelineHeroStats,
+.timelineFocusRow{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+.dockRowWrap{display:grid;gap:10px;}
+.dockRow{
+  display:grid !important;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:10px;
+  overflow:visible;
+  align-items:stretch;
+}
+.dockCard{
+  min-width:0 !important;
+  max-width:none !important;
+  height:100%;
+  display:flex;
+  flex-direction:column;
+}
+.dockCardHint{
+  margin-top:8px;
+  min-height:32px;
+  line-height:1.35;
+}
+.dockCardActions{
+  margin-top:auto;
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+.dockMiniBtn{
+  appearance:none;
+  min-width:0;
+  min-height:40px;
+  padding:0 12px;
+  white-space:nowrap;
+  border-radius:12px;
+  border:1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background:color-mix(in oklab, var(--surface-2) 90%, rgba(255,255,255,.03));
+  color:var(--text);
+  font-size:13px;
+  font-weight:900;
+  letter-spacing:-.01em;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+  transition:transform .14s ease, border-color .14s ease, background .14s ease, box-shadow .14s ease;
+}
+.dockMiniBtn:hover{
+  transform:translateY(-1px);
+}
+.dockMiniBtn:active{
+  transform:translateY(0);
+}
+.dockMiniBtn--soft{
+  background:color-mix(in oklab, var(--surface-2) 94%, rgba(255,255,255,.03));
+}
+.dockMiniBtn--primary{
+  border-color:color-mix(in oklab, var(--accent) 46%, var(--border));
+  background:color-mix(in oklab, var(--accent) 18%, rgba(255,255,255,.03));
+  color:color-mix(in oklab, white 96%, var(--accent));
+}
+.dockMiniBtn--danger{
+  border-color:color-mix(in oklab, var(--danger) 38%, var(--border));
+  background:color-mix(in oklab, var(--danger) 14%, rgba(255,255,255,.03));
+  color:color-mix(in oklab, white 96%, var(--danger));
+}
+.dockTimelineHero{
+  position:static;
+  padding:14px;
+}
+.timelineFocusCard{
+  border:1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: color-mix(in oklab, var(--surface-2) 78%, transparent);
+  border-radius:16px;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.timelineFocusCard[data-tone="upcoming"]{border-color: color-mix(in oklab, var(--accent) 35%, var(--border));}
+.timelineFocusCard[data-tone="warn"]{border-color: color-mix(in oklab, #ffb84d 42%, var(--border));}
+.timelineFocusCard[data-tone="todo"]{border-color: color-mix(in oklab, var(--success) 36%, var(--border));}
+.timelineFocusLabel{font-size:11px;color:var(--muted);font-weight:800;}
+.timelineFocusCard strong{font-size:24px;line-height:1;font-weight:950;}
+.timelineFocusMeta{font-size:11px;color:rgba(255,255,255,.68);}
+.timelineRecent{margin-top:12px;display:grid;gap:8px;}
+.timelineRecentHead{font-size:11px;color:var(--muted);font-weight:900;}
+.timelineRecentList{display:grid;gap:8px;}
+.timelineRecentItem{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in oklab, var(--border) 80%, transparent);background: color-mix(in oklab, var(--surface) 78%, transparent);}
+.timelineRecentBadge{display:inline-flex;align-items:center;justify-content:center;min-width:48px;height:26px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:900;border:1px solid color-mix(in oklab, var(--border) 84%, transparent);}
+.timelineRecentBadge[data-tone="done"]{background: color-mix(in oklab, var(--success) 18%, transparent);border-color: color-mix(in oklab, var(--success) 34%, var(--border));}
+.timelineRecentBadge[data-tone="cancel"]{background: color-mix(in oklab, var(--danger) 14%, transparent);border-color: color-mix(in oklab, var(--danger) 34%, var(--border));}
+.timelineRecentBadge[data-tone="hide"]{background: color-mix(in oklab, var(--surface-2) 76%, transparent);}
+.timelineRecentBody{min-width:0;display:grid;gap:3px;}
+.timelineRecentTitle{font-size:13px;font-weight:900;color:var(--text);}
+.timelineRecentMeta{font-size:11px;color:var(--muted);}
+.stateCardInline{max-width:760px;margin:0 auto;width:100%;padding:0 12px 12px;}
+@media (max-width:900px){
+  .dockWrap{top:52px;padding:8px 10px 0;}
+  .dockPanel{max-height:min(52vh, 520px);}
+  .timelineHeroStats,.timelineFocusRow{grid-template-columns:1fr;}
+  .dockRow{grid-template-columns:repeat(2,minmax(0,1fr)) !important;}
+  .dockBar{gap:6px;}
+  .dockTab,.dockMore,.dockPill{justify-content:center;}
+}
+@media (max-width:640px){
+  .dockWrap{top:48px;padding:8px 8px 0;}
+  .dockBar{display:grid;grid-template-columns:1fr 1fr;align-items:stretch;}
+  .dockSpacer{display:none;}
+  .dockMore{margin-left:0;grid-column:1 / -1;}
+  .dockTab,.dockMore{width:100%;min-height:42px;}
+  .dockPanel{margin-top:8px;max-height:min(46vh, 460px);padding:8px;}
+  .dockFilterBar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:4px 2px 2px;}
+  .dockPill{width:100%;}
+  .timelineHeroHead{align-items:center;}
+  .timelineHeroTotal{flex:0 0 auto;}
+  .dockTimelineHero{padding:12px;}
+  .dockRow{grid-template-columns:1fr !important;}
+  .dockCard{padding:12px;}
+  .dockCardActions{grid-template-columns:1fr 1fr 1fr;gap:6px;}
+  .dockMiniBtn{font-size:12px;min-height:38px;padding:0 10px;}
+}
+
 </style>

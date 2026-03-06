@@ -24,17 +24,19 @@ function normalizeNoti(payload) {
 }
 
 function uniqAppend(existing, incoming) {
-  const out = Array.isArray(existing) ? [...existing] : [];
-  const seen = new Set(out.map((x) => x?.id).filter(Boolean));
-
+  const map = new Map();
+  for (const raw of existing || []) {
+    const n = normalizeNoti(raw) || raw;
+    if (!n?.id) continue;
+    map.set(String(n.id), n);
+  }
   for (const raw of incoming || []) {
     const n = normalizeNoti(raw);
-    if (!n) continue;
-    if (seen.has(n.id)) continue;
-    seen.add(n.id);
-    out.push(n);
+    if (!n?.id) continue;
+    const key = String(n.id);
+    map.set(key, { ...(map.get(key) || {}), ...n });
   }
-  return out;
+  return [...map.values()].sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
 }
 
 function countUnread(items) {
@@ -85,6 +87,28 @@ export const useNotificationsStore = defineStore("notifications", {
       this._refreshTimer = setTimeout(() => this._refreshNow(), 400);
     },
 
+
+    async softSync() {
+      try {
+        const res = await fetchNotifications({ size: 12 });
+        const incoming = (res.items || []).map(normalizeNoti).filter(Boolean);
+        if (!incoming.length) return;
+
+        const locallyRead = new Set((this.items || []).filter((x) => x?.read).map((x) => String(x.id)));
+        const merged = uniqAppend(this.items, incoming).map((item) =>
+          locallyRead.has(String(item.id)) ? { ...item, read: true } : item
+        );
+
+        this.items = merged.slice(0, 200);
+        this.nextCursor = res.nextCursor;
+        this.hasNext = res.hasNext;
+        this._syncUnreadMeta();
+        this._seenIds = new Set((this.items || []).slice(0, 150).map((x) => x.id));
+      } catch {
+        // soft sync는 조용히 실패
+      }
+    },
+
     async _refreshNow() {
       if (this.loading) return;
       this.loading = true;
@@ -92,7 +116,9 @@ export const useNotificationsStore = defineStore("notifications", {
       try {
         const res = await fetchNotifications({ size: 20 });
 
-        this.items = (res.items || []).map(normalizeNoti).filter(Boolean);
+        const incoming = (res.items || []).map(normalizeNoti).filter(Boolean);
+        const locallyRead = new Set((this.items || []).filter((x) => x?.read).map((x) => String(x.id)));
+        this.items = incoming.map((item) => locallyRead.has(String(item.id)) ? { ...item, read: true } : item);
         this.nextCursor = res.nextCursor;
         this.hasNext = res.hasNext;
         this._syncUnreadMeta();

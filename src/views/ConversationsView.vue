@@ -4,6 +4,7 @@ import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import { useConversationsStore } from "@/stores/conversations";
+import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 
 const router = useRouter();
 const conv = useConversationsStore();
@@ -168,11 +169,35 @@ function fmtListTime(iso) {
       <div class="sumHint">대화방에 들어가면 해당 방 unread는 바로 정리돼요.</div>
     </div>
 
-    <div v-if="loading" class="state">불러오는 중…</div>
-    <div v-else-if="error" class="state err">{{ error }}</div>
-    <div v-else-if="items.length === 0" class="state">
-      아직 대화가 없어요. <span class="cta" @click="goNewDm">새 DM</span>으로 시작해봐요 ✨
-    </div>
+    <AsyncStatePanel
+      v-if="loading"
+      icon="⏳"
+      title="대화 목록을 불러오는 중이에요"
+      description="읽지 않은 메시지와 액션 브리지를 같이 준비하고 있어요."
+      tone="loading"
+      :show-actions="false"
+    />
+    <AsyncStatePanel
+      v-else-if="error"
+      icon="⚠️"
+      title="대화 목록을 불러오지 못했어요"
+      :description="error"
+      tone="danger"
+      primary-label="다시 시도"
+      secondary-label="새 DM"
+      @primary="() => (conv._refreshNow?.() || conv.refresh?.())"
+      @secondary="goNewDm"
+    />
+    <AsyncStatePanel
+      v-else-if="items.length === 0"
+      icon="💬"
+      title="아직 시작된 대화가 없어요"
+      description="새 DM으로 시작하면 댓글에서 만든 액션도 이 흐름으로 가져올 수 있어요."
+      primary-label="새 DM 시작"
+      secondary-label="인박스로 이동"
+      @primary="goNewDm"
+      @secondary="() => router.push('/inbox')"
+    />
 
     <div v-else class="list">
       <button

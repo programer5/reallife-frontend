@@ -1,4 +1,4 @@
-<!-- src/components/feed/FeedPostCard.vue (v3.3: like animation + double tap like + comments + slider) -->
+<!-- src/components/feed/FeedPostCard.vue -->
 <script setup>
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
@@ -33,17 +33,28 @@ const visBadge = computed(() => {
   return { icon: "🌐", label: "공개" };
 });
 
+const mediaBadge = computed(() => {
+  const count = images.value.length;
+  if (count <= 1) return "";
+  return `${count}장`;
+});
+
+const flowHint = computed(() => {
+  const commentCount = Number(props.post?.commentCount || 0);
+  if (commentCount <= 0) return "첫 댓글로 대화 흐름을 만들어보세요";
+  if (commentCount === 1) return "댓글 1개 · 액션으로 이어질 수 있어요";
+  return `댓글 ${commentCount}개 · 약속/할일/장소로 이어질 수 있어요`;
+});
+
 const lightboxOpen = ref(false);
 const lightboxIndex = ref(0);
-
-// slider
 const slide = ref(0);
 const dragging = ref(false);
 let startX = 0;
 let startY = 0;
 
 const hasMany = computed(() => images.value.length > 1);
-const visibleImages = computed(() => images.value.slice(0, 8)); // cap
+const visibleImages = computed(() => images.value.slice(0, 8));
 
 function openDetail() {
   const id = props.post?.postId;
@@ -62,7 +73,6 @@ function fmtTime(t) {
   return `${mm}.${dd} ${hh}:${mi}`;
 }
 
-/* Like FX */
 const likeBump = ref(false);
 const burst = ref(false);
 
@@ -88,7 +98,6 @@ function onLike(e) {
   emit("like", props.post);
 }
 
-/* Double-tap like on media */
 let lastTapAt = 0;
 function onMediaTap(e) {
   if (!visibleImages.value.length) return;
@@ -108,7 +117,6 @@ function openLightbox(i, e) {
   lightboxOpen.value = true;
 }
 
-/* Slider pointer handlers */
 function onPointerDown(e) {
   if (!hasMany.value) return;
   dragging.value = true;
@@ -116,8 +124,7 @@ function onPointerDown(e) {
   startY = e.clientY;
 }
 function onPointerUp(e) {
-  if (!hasMany.value) return;
-  if (!dragging.value) return;
+  if (!hasMany.value || !dragging.value) return;
   dragging.value = false;
 
   const dx = e.clientX - startX;
@@ -128,12 +135,8 @@ function onPointerUp(e) {
     else prevSlide();
   }
 }
-function prevSlide() {
-  slide.value = Math.max(0, slide.value - 1);
-}
-function nextSlide() {
-  slide.value = Math.min(visibleImages.value.length - 1, slide.value + 1);
-}
+function prevSlide() { slide.value = Math.max(0, slide.value - 1); }
+function nextSlide() { slide.value = Math.min(visibleImages.value.length - 1, slide.value + 1); }
 
 async function sharePost(e) {
   e?.stopPropagation?.();
@@ -179,13 +182,13 @@ async function sharePost(e) {
             <span class="bIco">{{ visBadge.icon }}</span>
             <span class="bTxt">{{ visBadge.label }}</span>
           </span>
+          <span v-if="mediaBadge" class="badge badge--media">{{ mediaBadge }}</span>
         </div>
       </div>
     </div>
 
     <div v-if="post.content" class="content">{{ post.content }}</div>
 
-    <!-- Media slider + double-tap like -->
     <div
       v-if="visibleImages.length"
       class="mediaSlider"
@@ -202,7 +205,7 @@ async function sharePost(e) {
           @click.stop="openLightbox(idx, $event)"
           :aria-label="`이미지 ${idx+1} 확대`"
         >
-          <img class="img" :src="u" alt="post image" loading="lazy" />
+          <img class="img" :src="u" alt="post image" loading="lazy" decoding="async" />
         </button>
       </div>
 
@@ -212,12 +215,22 @@ async function sharePost(e) {
 
       <div class="heartBurst" :class="{ on: burst }" aria-hidden="true">❤</div>
 
+      <div class="mediaTopMeta">
+        <span class="mediaPill">{{ slide + 1 }} / {{ visibleImages.length }}</span>
+        <span v-if="visibleImages.length > 1" class="mediaPill mediaPill--soft">스와이프</span>
+      </div>
+
       <button v-if="visibleImages.length>1" class="nav left" type="button" @click.stop="prevSlide" aria-label="이전">‹</button>
       <button v-if="visibleImages.length>1" class="nav right" type="button" @click.stop="nextSlide" aria-label="다음">›</button>
     </div>
 
-    <!-- Comment preview -->
+    <div class="flowBar">
+      <span class="flowDot"></span>
+      <span>{{ flowHint }}</span>
+    </div>
+
     <div v-if="previewComments.length" class="commentPreview" @click.stop="openDetail">
+      <div class="commentPreview__title">최근 댓글</div>
       <div v-for="(c, idx) in previewComments" :key="idx" class="cRow">
         <span class="cAuthor">{{ c.authorName || c.author || "user" }}</span>
         <span class="cText">{{ c.content || c.text || "" }}</span>
@@ -254,23 +267,25 @@ async function sharePost(e) {
 <style scoped>
 .card{
   border: 1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.05);
-  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.035));
+  border-radius: 20px;
   padding: 14px;
   cursor: pointer;
-  transition: transform .15s ease, background .15s ease;
+  transition: transform .15s ease, background .15s ease, border-color .18s ease, box-shadow .18s ease;
   max-width: 100%;
   overflow: hidden;
+  box-shadow: 0 14px 40px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.03);
 }
 .card:hover{
   transform: translateY(-1px);
-  background: rgba(255,255,255,.065);
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+  border-color: rgba(255,255,255,.14);
 }
 
 .head{ display:flex; gap: 10px; align-items: flex-start; }
 .avatar{
   width: 38px; height: 38px; border-radius: 14px;
-  background: rgba(255,255,255,.10);
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), transparent 50%), linear-gradient(135deg, rgba(139,92,246,.44), rgba(45,212,191,.44));
   flex: 0 0 auto;
 }
 .meta{ flex: 1; min-width: 0; }
@@ -278,7 +293,7 @@ async function sharePost(e) {
 .author{ font-weight: 900; }
 .handle, .time, .dot{ opacity: .7; font-size: 12px; }
 .dot{ margin: 0 2px; }
-.subRow{ margin-top: 6px; }
+.subRow{ margin-top: 6px; display:flex; gap:6px; flex-wrap:wrap; }
 
 .badge{
   display:inline-flex; align-items:center; gap: 6px;
@@ -288,14 +303,14 @@ async function sharePost(e) {
   background: rgba(255,255,255,.05);
   font-size: 11px;
   font-weight: 900;
-  opacity: .85;
+  opacity: .9;
 }
+.badge--media{ background: color-mix(in oklab, var(--accent) 12%, rgba(255,255,255,.05)); }
 .bIco{ font-size: 12px; }
 .bTxt{ letter-spacing: -0.01em; }
 
-.content{ margin-top: 10px; white-space: pre-wrap; line-height: 1.45; }
+.content{ margin-top: 10px; white-space: pre-wrap; line-height: 1.5; color: rgba(255,255,255,.94); }
 
-/* Media slider */
 .mediaSlider{
   margin-top: 10px;
   position: relative;
@@ -306,89 +321,92 @@ async function sharePost(e) {
   user-select: none;
   touch-action: pan-y;
 }
-.track{
-  display:flex;
-  width: 100%;
-  transition: transform .28s cubic-bezier(.2,.9,.2,1);
-}
-.slide{
-  flex: 0 0 100%;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  cursor: zoom-in;
-}
+.track{ display:flex; width: 100%; transition: transform .28s cubic-bezier(.2,.9,.2,1); }
+.slide{ flex: 0 0 100%; border: 0; background: transparent; padding: 0; cursor: zoom-in; }
 .img{
   width: 100%;
   display:block;
-  object-fit: contain;
-  max-height: 520px;
+  object-fit: cover;
+  aspect-ratio: 4 / 5;
+  max-height: 680px;
   background: rgba(255,255,255,.04);
 }
 
-/* dots */
 .dots{
-  position:absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 10px;
-  display:flex;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(0,0,0,.25);
-  border: 1px solid rgba(255,255,255,.10);
-  backdrop-filter: blur(10px);
+  position:absolute; left: 50%; transform: translateX(-50%); bottom: 10px;
+  display:flex; gap: 6px; padding: 6px 10px; border-radius: 999px;
+  background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.10); backdrop-filter: blur(10px);
 }
-.dots .dot{
-  width: 6px; height: 6px; border-radius: 99px;
-  background: rgba(255,255,255,.35);
-}
+.dots .dot{ width: 6px; height: 6px; border-radius: 99px; background: rgba(255,255,255,.35); }
 .dots .dot.on{ background: rgba(255,255,255,.92); }
 
-/* nav */
-.nav{
+.mediaTopMeta{
   position:absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 42px;
-  height: 42px;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  pointer-events:none;
+}
+.mediaPill{
+  display:inline-flex;
+  align-items:center;
+  min-height: 28px;
+  padding: 0 10px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.14);
-  background: rgba(0,0,0,.20);
+  background: rgba(0,0,0,.28);
+  border: 1px solid rgba(255,255,255,.10);
   color: rgba(255,255,255,.92);
-  font-size: 24px;
+  font-size: 11px;
   font-weight: 900;
-  cursor:pointer;
   backdrop-filter: blur(10px);
+}
+.mediaPill--soft{ opacity: .82; }
+
+.nav{
+  position:absolute; top: 50%; transform: translateY(-50%);
+  width: 42px; height: 42px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14); background: rgba(0,0,0,.20);
+  color: rgba(255,255,255,.92); font-size: 24px; font-weight: 900; cursor:pointer; backdrop-filter: blur(10px);
 }
 .left{ left: 10px; }
 .right{ right: 10px; }
 
-/* Heart burst */
 .heartBurst{
-  position:absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(.2);
-  opacity: 0;
-  font-size: 64px;
-  text-shadow: 0 12px 40px rgba(0,0,0,.5);
-  transition: transform .26s cubic-bezier(.2,1,.2,1), opacity .26s ease;
-  pointer-events: none;
+  position:absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.2);
+  opacity: 0; font-size: 64px; text-shadow: 0 12px 40px rgba(0,0,0,.5);
+  transition: transform .26s cubic-bezier(.2,1,.2,1), opacity .26s ease; pointer-events: none;
 }
-.heartBurst.on{
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
-  animation: burstOut .52s ease forwards;
-}
+.heartBurst.on{ opacity: 1; transform: translate(-50%, -50%) scale(1); animation: burstOut .52s ease forwards; }
 @keyframes burstOut{
   0%{ opacity: 0; transform: translate(-50%,-50%) scale(.2); }
   35%{ opacity: 1; transform: translate(-50%,-52%) scale(1.05); }
   100%{ opacity: 0; transform: translate(-50%,-58%) scale(1.22); }
 }
 
-/* comment preview */
+.flowBar{
+  margin-top: 10px;
+  min-height: 34px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding: 0 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.035);
+  font-size: 12px;
+  color: rgba(255,255,255,.76);
+}
+.flowDot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 80%, white);
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
 .commentPreview{
   margin-top: 10px;
   border: 1px solid rgba(255,255,255,.10);
@@ -396,13 +414,13 @@ async function sharePost(e) {
   border-radius: 14px;
   padding: 10px 12px;
 }
+.commentPreview__title{ font-size: 11px; font-weight: 900; color: rgba(255,255,255,.62); margin-bottom: 6px; }
 .cRow{ display:flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.3; }
 .cRow + .cRow{ margin-top: 6px; }
 .cAuthor{ font-weight: 900; opacity: .9; white-space: nowrap; }
 .cText{ opacity: .78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cMore{ margin-top: 8px; font-size: 12px; font-weight: 900; opacity: .65; }
 
-/* actions */
 .actions{ margin-top: 12px; display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
 .act{
   display:inline-flex; align-items:center; gap: 8px;
@@ -411,22 +429,18 @@ async function sharePost(e) {
   border: 1px solid rgba(255,255,255,.12);
   background: rgba(255,255,255,.06);
   color: rgba(255,255,255,.92);
-  font-weight: 900;
-  font-size: 12px;
-  cursor: pointer;
-  transform: translateZ(0);
+  font-weight: 900; font-size: 12px; cursor: pointer; transform: translateZ(0);
 }
 .act[data-on="true"]{ background: rgba(255,255,255,.14); }
 .act--ghost{ opacity: .85; background: transparent; }
 .num{ opacity: .85; font-weight: 800; }
 .ico{ font-size: 14px; }
+.act.bump{ animation: bump .22s cubic-bezier(.2,1,.2,1); }
+@keyframes bump{ 0%{ transform: scale(1); } 55%{ transform: scale(1.08); } 100%{ transform: scale(1); } }
 
-.act.bump{
-  animation: bump .22s cubic-bezier(.2,1,.2,1);
-}
-@keyframes bump{
-  0%{ transform: scale(1); }
-  55%{ transform: scale(1.08); }
-  100%{ transform: scale(1); }
+@media (max-width: 720px){
+  .img{ aspect-ratio: 1 / 1.08; }
+  .mediaTopMeta{ top: 8px; left: 8px; right: 8px; }
+  .nav{ width: 38px; height: 38px; }
 }
 </style>

@@ -10,6 +10,7 @@ import { useAuthStore } from "../stores/auth";
 import RlButton from "../components/ui/RlButton.vue";
 import Lightbox from "../components/media/Lightbox.vue";
 import sse from "../lib/sse";
+import AsyncStatePanel from "../components/ui/AsyncStatePanel.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -425,19 +426,35 @@ watch(sortMode, () => loadCommentsFirst());
       </div>
     </div>
 
-    <div v-if="loading" class="state">
-      <div class="state-title">불러오는 중…</div>
-      <div class="state-sub">잠시만 기다려주세요</div>
-    </div>
-    <div v-else-if="error" class="state">
-      <div class="state-title">오류</div>
-      <div class="state-sub">{{ error }}</div>
-      <RlButton @click="load">다시 시도</RlButton>
-    </div>
-    <div v-else-if="!post" class="state">
-      <div class="state-title">게시글이 없어요</div>
-      <div class="state-sub">삭제되었거나 접근 권한이 없을 수 있어요.</div>
-    </div>
+    <AsyncStatePanel
+      v-if="loading"
+      icon="⏳"
+      title="게시글을 준비하는 중이에요"
+      description="본문, 이미지, 댓글 액션 흐름을 준비하고 있어요."
+      tone="loading"
+      :show-actions="false"
+    />
+    <AsyncStatePanel
+      v-else-if="error"
+      icon="⚠️"
+      title="게시글을 불러오지 못했어요"
+      :description="error"
+      tone="danger"
+      primary-label="다시 시도"
+      secondary-label="뒤로 가기"
+      @primary="load"
+      @secondary="() => router.back()"
+    />
+    <AsyncStatePanel
+      v-else-if="!post"
+      icon="🫥"
+      title="게시글을 찾지 못했어요"
+      description="삭제되었거나 접근 권한이 없을 수 있어요."
+      primary-label="뒤로 가기"
+      secondary-label="홈으로 이동"
+      @primary="() => router.back()"
+      @secondary="() => router.push('/home')"
+    />
 
     <div v-else class="stack">
       <section class="card postCard">
@@ -516,10 +533,12 @@ watch(sortMode, () => loadCommentsFirst());
 
         <button v-if="newCommentsCount>0" class="newBadge" type="button" @click="refreshNewComments">새 댓글 {{ newCommentsCount }}개</button>
 
-        <div v-if="commentsLoading" class="cState">댓글 불러오는 중…</div>
+        <AsyncStatePanel v-if="commentsLoading" icon="💬" title="댓글을 불러오는 중이에요" description="여기서 시작된 대화가 액션으로 이어질 수 있어요." tone="loading" :show-actions="false" />
         <div v-else-if="commentsError" class="cState err">{{ commentsError }}</div>
+        <AsyncStatePanel v-else-if="commentsError" icon="⚠️" title="댓글을 불러오지 못했어요" :description="commentsError" tone="danger" primary-label="다시 시도" secondary-label="본문만 보기" @primary="() => loadComments({ reset: true })" @secondary="() => {}" />
+
         <div v-else-if="comments.length === 0" class="emptyCommentCard">
-          <div class="emptyTitle">첫 댓글을 남겨보세요 ✨</div>
+          <div class="emptyTitle">첫 댓글로 흐름을 시작해보세요 ✨</div>
           <div class="emptySub">여기서 시작된 대화가 약속, 할일, 장소 액션으로 이어질 수 있어요.</div>
         </div>
 
