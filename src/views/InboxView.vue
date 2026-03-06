@@ -31,6 +31,34 @@ function clearPendingAction() {
   pendingAction.value = null;
 }
 function goConversations() { router.push("/inbox/conversations"); }
+function pendingKindLabel(kind) {
+  if (kind === "PROMISE") return "📅 약속";
+  if (kind === "TODO") return "✅ 할일";
+  return "📍 장소";
+}
+function pendingSourceRoute() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  if (p.sourceRoute) return String(p.sourceRoute);
+  if (p.postId) return `/posts/${enc(p.postId)}`;
+  return "";
+}
+function pendingSourceMeta() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  const author = p.sourcePostAuthorHandle || p.sourcePostAuthorName || p.authorHandle || "";
+  const label = p.sourceLabel || "게시글 댓글";
+  return author ? `${label} · ${String(author).replace(/^@?/, "@")}` : label;
+}
+function pendingSourcePreview() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  return String(p.sourcePostPreview || p.text || "").trim().slice(0, 88);
+}
+function goPendingSource() {
+  const to = pendingSourceRoute();
+  if (to) router.push(to);
+}
 
 function formatType(t) {
   if (t === "MESSAGE_RECEIVED") return "메시지";
@@ -154,16 +182,17 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
     </header>
 
     <div v-if="pendingAction" class="bridge rl-cardish">
+      <div class="bTopline">{{ pendingSourceMeta() }}</div>
       <div class="bTitle">댓글에서 가져온 액션이 준비되어 있어요</div>
       <div class="bSub">
-        <span v-if="pendingAction.kind==='PROMISE'">📅 약속</span>
-        <span v-else-if="pendingAction.kind==='TODO'">✅ 할일</span>
-        <span v-else>📍 장소</span>
-        · "{{ pendingAction.text }}"
+        <span class="bKind">{{ pendingKindLabel(pendingAction.kind) }}</span>
+        <span class="bQuote">“{{ pendingAction.text }}”</span>
       </div>
+      <div v-if="pendingSourcePreview()" class="bSourcePreview">원문: {{ pendingSourcePreview() }}</div>
       <div class="bActions">
         <RlButton size="sm" variant="primary" @click="goConversations">대화방 선택</RlButton>
-        <RlButton size="sm" variant="soft" @click="clearPendingAction">닫기</RlButton>
+        <RlButton v-if="pendingSourceRoute()" size="sm" variant="soft" @click="goPendingSource">원문 보기</RlButton>
+        <RlButton size="sm" variant="ghost" @click="clearPendingAction">닫기</RlButton>
       </div>
     </div>
 
@@ -209,7 +238,11 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
 .title{font-size:22px;font-weight:950;letter-spacing:-.02em}.sub{margin-top:2px;font-size:12px;opacity:.7}
 .actions,.sumActions,.bActions{display:flex;gap:8px;flex-wrap:wrap}
 .bridge,.summary{margin-top:14px;border-radius:20px;padding:14px}
-.bTitle,.sumTitle{font-weight:950}.bSub{margin-top:6px;font-size:13px;opacity:.82}
+.bTopline{font-size:11px;font-weight:800;letter-spacing:.02em;color:color-mix(in oklab,var(--accent) 76%, white)}
+.bTitle,.sumTitle{font-weight:950}.bSub{margin-top:6px;font-size:13px;opacity:.92;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.bKind{font-weight:900}
+.bQuote{opacity:.92}
+.bSourcePreview{margin-top:8px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.72)}
 .summary{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .sumValue{margin-top:4px;font-size:24px;font-weight:950;letter-spacing:-.03em}
 .state{margin-top:20px;padding:24px;border-radius:18px;text-align:center}.err{color:#ffb4b4}

@@ -37,6 +37,35 @@ function isPendingTarget(conversationId) {
   return pendingActionExists.value && String(conversationId) === String(pendingTargetConversationId.value || "");
 }
 
+function pendingKindLabel(kind) {
+  if (kind === "PROMISE") return "📅 약속";
+  if (kind === "TODO") return "✅ 할일";
+  return "📍 장소";
+}
+function pendingSourceRoute() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  if (p.sourceRoute) return String(p.sourceRoute);
+  if (p.postId) return `/posts/${encodeURIComponent(String(p.postId))}`;
+  return "";
+}
+function pendingSourceMeta() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  const author = p.sourcePostAuthorHandle || p.sourcePostAuthorName || p.authorHandle || "";
+  const label = p.sourceLabel || "게시글 댓글";
+  return author ? `${label} · ${String(author).replace(/^@?/, "@")}` : label;
+}
+function pendingSourcePreview() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  return String(p.sourcePostPreview || p.text || "").trim().slice(0, 92);
+}
+function goPendingSource() {
+  const to = pendingSourceRoute();
+  if (to) router.push(to);
+}
+
 function openConversation(id) {
   if (pendingActionExists.value) markPendingTarget(id);
   router.push(`/inbox/conversations/${id}`);
@@ -105,10 +134,18 @@ function fmtListTime(iso) {
   <div class="page">
     <div v-if="pendingActionExists" class="pendingBanner rl-cardish" role="status">
       <div class="pbLeft">
+        <div class="pbEyebrow">{{ pendingSourceMeta() }}</div>
         <div class="pbTitle">댓글에서 만든 액션이 준비돼 있어요</div>
-        <div class="pbSub">대화방을 열면 입력창과 Dock 흐름으로 바로 이어집니다.</div>
+        <div class="pbSub">
+          <span class="pbKind">{{ pendingKindLabel(pendingAction.kind) }}</span>
+          <span class="pbQuote">“{{ pendingAction.text }}”</span>
+        </div>
+        <div v-if="pendingSourcePreview()" class="pbSourcePreview">원문: {{ pendingSourcePreview() }}</div>
       </div>
-      <RlButton size="sm" variant="primary" @click="goNewDm">새 대화</RlButton>
+      <div class="pendingBannerActions">
+        <RlButton v-if="pendingSourceRoute()" size="sm" variant="soft" @click="goPendingSource">원문 보기</RlButton>
+        <RlButton size="sm" variant="primary" @click="goNewDm">새 대화</RlButton>
+      </div>
     </div>
 
     <header class="head rl-cardish">
@@ -177,7 +214,12 @@ function fmtListTime(iso) {
 .page{padding:18px 14px 90px;max-width:980px;margin:0 auto}
 .rl-cardish{border:1px solid color-mix(in oklab, var(--border) 88%, transparent);background:color-mix(in oklab, var(--surface) 86%, transparent);box-shadow:0 18px 60px rgba(0,0,0,.28),0 1px 0 rgba(255,255,255,.06) inset;backdrop-filter: blur(14px)}
 .pendingBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 12px;margin-bottom:12px;border-radius:16px}
-.pbTitle{font-weight:950}.pbSub{margin-top:4px;font-size:12.5px;color:var(--muted)}
+.pendingBannerActions{display:flex;gap:8px;flex-wrap:wrap}
+.pbEyebrow{font-size:11px;font-weight:800;letter-spacing:.02em;color:color-mix(in oklab,var(--accent) 76%, white)}
+.pbTitle{font-weight:950}.pbSub{margin-top:4px;font-size:12.5px;color:var(--text);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.pbKind{font-weight:900}
+.pbQuote{opacity:.92}
+.pbSourcePreview{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.45}
 .takeHint{display:inline-flex;align-items:center;justify-content:center;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);font-size:12px;font-weight:800;white-space:nowrap;color:color-mix(in oklab,var(--text) 90%, white);transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease}
 .takeHintTarget{border-color:color-mix(in oklab,var(--accent) 44%, rgba(255,255,255,.14));background:color-mix(in oklab,var(--accent) 18%, rgba(255,255,255,.06));box-shadow:0 0 0 1px rgba(255,255,255,.04) inset, 0 8px 20px color-mix(in oklab,var(--accent) 18%, transparent);transform:translateY(-1px)}
 .head{border-radius:var(--r-lg);padding:15px 15px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}

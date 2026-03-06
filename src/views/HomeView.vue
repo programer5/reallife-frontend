@@ -1,6 +1,7 @@
 <!-- src/views/HomeView.vue -->
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import sse from "../lib/sse";
 import { fetchFeed } from "../api/posts";
 import { likePost, unlikePost } from "../api/likes";
 import { useToastStore } from "../stores/toast";
@@ -21,7 +22,10 @@ const hasNext = ref(false);
 const composerOpen = ref(false);
 const viewMode = ref("FOLLOWING");
 const sentinelRef = ref(null);
+const newPostCount = ref(0);
 let io = null;
+let sseOff = null;
+let focusReloadTimer = null;
 
 const modeMeta = computed(() => {
   if (viewMode.value === "FOLLOWING") return "연결된 사람들의 최근 순간";
@@ -67,6 +71,12 @@ async function loadMore() {
 
 async function onCreated() {
   composerOpen.value = false;
+  newPostCount.value = 0;
+  await loadFirst();
+}
+
+async function reloadWithNewPosts() {
+  newPostCount.value = 0;
   await loadFirst();
 }
 
@@ -109,6 +119,47 @@ function onNearbyClick() {
   onSwitchMode("NEARBY");
 }
 
+
+function bindFeedSse() {
+  if (!sse?.onEvent) return;
+  sseOff = sse.onEvent((evt) => {
+    const type = String(evt?.type || "");
+    const data = evt?.data || {};
+
+    // 현재 백엔드에는 post-created 이벤트가 없을 수 있으니,
+    // 향후 이벤트가 들어오면 바로 동작하게 열어두고,
+    // 내 게시글 작성 직후에는 onCreated()에서 count를 리셋한다.
+    if (type === "post-created" || type === "feed-post-created") {
+      newPostCount.value += 1;
+      return;
+    }
+
+    // 혹시 커스텀 payload가 넘어오는 경우도 대비
+    if (type === "notification-created" && String(data?.kind || data?.subType || "").toUpperCase() === "POST_CREATED") {
+      newPostCount.value += 1;
+    }
+  });
+}
+
+function bindVisibilitySoftSync() {
+  const onFocus = () => {
+    if (focusReloadTimer) window.clearTimeout(focusReloadTimer);
+    focusReloadTimer = window.setTimeout(() => {
+      if (!loading.value && !loadingMore.value) loadFirst();
+    }, 250);
+  };
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onFocus);
+  return () => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onFocus);
+    if (focusReloadTimer) window.clearTimeout(focusReloadTimer);
+    focusReloadTimer = null;
+  };
+}
+
+let offVisibility = null;
+
 function attachObserver() {
   if (io) io.disconnect();
 
@@ -126,12 +177,18 @@ function attachObserver() {
 
 onMounted(async () => {
   attachObserver();
+  bindFeedSse();
+  offVisibility = bindVisibilitySoftSync();
   await loadFirst();
 });
 
 onBeforeUnmount(() => {
   if (io) io.disconnect();
   io = null;
+  if (sseOff) sseOff();
+  sseOff = null;
+  if (offVisibility) offVisibility();
+  offVisibility = null;
 });
 </script>
 
@@ -188,7 +245,15 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="list">
-      <FeedPostCard v-for="p in items" :key="p.postId" :post="p" @like="toggleLike" />
+      <button v-if="newPostCount > 0" class="newPostBanner" type="button" @click="reloadWithNewPosts">
+        새 글 {{ newPostCount }}개 · 지금 보기
+      </button>
+
+      <div class="masonryFeed">
+        <div v-for="p in items" :key="p.postId" class="masonryItem">
+          <FeedPostCard :post="p" @like="toggleLike" />
+        </div>
+      </div>
 
       <div ref="sentinelRef" class="sentinel">
         <div v-if="loadingMore" class="loadingMoreHint">불러오는 중…</div>
@@ -351,6 +416,33 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.newPostBanner{
+  align-self:center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, rgba(255,255,255,.14));
+  background: color-mix(in oklab, var(--accent) 20%, rgba(255,255,255,.05));
+  color: rgba(255,255,255,.96);
+  font-weight: 900;
+  box-shadow: 0 10px 30px rgba(25, 48, 110, .22);
+}
+
+.masonryFeed{
+  column-count: 2;
+  column-gap: 12px;
+}
+
+.masonryItem{
+  break-inside: avoid;
+  margin-bottom: 12px;
+}
+
+.masonryItem :deep(.card){
+  margin-bottom: 0;
+}
+
+
 .sentinel{
   padding: 16px 0 6px;
   display:flex;
@@ -403,6 +495,17 @@ onBeforeUnmount(() => {
 .sk-title{ height: 14px; width: 55%; margin-top: 0; }
 .short{ width: 72%; }
 
+@media (min-width: 980px){
+  .page{
+    max-width: 1100px;
+  }
+
+  .masonryFeed{
+    column-count: 3;
+    column-gap: 14px;
+  }
+}
+
 @media (max-width: 720px){
   .page{
     padding: 14px 12px calc(106px + env(safe-area-inset-bottom));
@@ -450,6 +553,12 @@ onBeforeUnmount(() => {
     width: 100%;
     justify-content: center;
     height: 42px;
+  }
+}
+
+@media (max-width: 700px){
+  .masonryFeed{
+    column-count: 1;
   }
 }
 

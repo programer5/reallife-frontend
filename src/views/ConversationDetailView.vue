@@ -994,6 +994,29 @@ function pendingKindLabel(kind) {
   if (kind === "TODO") return "✅ 할일";
   return "📍 장소";
 }
+function pendingSourceRoute() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  if (p.sourceRoute) return String(p.sourceRoute);
+  if (p.postId) return `/posts/${encodeURIComponent(String(p.postId))}`;
+  return "";
+}
+function pendingSourceMeta() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  const author = p.sourcePostAuthorHandle || p.sourcePostAuthorName || p.authorHandle || "";
+  const label = p.sourceLabel || "게시글 댓글";
+  return author ? `${label} · ${String(author).replace(/^@?/, "@")}` : label;
+}
+function pendingSourcePreview() {
+  const p = pendingAction.value;
+  if (!p) return "";
+  return String(p.sourcePostPreview || p.text || "").trim().slice(0, 92);
+}
+function goPendingSource() {
+  const to = pendingSourceRoute();
+  if (to) router.push(to);
+}
 function pendingToDraftText(p) {
   if (!p) return "";
   const k = pendingKindLabel(p.kind);
@@ -2397,6 +2420,7 @@ onBeforeUnmount(() => {
       <div v-if="pendingAction" class="pendingBridge" :class="{ 'pendingBridge--highlight': pendingHighlight }">
       <div class="pbHead">
         <div>
+          <div class="pbEyebrow">{{ pendingSourceMeta() }}</div>
           <div class="pbTitle">댓글에서 가져온 액션</div>
           <div class="pbSub">
             <span class="pbKind">{{ pendingKindLabel(pendingAction.kind) }}</span>
@@ -2405,10 +2429,12 @@ onBeforeUnmount(() => {
         </div>
         <span v-if="pendingActionPrimed" class="pbReady">입력 준비됨</span>
       </div>
+      <div v-if="pendingSourcePreview()" class="pbSourcePreview">원문: {{ pendingSourcePreview() }}</div>
       <div class="pbHint">바로 보내면 이 대화의 ✨ 제안 Dock으로 이어집니다.</div>
       <div class="pbActions">
         <RlButton size="sm" variant="primary" @click="quickSendPendingAction">바로 보내고 제안 열기</RlButton>
         <RlButton size="sm" variant="soft" @click="() => { primePendingAction(false, true); bumpPendingHighlight(); }">입력창에 넣기</RlButton>
+        <RlButton v-if="pendingSourceRoute()" size="sm" variant="soft" @click="goPendingSource">원문 보기</RlButton>
         <RlButton size="sm" variant="ghost" @click="clearPendingAction">닫기</RlButton>
       </div>
     </div>
@@ -2815,7 +2841,14 @@ onBeforeUnmount(() => {
   background: color-mix(in oklab, var(--card) 70%, transparent);
   box-shadow: 0 8px 18px rgba(0,0,0,0.10);
 }
+.pbEyebrow{
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  color: color-mix(in oklab, var(--accent) 74%, white);
+}
 .pbTitle{
+  margin-top: 3px;
   font-weight: 800;
   font-size: 13px;
   letter-spacing: -0.2px;
@@ -2825,17 +2858,28 @@ onBeforeUnmount(() => {
   display:flex;
   gap: 8px;
   align-items:center;
-  color: color-mix(in oklab, var(--text) 78%, transparent);
+  color: color-mix(in oklab, var(--text) 90%, transparent);
   font-size: 12px;
 }
 .pbKind{
-  font-weight: 700;
+  font-weight: 800;
 }
 .pbQuote{
   overflow:hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+}
+.pbSourcePreview{
+  margin-top: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in oklab, var(--text) 72%, transparent);
+}
+.pbHint{
+  margin-top: 8px;
+  font-size: 12px;
+  color: color-mix(in oklab, var(--text) 72%, transparent);
 }
 .pbActions{
   margin-top: 8px;

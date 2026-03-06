@@ -117,6 +117,12 @@ function createPendingAction(kind, c) {
   const payload = {
     kind,
     source: "post-comment",
+    sourceLabel: "게시글 댓글",
+    sourceRoute: `/posts/${encodeURIComponent(String(postId.value || ""))}`,
+    sourcePostPreview: String(post.value?.content || "").trim().slice(0, 96),
+    sourcePostAuthorName: post.value?.authorName || null,
+    sourcePostAuthorHandle: post.value?.authorHandle || null,
+    sourceVisibility: post.value?.visibility || null,
     postId: postId.value,
     commentId: c?.commentId || null,
     text: c?.content || "",
