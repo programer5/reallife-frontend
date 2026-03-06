@@ -965,6 +965,61 @@ let _msgTimeTimer2 = null;
 const pageRef = ref(null);
 const composerRef = ref(null);
 
+// ✅ v3.6 Bridge: Post/댓글 → Action → Chat Dock
+const pendingAction = ref(null);
+const pendingActionPrimed = ref(false);
+const pendingActionTempId = ref(null);
+const pendingHighlight = ref(false);
+function bumpPendingHighlight() {
+  pendingHighlight.value = true;
+  setTimeout(() => { pendingHighlight.value = false; }, 1400);
+}
+
+function loadPendingAction() {
+  try {
+    pendingAction.value = JSON.parse(sessionStorage.getItem("reallife:pendingAction") || "null");
+  } catch {
+    pendingAction.value = null;
+  }
+}
+function clearPendingAction() {
+  try { sessionStorage.removeItem("reallife:pendingAction"); } catch {}
+  pendingAction.value = null;
+  pendingActionPrimed.value = false;
+  pendingActionTempId.value = null;
+}
+function pendingKindLabel(kind) {
+  if (kind === "PROMISE") return "📅 약속";
+  if (kind === "TODO") return "✅ 할일";
+  return "📍 장소";
+}
+function pendingToDraftText(p) {
+  if (!p) return "";
+  const k = pendingKindLabel(p.kind);
+  const t = String(p.text || "").trim();
+  // ✅ 후보 감지가 잘 되도록 키워드 + 원문을 같이 넣는다.
+  // (백엔드가 메시지에서 pinCandidates를 뽑는 구조이므로, 여기서 메시지로 한 번 흘려보내는 방식)
+  return t ? `${k}: ${t}` : `${k} 만들자`;
+}
+function focusComposer() {
+  try {
+    const el = composerRef.value?.querySelector?.("input, textarea");
+    el?.focus?.();
+  } catch {}
+}
+function primePendingAction(silent = false) {
+  if (!pendingAction.value) return;
+  if (String(content.value || "").trim()) {
+    // 이미 사용자가 입력 중이면 방해하지 않음
+    focusComposer();
+    return;
+  }
+  content.value = pendingToDraftText(pendingAction.value);
+  pendingActionPrimed.value = true;
+  nextTick(() => focusComposer());
+  if (!silent) toast.success?.("액션 준비됨", "전송하면 ✨ 제안으로 바로 뜹니다.");
+}
+
 const flashMid = ref("");
 
 function syncComposerHeightVar() {
@@ -1521,6 +1576,10 @@ function upsertServerMessage(tempId, serverMsg) {
 
 async function onSend() {
   const text = String(content.value || "").trim();
+  const isPendingSend = !!(pendingActionPrimed.value && pendingAction.value && text && (
+    // pending의 원문이 조금이라도 포함되면 pending 전송으로 간주
+    !pendingAction.value.text || String(text).includes(String(pendingAction.value.text).trim())
+  ));
   if (!text || sending.value) return;
 
   if (!conversationId.value) {
@@ -1559,6 +1618,23 @@ async function onSend() {
 
     // ✅ 성공: SSE가 먼저 왔을 수도 있으니 "중복 방지 upsert"
     upsertServerMessage(tempId, msg);
+
+    // ✅ v3.6 Bridge: pending action으로 보낸 메시지면, 곧바로 Dock ✨ 제안으로 열어준다.
+    if (isPendingSend) {
+      // tempId는 항상 1회 전송에만 대응
+      pendingActionTempId.value = tempId;
+
+      // 서버 응답에 pinCandidates가 있으면 즉시 Dock 오픈
+      const hasCandidates = msg && Array.isArray(msg.pinCandidates) && msg.pinCandidates.length > 0;
+      if (hasCandidates) {
+        openSuggestionsDock(msg);
+        triggerDockPulse();
+        clearPendingAction();
+      } else {
+        // 후보가 안 생기면 pendingAction은 유지하고, 사용자가 문장을 조금 더 구체화해서 다시 전송할 수 있게 한다.
+        toast.info?.("제안이 생성되지 않았어요", "메시지를 조금 더 구체적으로 적고 다시 전송해보세요.");
+      }
+    }
 
     convStore.ingestMessageCreated?.({
       messageId: msg?.messageId,
@@ -1870,6 +1946,19 @@ onMounted(async () => {
   if (canViewConversation.value) {
     await loadFirst();
     await loadPins();
+  }
+
+  // ✅ v3.6 Bridge: 댓글에서 만든 pending action을 이 대화 입력창에 자동 준비
+  loadPendingAction();
+  // ✅ ConversationsView에서 특정 대화방을 '가져오기' 대상으로 찍어둔 경우에만 강조
+  let targetOk = true;
+  try {
+    const t = sessionStorage.getItem("reallife:pendingActionTargetConversationId");
+    if (t && String(t) !== String(conversationId.value)) targetOk = false;
+  } catch {}
+  if (canViewConversation.value && pendingAction.value) {
+    primePendingAction(true);
+    if (targetOk) bumpPendingHighlight();
   }
 
   // ✅ 알림으로 진입한 경우: 읽음 처리 + 해당 메시지로 스크롤
@@ -2294,7 +2383,19 @@ onBeforeUnmount(() => {
 
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
     <div ref="composerRef" class="composerWrap" v-if="canViewConversation">
-      <div class="composerInner">
+      <div v-if="pendingAction" class="pendingBridge" :class="{ 'pendingBridge--highlight': pendingHighlight }">
+      <div class="pbTitle">댓글에서 가져온 액션</div>
+      <div class="pbSub">
+        <span class="pbKind">{{ pendingKindLabel(pendingAction.kind) }}</span>
+        <span class="pbQuote">“{{ pendingAction.text }}”</span>
+      </div>
+      <div class="pbActions">
+        <RlButton size="sm" variant="primary" @click="() => { primePendingAction(false); bumpPendingHighlight(); }">입력창에 넣기</RlButton>
+        <RlButton size="sm" variant="soft" @click="clearPendingAction">닫기</RlButton>
+      </div>
+    </div>
+
+    <div class="composerInner">
         <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
         <button class="btn" type="button" @click="onSend" :disabled="sending">
           {{ sending ? "..." : "전송" }}
@@ -2688,6 +2789,43 @@ onBeforeUnmount(() => {
   border-top: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
   backdrop-filter: blur(10px);
 }
+.pendingBridge{
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.10);
+}
+.pbTitle{
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: -0.2px;
+}
+.pbSub{
+  margin-top: 4px;
+  display:flex;
+  gap: 8px;
+  align-items:center;
+  color: color-mix(in oklab, var(--text) 78%, transparent);
+  font-size: 12px;
+}
+.pbKind{
+  font-weight: 700;
+}
+.pbQuote{
+  overflow:hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.pbActions{
+  margin-top: 8px;
+  display:flex;
+  gap: 8px;
+  justify-content:flex-end;
+}
+
 .composerInner{
   display:flex;
   gap: 10px;

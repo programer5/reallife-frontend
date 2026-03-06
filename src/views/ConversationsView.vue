@@ -11,8 +11,33 @@ const conv = useConversationsStore();
 const items = computed(() => conv.items);
 const loading = computed(() => conv.loading);
 const error = computed(() => conv.error);
+// ✅ v3.6 Bridge: 댓글에서 만든 pending action이 있으면 대화방 목록에서 '가져오기' 힌트 제공
+const pendingAction = ref(null);
+const pendingActionExists = computed(() => !!pendingAction.value);
+const pendingTargetConversationId = ref("");
+
+function loadPendingAction() {
+  try {
+    pendingAction.value = JSON.parse(sessionStorage.getItem("reallife:pendingAction") || "null");
+  } catch {
+    pendingAction.value = null;
+  }
+}
+function loadPendingTarget() {
+  try { pendingTargetConversationId.value = String(sessionStorage.getItem("reallife:pendingActionTargetConversationId") || ""); }
+  catch { pendingTargetConversationId.value = ""; }
+}
+function markPendingTarget(conversationId) {
+  const v = String(conversationId || "");
+  try { sessionStorage.setItem("reallife:pendingActionTargetConversationId", v); } catch {}
+  pendingTargetConversationId.value = v;
+}
+function isPendingTarget(conversationId) {
+  return pendingActionExists.value && String(conversationId) === String(pendingTargetConversationId.value || "");
+}
 
 function openConversation(id) {
+  if (pendingActionExists.value) markPendingTarget(id);
   router.push(`/inbox/conversations/${id}`);
 }
 
@@ -26,6 +51,8 @@ let _timeTimer = null;
 let _timeTimer2 = null;
 
 onMounted(async () => {
+  loadPendingAction();
+  loadPendingTarget();
   // 목록 로딩
   await conv._refreshNow?.();
   if (!conv._refreshNow) await conv.refresh();
@@ -93,6 +120,13 @@ function fmtListTime(iso) {
 
 <template>
   <div class="page">
+    <div v-if="pendingActionExists" class="pendingBanner" role="status">
+      <div class="pbLeft">
+        <div class="pbTitle">댓글에서 만든 액션이 준비돼 있어요</div>
+        <div class="pbSub">대화방을 열면 입력창에 자동으로 연결됩니다.</div>
+      </div>
+      <RlButton size="sm" variant="primary" @click="goNewDm">대화 선택</RlButton>
+    </div>
     <header class="head rl-cardish">
       <div class="left">
         <h1 class="title">대화</h1>
@@ -116,6 +150,7 @@ function fmtListTime(iso) {
           v-for="c in items"
           :key="c.conversationId"
           class="item rl-cardish"
+          :class="{ itemPending: pendingActionExists, itemPendingTarget: isPendingTarget(c.conversationId) }"
           type="button"
           @click="openConversation(c.conversationId)"
       >
@@ -128,6 +163,7 @@ function fmtListTime(iso) {
           </div>
           <div class="row2">
             <div class="preview">{{ c.lastMessagePreview || " " }}</div>
+            <span v-if="pendingActionExists" class="takeHint" :class="{ takeHintTarget: isPendingTarget(c.conversationId) }">{{ isPendingTarget(c.conversationId) ? "여기로 가져오기" : "가져오기" }}</span>
             <span v-if="c.unreadCount > 0" class="badge">{{ c.unreadCount }}</span>
           </div>
         </div>
@@ -145,6 +181,13 @@ function fmtListTime(iso) {
 
 <style scoped>
 .page{padding:18px 14px 90px;max-width:760px;margin:0 auto}
+
+.pendingBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 12px;margin-bottom:12px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 88%,transparent);background:color-mix(in oklab,var(--surface) 92%,transparent);backdrop-filter:blur(10px)}
+.pbTitle{font-weight:950}
+.pbSub{margin-top:4px;font-size:12.5px;color:var(--muted)}
+.takeHint{display:inline-flex;align-items:center;justify-content:center;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);font-size:12px;font-weight:800;margin-left:8px;white-space:nowrap;color:color-mix(in oklab,var(--text) 90%, white);transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease}
+.takeHintTarget{border-color:color-mix(in oklab,var(--accent) 44%, rgba(255,255,255,.14));background:color-mix(in oklab,var(--accent) 18%, rgba(255,255,255,.06));box-shadow:0 0 0 1px rgba(255,255,255,.04) inset, 0 8px 20px color-mix(in oklab,var(--accent) 18%, transparent);transform:translateY(-1px)}
+
 
 .rl-cardish{
   border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
@@ -184,12 +227,29 @@ function fmtListTime(iso) {
   gap:10px;
   align-items:center;
   cursor:pointer;
-  transition: transform .10s ease, border-color .12s ease, background .12s ease;
+  transition: transform .14s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+.itemPending{
+  border-color: color-mix(in oklab, var(--accent) 18%, var(--border));
+}
+.itemPendingTarget{
+  transform: translateY(-2px) scale(1.012);
+  border-color: color-mix(in oklab, var(--accent) 42%, var(--border));
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--accent) 10%, var(--surface)), color-mix(in oklab, var(--surface) 88%, transparent));
+  box-shadow:
+    0 24px 58px rgba(0,0,0,.34),
+    0 0 0 1px color-mix(in oklab, var(--accent) 22%, transparent) inset,
+    0 0 28px color-mix(in oklab, var(--accent) 18%, transparent);
+  animation: pendingTargetPulse 2.4s ease-in-out infinite;
 }
 .item:hover{
   transform: translateY(-1px);
   border-color: color-mix(in oklab, var(--accent) 32%, var(--border));
   background: color-mix(in oklab, var(--surface) 82%, transparent);
+}
+.itemPendingTarget:hover{
+  transform: translateY(-3px) scale(1.014);
 }
 
 .avatar{
@@ -211,4 +271,9 @@ function fmtListTime(iso) {
 .more{display:grid;place-items:center;padding:6px 0}
 .moreBtn{height:40px;padding:0 12px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text);font-weight:900}
 .end{font-size:12px;color:var(--muted)}
+
+@keyframes pendingTargetPulse{
+  0%,100%{ box-shadow:0 24px 58px rgba(0,0,0,.34), 0 0 0 1px color-mix(in oklab, var(--accent) 22%, transparent) inset, 0 0 18px color-mix(in oklab, var(--accent) 12%, transparent); }
+  50%{ box-shadow:0 26px 62px rgba(0,0,0,.36), 0 0 0 1px color-mix(in oklab, var(--accent) 26%, transparent) inset, 0 0 34px color-mix(in oklab, var(--accent) 22%, transparent); }
+}
 </style>
