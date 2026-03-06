@@ -1,4 +1,4 @@
-<!-- src/views/PostDetailView.vue (v3.5 + v3.6 bridge) -->
+<!-- src/views/PostDetailView.vue (v3.6 polish: premium comment flow + mobile-safe actions) -->
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -43,6 +43,7 @@ const mentionOpen = ref(false);
 const mentionQuery = ref("");
 const mentionActiveIndex = ref(0);
 const actionSheetFor = ref(null);
+let longPressTimer = null;
 
 const isMinePost = computed(() => {
   const myId = auth.me?.userId || auth.me?.id;
@@ -62,6 +63,16 @@ const mentionCandidates = computed(() => {
   let arr = Array.from(seen.values());
   if (q) arr = arr.filter((x) => x.handle.toLowerCase().includes(q) || String(x.name || "").toLowerCase().includes(q));
   return arr.slice(0, 8);
+});
+
+const rootCommentCount = computed(() => comments.value.filter((x) => !x.parentCommentId).length);
+const imageCount = computed(() => Array.isArray(post.value?.imageUrls) ? post.value.imageUrls.length : 0);
+const mediaLayout = computed(() => {
+  const n = imageCount.value;
+  if (n <= 0) return "none";
+  if (n === 1) return "single";
+  if (n === 2) return "double";
+  return "carousel";
 });
 
 const commentTree = computed(() => {
@@ -84,8 +95,10 @@ const commentTree = computed(() => {
   for (const r of roots) {
     out.push({ item: r, depth: 0 });
     const kids = childMap.get(String(r.commentId)) || [];
-    kids.sort((a, b) => sortMode.value === "LATEST" ? ts(a.createdAt) - ts(b.createdAt) : Number(b.likeCount || 0) - Number(a.likeCount || 0) || ts(a.createdAt) - ts(b.createdAt));
-    for (const k of kids) out.push({ item: k, depth: 1 });
+    kids.sort((a, b) => sortMode.value === "LATEST"
+      ? ts(a.createdAt) - ts(b.createdAt)
+      : Number(b.likeCount || 0) - Number(a.likeCount || 0) || ts(a.createdAt) - ts(b.createdAt));
+    for (const k of kids) out.push({ item: k, depth: 1, parent: r });
   }
   return out;
 });
@@ -98,6 +111,7 @@ function openLightbox(i) { lbIndex.value = i; lbOpen.value = true; }
 function closeActionSheet() { actionSheetFor.value = null; }
 function openActionSheet(c) { actionSheetFor.value = c; }
 function focusComposer() { document.getElementById("commentComposerInput")?.focus?.(); }
+function formatCreatedAt(v) { return v ? String(v).replace("T", " ").slice(0, 19) : ""; }
 
 function createPendingAction(kind, c) {
   const payload = {
@@ -115,6 +129,17 @@ function createPendingAction(kind, c) {
   router.push("/inbox/conversations");
 }
 
+function onCommentTouchStart(c) {
+  clearTimeout(longPressTimer);
+  longPressTimer = setTimeout(() => {
+    openActionSheet(c);
+  }, 420);
+}
+function onCommentTouchEnd() {
+  clearTimeout(longPressTimer);
+  longPressTimer = null;
+}
+
 async function toggleLike() {
   if (!post.value?.postId || likeBusy.value) return;
   likeBusy.value = true;
@@ -125,27 +150,39 @@ async function toggleLike() {
   try {
     if (!prevLiked) await likePost(post.value.postId); else await unlikePost(post.value.postId);
   } catch {
-    post.value.likedByMe = prevLiked; post.value.likeCount = prevCount;
+    post.value.likedByMe = prevLiked;
+    post.value.likeCount = prevCount;
     toast.error?.("좋아요 실패", "잠시 후 다시 시도해주세요.");
-  } finally { likeBusy.value = false; }
+  } finally {
+    likeBusy.value = false;
+  }
 }
 
 async function onDeletePost() {
   if (!isMinePost.value || !confirm("정말 삭제할까요?")) return;
-  try { await deletePost(postId.value); toast.success?.("삭제 완료", "게시글이 삭제되었습니다."); router.back(); }
-  catch (e) { toast.error?.("삭제 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요."); }
+  try {
+    await deletePost(postId.value);
+    toast.success?.("삭제 완료", "게시글이 삭제되었습니다.");
+    router.back();
+  } catch (e) {
+    toast.error?.("삭제 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
+  }
 }
 
 async function loadCommentsFirst() {
-  commentsLoading.value = true; commentsError.value = "";
+  commentsLoading.value = true;
+  commentsError.value = "";
   try {
     const res = await fetchComments({ postId: postId.value, size: 20, sort: sortMode.value });
     comments.value = res.items || [];
     commentsNextCursor.value = res.nextCursor ?? null;
     commentsHasNext.value = !!res.hasNext;
     newCommentsCount.value = 0;
-  } catch (e) { commentsError.value = e?.response?.data?.message || "댓글을 불러오지 못했습니다."; }
-  finally { commentsLoading.value = false; }
+  } catch (e) {
+    commentsError.value = e?.response?.data?.message || "댓글을 불러오지 못했습니다.";
+  } finally {
+    commentsLoading.value = false;
+  }
 }
 
 async function loadCommentsMore() {
@@ -156,7 +193,9 @@ async function loadCommentsMore() {
     comments.value.push(...(res.items || []));
     commentsNextCursor.value = res.nextCursor ?? null;
     commentsHasNext.value = !!res.hasNext;
-  } finally { commentsMoreLoading.value = false; }
+  } finally {
+    commentsMoreLoading.value = false;
+  }
 }
 
 function attachObserver() {
@@ -192,12 +231,20 @@ async function submitComment() {
   commentBusy.value = true;
   const tmpId = "tmp-" + Date.now();
   comments.value.unshift({
-    commentId: tmpId, userId: myId(), handle: auth.me?.handle || auth.me?.username || "me",
-    name: auth.me?.name || auth.me?.displayName || "나", content, createdAt: new Date().toISOString(),
-    parentCommentId: null, likeCount: 0, likedByMe: false, _optimistic: true,
+    commentId: tmpId,
+    userId: myId(),
+    handle: auth.me?.handle || auth.me?.username || "me",
+    name: auth.me?.name || auth.me?.displayName || "나",
+    content,
+    createdAt: new Date().toISOString(),
+    parentCommentId: null,
+    likeCount: 0,
+    likedByMe: false,
+    _optimistic: true,
   });
   if (post.value) post.value.commentCount = Number(post.value.commentCount ?? 0) + 1;
-  newComment.value = ""; closeMention();
+  newComment.value = "";
+  closeMention();
   try {
     const created = await createComment({ postId: postId.value, content });
     const idx = comments.value.findIndex((x) => x.commentId === tmpId);
@@ -206,23 +253,37 @@ async function submitComment() {
     comments.value = comments.value.filter((x) => x.commentId !== tmpId);
     if (post.value) post.value.commentCount = Math.max(0, Number(post.value.commentCount ?? 0) - 1);
     toast.error?.("댓글 등록 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
-  } finally { commentBusy.value = false; }
+  } finally {
+    commentBusy.value = false;
+  }
 }
 
-function startReply(c) { replyTo.value = c; replyDraft.value = "@" + String(c.handle || "user").replace(/^@/, "") + " "; closeMention(); }
+function startReply(c) {
+  replyTo.value = c;
+  replyDraft.value = "@" + String(c.handle || "user").replace(/^@/, "") + " ";
+  closeMention();
+}
 function cancelReply() { replyTo.value = null; replyDraft.value = ""; }
 
 async function submitReply() {
-  const parent = replyTo.value; const content = replyDraft.value.trim();
+  const parent = replyTo.value;
+  const content = replyDraft.value.trim();
   if (!parent) return;
   if (!content) return toast.error?.("답글", "답글 내용을 입력해주세요.");
   if (replyBusy.value) return;
   replyBusy.value = true;
   const tmpId = "tmp-r-" + Date.now();
   comments.value.unshift({
-    commentId: tmpId, userId: myId(), handle: auth.me?.handle || auth.me?.username || "me",
-    name: auth.me?.name || auth.me?.displayName || "나", content, createdAt: new Date().toISOString(),
-    parentCommentId: parent.commentId, likeCount: 0, likedByMe: false, _optimistic: true,
+    commentId: tmpId,
+    userId: myId(),
+    handle: auth.me?.handle || auth.me?.username || "me",
+    name: auth.me?.name || auth.me?.displayName || "나",
+    content,
+    createdAt: new Date().toISOString(),
+    parentCommentId: parent.commentId,
+    likeCount: 0,
+    likedByMe: false,
+    _optimistic: true,
   });
   if (post.value) post.value.commentCount = Number(post.value.commentCount ?? 0) + 1;
   try {
@@ -234,24 +295,39 @@ async function submitReply() {
     comments.value = comments.value.filter((x) => x.commentId !== tmpId);
     if (post.value) post.value.commentCount = Math.max(0, Number(post.value.commentCount ?? 0) - 1);
     toast.error?.("답글 등록 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
-  } finally { replyBusy.value = false; }
+  } finally {
+    replyBusy.value = false;
+  }
 }
 
 async function onDeleteComment(c) {
   if (!confirm("댓글을 삭제할까요?")) return;
-  try { await deleteComment(c.commentId); comments.value = comments.value.filter((x) => String(x.commentId) !== String(c.commentId)); if (post.value) post.value.commentCount = Math.max(0, Number(post.value.commentCount ?? 0) - 1); }
-  catch { toast.error?.("삭제 실패", "잠시 후 다시 시도해주세요."); }
+  try {
+    await deleteComment(c.commentId);
+    comments.value = comments.value.filter((x) => String(x.commentId) !== String(c.commentId));
+    if (post.value) post.value.commentCount = Math.max(0, Number(post.value.commentCount ?? 0) - 1);
+  } catch {
+    toast.error?.("삭제 실패", "잠시 후 다시 시도해주세요.");
+  }
 }
 
 async function toggleCommentLike(c) {
   const id = String(c.commentId);
   if (likeCommentBusy.value.has(id)) return;
   likeCommentBusy.value.add(id);
-  const prevLiked = !!c.likedByMe; const prevCount = Number(c.likeCount ?? 0);
-  c.likedByMe = !prevLiked; c.likeCount = prevLiked ? Math.max(0, prevCount - 1) : prevCount + 1;
-  try { if (!prevLiked) await likeComment(c.commentId); else await unlikeComment(c.commentId); }
-  catch { c.likedByMe = prevLiked; c.likeCount = prevCount; toast.error?.("댓글 좋아요 실패", "잠시 후 다시 시도해주세요."); }
-  finally { likeCommentBusy.value.delete(id); }
+  const prevLiked = !!c.likedByMe;
+  const prevCount = Number(c.likeCount ?? 0);
+  c.likedByMe = !prevLiked;
+  c.likeCount = prevLiked ? Math.max(0, prevCount - 1) : prevCount + 1;
+  try {
+    if (!prevLiked) await likeComment(c.commentId); else await unlikeComment(c.commentId);
+  } catch {
+    c.likedByMe = prevLiked;
+    c.likeCount = prevCount;
+    toast.error?.("댓글 좋아요 실패", "잠시 후 다시 시도해주세요.");
+  } finally {
+    likeCommentBusy.value.delete(id);
+  }
 }
 
 function findMentionContext(value, cursorPos) {
@@ -262,18 +338,30 @@ function findMentionContext(value, cursorPos) {
 }
 function closeMention() { mentionOpen.value = false; mentionQuery.value = ""; }
 function onComposerInput(e) {
-  const el = e.target; const pos = el.selectionStart ?? el.value.length; const ctx = findMentionContext(el.value, pos);
+  const el = e.target;
+  const pos = el.selectionStart ?? el.value.length;
+  const ctx = findMentionContext(el.value, pos);
   if (!ctx) return closeMention();
-  mentionOpen.value = true; mentionQuery.value = ctx.q || ""; mentionActiveIndex.value = 0;
+  mentionOpen.value = true;
+  mentionQuery.value = ctx.q || "";
+  mentionActiveIndex.value = 0;
 }
 function applyMention(candidate, targetId = "commentComposerInput") {
-  const el = document.getElementById(targetId); if (!el) return;
-  const pos = el.selectionStart ?? el.value.length; const ctx = findMentionContext(el.value, pos); if (!ctx) return;
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const pos = el.selectionStart ?? el.value.length;
+  const ctx = findMentionContext(el.value, pos);
+  if (!ctx) return;
   const handle = String(candidate.handle).replace(/^@/, "");
-  const before = el.value.slice(0, ctx.atIndex); const after = el.value.slice(pos); const insert = "@" + handle + " ";
+  const before = el.value.slice(0, ctx.atIndex);
+  const after = el.value.slice(pos);
+  const insert = "@" + handle + " ";
   el.value = before + insert + after;
-  const newPos = (before + insert).length; el.setSelectionRange?.(newPos, newPos); el.dispatchEvent?.(new Event("input", { bubbles: true }));
-  closeMention(); el.focus?.();
+  const newPos = (before + insert).length;
+  el.setSelectionRange?.(newPos, newPos);
+  el.dispatchEvent?.(new Event("input", { bubbles: true }));
+  closeMention();
+  el.focus?.();
 }
 function onComposerKeydown(e, submitFn, targetId = "commentComposerInput") {
   if (mentionOpen.value) {
@@ -286,18 +374,34 @@ function onComposerKeydown(e, submitFn, targetId = "commentComposerInput") {
     }
   }
   if (e.key !== "Enter" || e.shiftKey) return;
-  e.preventDefault(); submitFn();
+  e.preventDefault();
+  submitFn();
 }
 
 async function load() {
-  loading.value = true; error.value = "";
-  try { post.value = await fetchPostDetail(postId.value); await loadCommentsFirst(); }
-  catch (e) { error.value = e?.response?.data?.message || "게시글을 불러오지 못했습니다."; toast.error?.("상세 로딩 실패", "잠시 후 다시 시도해주세요."); }
-  finally { loading.value = false; }
+  loading.value = true;
+  error.value = "";
+  try {
+    post.value = await fetchPostDetail(postId.value);
+    await loadCommentsFirst();
+  } catch (e) {
+    error.value = e?.response?.data?.message || "게시글을 불러오지 못했습니다.";
+    toast.error?.("상세 로딩 실패", "잠시 후 다시 시도해주세요.");
+  } finally {
+    loading.value = false;
+  }
 }
 
-onMounted(() => { attachObserver(); bindCommentSse(); load(); });
-onBeforeUnmount(() => { if (io) io.disconnect(); if (sseOff) sseOff(); });
+onMounted(() => {
+  attachObserver();
+  bindCommentSse();
+  load();
+});
+onBeforeUnmount(() => {
+  if (io) io.disconnect();
+  if (sseOff) sseOff();
+  clearTimeout(longPressTimer);
+});
 watch(() => route.params.postId, () => load());
 watch(sortMode, () => loadCommentsFirst());
 </script>
@@ -306,88 +410,181 @@ watch(sortMode, () => loadCommentsFirst());
   <div class="page">
     <div class="topbar">
       <RlButton size="sm" variant="soft" @click="router.back()">←</RlButton>
-      <div class="topTitle">게시글</div>
-      <div class="topRight"><RlButton v-if="isMinePost" size="sm" variant="soft" @click="onDeletePost">삭제</RlButton></div>
+      <div class="topCenter">
+        <div class="topEyebrow">Post</div>
+        <div class="topTitle">게시글</div>
+      </div>
+      <div class="topRight">
+        <RlButton v-if="isMinePost" size="sm" variant="soft" @click="onDeletePost">삭제</RlButton>
+      </div>
     </div>
 
-    <div v-if="loading" class="state"><div class="state-title">불러오는 중…</div><div class="state-sub">잠시만 기다려주세요</div></div>
-    <div v-else-if="error" class="state"><div class="state-title">오류</div><div class="state-sub">{{ error }}</div><RlButton @click="load">다시 시도</RlButton></div>
-    <div v-else-if="!post" class="state"><div class="state-title">게시글이 없어요</div><div class="state-sub">삭제되었거나 접근 권한이 없을 수 있어요.</div></div>
+    <div v-if="loading" class="state">
+      <div class="state-title">불러오는 중…</div>
+      <div class="state-sub">잠시만 기다려주세요</div>
+    </div>
+    <div v-else-if="error" class="state">
+      <div class="state-title">오류</div>
+      <div class="state-sub">{{ error }}</div>
+      <RlButton @click="load">다시 시도</RlButton>
+    </div>
+    <div v-else-if="!post" class="state">
+      <div class="state-title">게시글이 없어요</div>
+      <div class="state-sub">삭제되었거나 접근 권한이 없을 수 있어요.</div>
+    </div>
 
-    <div v-else class="card">
-      <div class="card-head">
-        <div class="avatar"></div>
-        <div class="meta">
-          <div class="author">{{ post.authorName || "User" }}</div>
-          <div class="submeta"><span class="badge">{{ fmtVisibility(post.visibility) }}</span><span class="dot">·</span><span class="time">{{ post.createdAt || "" }}</span></div>
-        </div>
-      </div>
-
-      <div v-if="post.content" class="content">{{ post.content }}</div>
-
-      <div v-if="post.imageUrls?.length" class="media">
-        <div class="carousel">
-          <button v-if="post.imageUrls.length > 1" class="nav left" type="button" @click="$refs.carousel?.scrollBy({ left: -320, behavior: 'smooth' })">‹</button>
-          <div ref="carousel" class="track">
-            <button v-for="(url, i) in post.imageUrls" :key="url" class="shot" type="button" @click="openLightbox(i)"><img :src="url" alt="" /></button>
+    <div v-else class="stack">
+      <section class="card postCard">
+        <div class="card-head">
+          <div class="avatar"></div>
+          <div class="meta">
+            <div class="author">{{ post.authorName || "User" }}</div>
+            <div class="submeta">
+              <span class="badge">{{ fmtVisibility(post.visibility) }}</span>
+              <span class="dot">·</span>
+              <span class="time">{{ formatCreatedAt(post.createdAt) }}</span>
+            </div>
           </div>
-          <button v-if="post.imageUrls.length > 1" class="nav right" type="button" @click="$refs.carousel?.scrollBy({ left: 320, behavior: 'smooth' })">›</button>
         </div>
-      </div>
 
-      <div class="footer">
-        <button class="pill btn" :class="{ on: post.likedByMe, busy: likeBusy }" type="button" @click="toggleLike" :disabled="likeBusy"><span>{{ post.likedByMe ? "❤️" : "🤍" }}</span><span>{{ post.likeCount ?? 0 }}</span></button>
-        <button class="pill btn" type="button" @click="focusComposer">💬 {{ post.commentCount ?? 0 }}</button>
-      </div>
+        <div v-if="post.content" class="content">{{ post.content }}</div>
 
-      <div class="comments" id="commentsTop">
+        <div v-if="post.imageUrls?.length" class="media" :class="`media--${mediaLayout}`">
+          <button
+            v-if="mediaLayout === 'single'"
+            class="heroShot"
+            type="button"
+            @click="openLightbox(0)"
+          >
+            <img :src="post.imageUrls[0]" alt="" />
+          </button>
+
+          <div v-else-if="mediaLayout === 'double'" class="doubleGrid">
+            <button v-for="(url, i) in post.imageUrls" :key="url" class="gridShot" type="button" @click="openLightbox(i)">
+              <img :src="url" alt="" />
+            </button>
+          </div>
+
+          <div v-else class="carousel">
+            <button
+              v-if="post.imageUrls.length > 1"
+              class="nav left"
+              type="button"
+              @click="$refs.carousel?.scrollBy({ left: -320, behavior: 'smooth' })"
+            >‹</button>
+            <div ref="carousel" class="track">
+              <button v-for="(url, i) in post.imageUrls" :key="url" class="shot" type="button" @click="openLightbox(i)">
+                <img :src="url" alt="" />
+              </button>
+            </div>
+            <button
+              v-if="post.imageUrls.length > 1"
+              class="nav right"
+              type="button"
+              @click="$refs.carousel?.scrollBy({ left: 320, behavior: 'smooth' })"
+            >›</button>
+          </div>
+        </div>
+
+        <div class="footer">
+          <button class="pill btn" :class="{ on: post.likedByMe, busy: likeBusy }" type="button" @click="toggleLike" :disabled="likeBusy">
+            <span>{{ post.likedByMe ? "❤️" : "🤍" }}</span>
+            <span>{{ post.likeCount ?? 0 }}</span>
+          </button>
+          <button class="pill btn" type="button" @click="focusComposer">💬 {{ post.commentCount ?? 0 }}</button>
+          <div class="flowHint">댓글에서 액션을 만들고 대화방 Dock으로 이어갈 수 있어요</div>
+        </div>
+      </section>
+
+      <section class="card comments" id="commentsTop">
         <div class="cHead">
-          <div><div class="cTitle">댓글</div><div class="cSub">총 {{ post?.commentCount ?? 0 }}개</div></div>
-          <div class="cControls"><button class="seg" :class="{ on: sortMode==='LATEST' }" @click="sortMode='LATEST'">최신</button><button class="seg" :class="{ on: sortMode==='POPULAR' }" @click="sortMode='POPULAR'">인기</button></div>
+          <div>
+            <div class="cTitle">댓글</div>
+            <div class="cSub">총 {{ post?.commentCount ?? 0 }}개 · 루트 {{ rootCommentCount }}개</div>
+          </div>
+          <div class="cControls">
+            <button class="seg" :class="{ on: sortMode==='LATEST' }" @click="sortMode='LATEST'">최신</button>
+            <button class="seg" :class="{ on: sortMode==='POPULAR' }" @click="sortMode='POPULAR'">인기</button>
+          </div>
         </div>
 
         <button v-if="newCommentsCount>0" class="newBadge" type="button" @click="refreshNewComments">새 댓글 {{ newCommentsCount }}개</button>
 
         <div v-if="commentsLoading" class="cState">댓글 불러오는 중…</div>
         <div v-else-if="commentsError" class="cState err">{{ commentsError }}</div>
-        <div v-else-if="comments.length === 0" class="cState">첫 댓글을 남겨보세요 ✨</div>
+        <div v-else-if="comments.length === 0" class="emptyCommentCard">
+          <div class="emptyTitle">첫 댓글을 남겨보세요 ✨</div>
+          <div class="emptySub">여기서 시작된 대화가 약속, 할일, 장소 액션으로 이어질 수 있어요.</div>
+        </div>
 
         <TransitionGroup v-else name="c" tag="div" class="cList">
-          <div v-for="node in commentTree" :key="node.item.commentId" class="cItem" :class="[{ optimistic: node.item._optimistic }, node.depth===1 ? 'depth1' : 'depth0']">
+          <article
+            v-for="node in commentTree"
+            :key="node.item.commentId"
+            class="cItem"
+            :class="[{ optimistic: node.item._optimistic }, node.depth===1 ? 'depth1' : 'depth0']"
+            @contextmenu.prevent="openActionSheet(node.item)"
+            @touchstart.passive="onCommentTouchStart(node.item)"
+            @touchend="onCommentTouchEnd"
+            @touchcancel="onCommentTouchEnd"
+          >
             <div class="cMeta">
-              <div class="cName">{{ node.item.name || "User" }}</div>
-              <div class="cHandle">@{{ node.item.handle || "handle" }}</div>
-              <div class="cTime">{{ node.item.createdAt || "" }}</div>
-              <div class="cActions">
-                <button class="cAct" type="button" @click="toggleCommentLike(node.item)">{{ node.item.likedByMe ? "❤️" : "🤍" }} {{ node.item.likeCount ?? 0 }}</button>
-                <button class="cAct" type="button" @click="startReply(node.item)">답글</button>
-                <button class="cAct" type="button" @click="openActionSheet(node.item)">액션</button>
-                <button v-if="canDeleteComment(node.item)" class="cAct danger" type="button" @click="onDeleteComment(node.item)">삭제</button>
+              <div class="cNameRow">
+                <div class="cName">{{ node.item.name || "User" }}</div>
+                <div v-if="node.depth===1" class="replyBadge">답글</div>
+              </div>
+              <div class="cSubMeta">
+                <span class="cHandle">@{{ node.item.handle || "handle" }}</span>
+                <span class="dot">·</span>
+                <span class="cTime">{{ formatCreatedAt(node.item.createdAt) }}</span>
               </div>
             </div>
+
             <div class="cContent">{{ node.item.content }}</div>
 
+            <div class="cActionRow">
+              <button class="cAct like" type="button" @click="toggleCommentLike(node.item)">
+                {{ node.item.likedByMe ? "❤️" : "🤍" }} {{ node.item.likeCount ?? 0 }}
+              </button>
+              <button class="cAct" type="button" @click="startReply(node.item)">답글</button>
+              <button class="cAct action" type="button" @click="openActionSheet(node.item)">액션</button>
+              <button v-if="canDeleteComment(node.item)" class="cAct danger" type="button" @click="onDeleteComment(node.item)">삭제</button>
+            </div>
+
             <div v-if="replyTo && String(replyTo.commentId)===String(node.item.commentId)" class="replyBox">
-              <div class="replyTop"><span class="replyTo">@{{ replyTo.handle }}에게 답글</span><button class="replyCancel" type="button" @click="cancelReply">취소</button></div>
+              <div class="replyTop">
+                <span class="replyTo">@{{ replyTo.handle }}에게 답글</span>
+                <button class="replyCancel" type="button" @click="cancelReply">취소</button>
+              </div>
               <div class="replyRow">
-                <textarea id="replyInput" v-model="replyDraft" class="replyInput" rows="1" maxlength="300" placeholder="답글 입력… (Enter 전송 / Shift+Enter 줄바꿈)" @keydown="onComposerKeydown($event, submitReply, 'replyInput')" @input="onComposerInput" />
+                <textarea
+                  id="replyInput"
+                  v-model="replyDraft"
+                  class="replyInput"
+                  rows="1"
+                  maxlength="300"
+                  placeholder="답글 입력… (Enter 전송 / Shift+Enter 줄바꿈)"
+                  @keydown="onComposerKeydown($event, submitReply, 'replyInput')"
+                  @input="onComposerInput"
+                />
                 <button class="replyBtn" type="button" @click="submitReply" :disabled="replyBusy">{{ replyBusy ? "…" : "등록" }}</button>
               </div>
             </div>
-          </div>
+          </article>
         </TransitionGroup>
 
         <div ref="sentinelRef" class="cSentinel">
           <div v-if="commentsMoreLoading" class="cMoreHint">불러오는 중…</div>
           <div v-else-if="!commentsHasNext && comments.length > 0" class="cEnd">끝 ✨</div>
         </div>
-      </div>
+      </section>
     </div>
 
     <div v-if="actionSheetFor" class="sheetBackdrop" @click="closeActionSheet">
       <div class="sheet" @click.stop>
         <div class="sheetTitle">이 댓글로 액션 만들기</div>
         <div class="sheetSub">대화방으로 가져가서 Dock에서 이어서 관리할 수 있어요.</div>
+        <div class="sheetPreview">“{{ actionSheetFor.content }}”</div>
         <div class="sheetActions">
           <button class="sheetBtn" type="button" @click="createPendingAction('PROMISE', actionSheetFor)">📅 약속</button>
           <button class="sheetBtn" type="button" @click="createPendingAction('TODO', actionSheetFor)">✅ 할일</button>
@@ -399,12 +596,32 @@ watch(sortMode, () => loadCommentsFirst());
 
     <div class="composerBar">
       <div v-if="mentionOpen && mentionCandidates.length" class="mentionPopup">
-        <button v-for="(m, i) in mentionCandidates" :key="m.handle" class="mentionItem" :class="{ on: i===mentionActiveIndex }" type="button" @mousedown.prevent="applyMention(m)">
-          <span class="mh">@{{ m.handle }}</span><span class="mn">{{ m.name }}</span>
+        <button
+          v-for="(m, i) in mentionCandidates"
+          :key="m.handle"
+          class="mentionItem"
+          :class="{ on: i===mentionActiveIndex }"
+          type="button"
+          @mousedown.prevent="applyMention(m)"
+        >
+          <span class="mh">@{{ m.handle }}</span>
+          <span class="mn">{{ m.name }}</span>
         </button>
       </div>
       <div class="composerInner">
-        <textarea id="commentComposerInput" v-model="newComment" class="cInput" placeholder="댓글을 입력하세요… (Enter 전송 / Shift+Enter 줄바꿈)" maxlength="300" rows="1" @keydown="onComposerKeydown($event, submitComment)" @input="onComposerInput" />
+        <div class="composerField">
+          <textarea
+            id="commentComposerInput"
+            v-model="newComment"
+            class="cInput"
+            placeholder="댓글을 입력하세요… (Enter 전송 / Shift+Enter 줄바꿈)"
+            maxlength="300"
+            rows="1"
+            @keydown="onComposerKeydown($event, submitComment)"
+            @input="onComposerInput"
+          />
+          <div class="composerHint">@멘션 가능 · 댓글 → 액션 → 대화방 Dock 연결</div>
+        </div>
         <button class="cBtn" type="button" @click="submitComment" :disabled="commentBusy">{{ commentBusy ? "…" : "등록" }}</button>
       </div>
     </div>
@@ -414,5 +631,148 @@ watch(sortMode, () => loadCommentsFirst());
 </template>
 
 <style scoped>
-.page{padding:14px 14px calc(118px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}.topbar{position:sticky;top:0;z-index:60;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:10px 0 12px;background:color-mix(in oklab,var(--surface) 72%,transparent);backdrop-filter:blur(16px);border-bottom:1px solid rgba(255,255,255,.06)}.topTitle{font-weight:950;text-align:center}.topRight{display:flex;justify-content:end}.state{text-align:center;padding:40px 10px}.state-title{font-size:16px;font-weight:900}.state-sub{margin-top:8px;font-size:13px;color:var(--muted)}.card{padding:14px;border-radius:18px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface) 92%,transparent);backdrop-filter:blur(10px)}.card-head{display:flex;gap:10px;align-items:center;margin-bottom:10px}.avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--success));opacity:.6}.meta{display:grid;gap:2px}.author{font-weight:900;font-size:14px}.submeta{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.92);font-weight:900;font-size:11px}.dot{opacity:.6}.content{font-size:14px;line-height:1.5;white-space:pre-wrap}.media{margin-top:12px}.carousel{position:relative}.track{display:flex;gap:10px;overflow:auto;scroll-snap-type:x mandatory;padding-bottom:2px}.track::-webkit-scrollbar{height:6px}.track::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}.shot{border:0;background:transparent;padding:0;width:min(520px,86vw);aspect-ratio:4/3;border-radius:18px;overflow:hidden;border:1px solid var(--border);scroll-snap-align:start}.shot img{width:100%;height:100%;object-fit:cover;display:block}.nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);backdrop-filter:blur(10px);color:rgba(255,255,255,.9);font-size:22px;cursor:pointer}.nav.left{left:8px}.nav.right{right:8px}.footer{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}.pill{font-size:12px;color:var(--muted);border:1px solid var(--border);padding:6px 10px;border-radius:999px;background:color-mix(in oklab,var(--surface-2) 85%,transparent)}.pill.btn{cursor:pointer;display:inline-flex;align-items:center;gap:6px}.pill.btn:disabled{opacity:.6;cursor:not-allowed}.pill.btn.on{border-color:color-mix(in oklab,var(--danger) 45%,var(--border));color:var(--text)}.comments{margin-top:14px;border-top:1px solid var(--border);padding-top:14px;padding-bottom:92px;display:grid;gap:12px}.cHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.cTitle{font-weight:950}.cSub{font-size:12px;color:var(--muted);margin-top:2px}.cControls{display:flex;gap:6px;align-items:center}.seg{height:32px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.9);font-weight:900;cursor:pointer}.seg.on{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.18)}.newBadge{height:34px;width:fit-content;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.08);color:rgba(255,255,255,.92);font-weight:950;cursor:pointer}.cState{font-size:13px;color:var(--muted);text-align:center;padding:10px 0}.cState.err{color:color-mix(in oklab,var(--danger) 80%,white)}.cList{display:grid;gap:10px}.cItem{border:1px solid var(--border);border-radius:16px;padding:10px;background:color-mix(in oklab,var(--surface) 92%,transparent)}.cItem.optimistic{opacity:.75}.cItem.depth1{margin-left:14px;border-left:2px solid rgba(255,255,255,.10);padding-left:12px}.cMeta{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.cName{font-weight:900;font-size:13px}.cHandle,.cTime{font-size:12px;color:var(--muted)}.cActions{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}.cAct{height:30px;padding:0 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.9);font-weight:900;cursor:pointer}.cAct.danger{border-color:color-mix(in oklab,var(--danger) 45%,rgba(255,255,255,.12))}.cContent{margin-top:6px;font-size:13.5px;line-height:1.45;white-space:pre-wrap}.replyBox{margin-top:10px;border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:10px;background:rgba(255,255,255,.04)}.replyTop{display:flex;justify-content:space-between;align-items:center;gap:10px}.replyTo{font-size:12px;font-weight:900;opacity:.85}.replyCancel{border:0;background:transparent;color:rgba(255,255,255,.8);font-weight:900;cursor:pointer}.replyRow{margin-top:8px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.replyInput{min-height:40px;max-height:120px;resize:none;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);padding:9px 10px;color:var(--text);line-height:1.35}.replyBtn{height:40px;padding:0 12px;border-radius:14px;border:1px solid color-mix(in oklab,var(--accent) 45%,rgba(255,255,255,.12));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text)}.replyBtn:disabled{opacity:.6}.cSentinel{display:grid;place-items:center;padding:10px 0 2px}.cMoreHint{opacity:.75;font-size:12px}.cEnd{font-size:12px;color:var(--muted)}.sheetBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(4px);z-index:90;display:grid;place-items:end center;padding:16px}.sheet{width:min(520px,100%);border-radius:22px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.94);padding:14px;box-shadow:0 20px 60px rgba(0,0,0,.45)}.sheetTitle{font-size:16px;font-weight:950}.sheetSub{margin-top:4px;font-size:12px;opacity:.72}.sheetActions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.sheetBtn{height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.95);font-weight:950;cursor:pointer}.sheetClose{margin-top:10px;width:100%;height:42px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:transparent;color:rgba(255,255,255,.88);font-weight:900}.composerBar{position:fixed;left:0;right:0;bottom:0;z-index:80;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to bottom,color-mix(in oklab,var(--bg) 0%,transparent),color-mix(in oklab,var(--bg) 92%,transparent));backdrop-filter:blur(18px);border-top:1px solid rgba(255,255,255,.06)}.composerInner{max-width:720px;margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}.cInput{min-height:44px;max-height:120px;resize:none;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:10px 12px;color:var(--text);line-height:1.35}.cBtn{height:44px;padding:0 14px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text)}.cBtn:disabled{opacity:.6}.mentionPopup{position:fixed;left:14px;right:14px;bottom:calc(64px + env(safe-area-inset-bottom));z-index:90;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.92);backdrop-filter:blur(16px);padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.35);max-width:720px;margin:0 auto}.mentionItem{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border-radius:12px;border:0;background:transparent;color:rgba(255,255,255,.92);cursor:pointer}.mentionItem.on{background:rgba(255,255,255,.10)}.mh{font-weight:950}.mn{opacity:.7;font-size:12px}.c-enter-active,.c-leave-active{transition:all .22s ease}.c-enter-from{opacity:0;transform:translateY(6px) scale(.98)}.c-leave-to{opacity:0;transform:translateY(-6px) scale(.98)}@media (max-width:520px){.shot{width:86vw}.sheetActions{grid-template-columns:1fr}}
+.page{
+  padding:14px 14px calc(124px + env(safe-area-inset-bottom));
+  max-width:980px;
+  margin:0 auto;
+}
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:60;
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:center;
+  gap:10px;
+  padding:10px 0 14px;
+  background:
+    linear-gradient(180deg, color-mix(in oklab,var(--surface) 96%, rgba(9,14,30,.94)), color-mix(in oklab,var(--surface) 82%, transparent));
+  backdrop-filter:blur(18px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+.topCenter{text-align:center;display:grid;gap:1px}
+.topEyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.56)}
+.topTitle{font-weight:950;letter-spacing:-.02em}
+.topRight{display:flex;justify-content:end}
+.stack{display:grid;gap:14px}
+.state{text-align:center;padding:40px 10px}
+.state-title{font-size:16px;font-weight:900}
+.state-sub{margin-top:8px;font-size:13px;color:var(--muted)}
+.card{
+  padding:16px;
+  border-radius:22px;
+  border:1px solid color-mix(in oklab,var(--border) 88%, rgba(255,255,255,.08));
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012)),
+    color-mix(in oklab,var(--surface) 95%, rgba(8,12,26,.92));
+  box-shadow:0 18px 46px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.postCard{padding-bottom:14px;overflow:hidden}
+.card-head{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--success));opacity:.68;box-shadow:0 10px 24px rgba(0,0,0,.24)}
+.meta{display:grid;gap:2px}
+.author{font-weight:950;font-size:14px;color:rgba(255,255,255,.96)}
+.submeta{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.92);font-weight:900;font-size:11px}
+.dot{opacity:.55}
+.content{font-size:14px;line-height:1.58;white-space:pre-wrap;color:rgba(255,255,255,.96)}
+.media{margin-top:12px;display:grid;gap:10px}
+.media--double{margin-top:14px}
+.heroShot,.gridShot,.shot{border:0;background:transparent;padding:0;cursor:pointer}
+.heroShot{width:100%;aspect-ratio:16/10;border-radius:22px;overflow:hidden;border:1px solid var(--border);box-shadow:0 14px 30px rgba(0,0,0,.18)}
+.heroShot img,.gridShot img{width:100%;height:100%;object-fit:cover;display:block}
+.doubleGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gridShot{width:100%;aspect-ratio:5/6;border-radius:22px;overflow:hidden;border:1px solid color-mix(in oklab,var(--border) 88%, rgba(255,255,255,.08));box-shadow:0 14px 30px rgba(0,0,0,.16)}
+.carousel{position:relative}
+.track{display:flex;gap:10px;overflow:auto;scroll-snap-type:x mandatory;padding-bottom:2px}
+.track::-webkit-scrollbar{height:6px}
+.track::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}
+.shot{border:0;background:transparent;padding:0;width:min(540px,86vw);aspect-ratio:4/3;border-radius:20px;overflow:hidden;border:1px solid var(--border);scroll-snap-align:start;box-shadow:0 14px 30px rgba(0,0,0,.18)}
+.shot img{width:100%;height:100%;object-fit:cover;display:block}
+.nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);backdrop-filter:blur(10px);color:rgba(255,255,255,.9);font-size:22px;cursor:pointer}
+.nav.left{left:8px}.nav.right{right:8px}
+.footer{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;padding-top:2px}
+.pill{font-size:12px;color:var(--muted);border:1px solid var(--border);padding:6px 10px;border-radius:999px;background:color-mix(in oklab,var(--surface-2) 85%,transparent)}
+.pill.btn{cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.pill.btn:disabled{opacity:.6;cursor:not-allowed}
+.pill.btn.on{border-color:color-mix(in oklab,var(--danger) 45%,var(--border));color:var(--text)}
+.flowHint{margin-left:auto;font-size:11.5px;color:rgba(255,255,255,.72);padding:7px 11px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10)}
+.comments{padding-bottom:94px;display:grid;gap:12px;background:linear-gradient(180deg, rgba(255,255,255,.032), rgba(255,255,255,.015)), color-mix(in oklab,var(--surface) 95%, rgba(8,12,26,.92))}
+.cHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:2px}
+.cTitle{font-weight:950;font-size:16px}
+.cSub{font-size:12px;color:var(--muted);margin-top:3px}
+.cControls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.seg{height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.9);font-weight:900;cursor:pointer}
+.seg.on{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.18)}
+.newBadge{height:36px;width:fit-content;padding:0 13px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 38%, rgba(255,255,255,.12));background:color-mix(in oklab,var(--accent) 12%, rgba(255,255,255,.04));color:rgba(255,255,255,.96);font-weight:950;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.16)}
+.cState{font-size:13px;color:var(--muted);text-align:center;padding:10px 0}
+.cState.err{color:color-mix(in oklab,var(--danger) 80%,white)}
+.emptyCommentCard{padding:16px;border-radius:18px;border:1px dashed rgba(255,255,255,.10);background:rgba(255,255,255,.03)}
+.emptyTitle{font-weight:950}
+.emptySub{margin-top:6px;font-size:13px;color:rgba(255,255,255,.68);line-height:1.5}
+.cList{display:grid;gap:10px}
+.cItem{border:1px solid color-mix(in oklab,var(--border) 90%, rgba(255,255,255,.08));border-radius:18px;padding:13px;background:linear-gradient(180deg, rgba(255,255,255,.042), rgba(255,255,255,.02));box-shadow:0 12px 30px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.03)}
+.cItem.optimistic{opacity:.75}
+.cItem.depth1{margin-left:16px;border-left:2px solid rgba(255,255,255,.12);padding-left:14px;background:linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,.012))}
+.cMeta{display:grid;gap:4px}
+.cNameRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cName{font-weight:950;font-size:13px;color:rgba(255,255,255,.96)}
+.replyBadge{padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);font-size:11px;font-weight:900;color:rgba(255,255,255,.82)}
+.cSubMeta{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.cHandle,.cTime{font-size:12px;color:var(--muted)}
+.cContent{margin-top:8px;font-size:13.5px;line-height:1.52;white-space:pre-wrap;color:rgba(255,255,255,.95)}
+.cActionRow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.cAct{height:34px;padding:0 12px;border-radius:13px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.94);font-weight:900;cursor:pointer}
+.cAct.like{min-width:72px}
+.cAct.action{border-color:color-mix(in oklab,var(--accent) 36%, rgba(255,255,255,.12));background:color-mix(in oklab,var(--accent) 10%, rgba(255,255,255,.03))}
+.cAct.danger{border-color:color-mix(in oklab,var(--danger) 45%,rgba(255,255,255,.12))}
+.replyBox{margin-top:10px;border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:10px;background:rgba(255,255,255,.04)}
+.replyTop{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.replyTo{font-size:12px;font-weight:900;opacity:.85}
+.replyCancel{border:0;background:transparent;color:rgba(255,255,255,.8);font-weight:900;cursor:pointer}
+.replyRow{margin-top:8px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}
+.replyInput{min-height:40px;max-height:120px;resize:none;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);padding:10px 11px;color:var(--text);line-height:1.35}
+.replyBtn{height:40px;padding:0 12px;border-radius:14px;border:1px solid color-mix(in oklab,var(--accent) 45%,rgba(255,255,255,.12));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text)}
+.replyBtn:disabled{opacity:.6}
+.cSentinel{display:grid;place-items:center;padding:10px 0 2px}
+.cMoreHint{opacity:.75;font-size:12px}.cEnd{font-size:12px;color:var(--muted)}
+.sheetBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(4px);z-index:90;display:grid;place-items:end center;padding:16px}
+.sheet{width:min(520px,100%);border-radius:22px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.94);padding:14px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.sheetTitle{font-size:16px;font-weight:950}
+.sheetSub{margin-top:4px;font-size:12px;opacity:.72}
+.sheetPreview{margin-top:10px;padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);font-size:13px;line-height:1.45;color:rgba(255,255,255,.92)}
+.sheetActions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.sheetBtn{height:46px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.95);font-weight:950;cursor:pointer}
+.sheetClose{margin-top:10px;width:100%;height:42px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:transparent;color:rgba(255,255,255,.88);font-weight:900}
+.composerBar{position:fixed;left:0;right:0;bottom:0;z-index:80;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to bottom,color-mix(in oklab,var(--bg) 0%,transparent),color-mix(in oklab,var(--bg) 96%,transparent));backdrop-filter:blur(18px);border-top:1px solid rgba(255,255,255,.08)}
+.composerInner{max-width:980px;margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
+.composerField{display:grid;gap:6px}
+.cInput{min-height:46px;max-height:120px;resize:none;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:11px 12px;color:var(--text);line-height:1.35}
+.composerHint{font-size:11.5px;color:rgba(255,255,255,.62);padding:0 2px}
+.cBtn{height:46px;padding:0 14px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text)}
+.cBtn:disabled{opacity:.6}
+.mentionPopup{position:fixed;left:14px;right:14px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:90;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.92);backdrop-filter:blur(16px);padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.35);max-width:980px;margin:0 auto}
+.mentionItem{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border-radius:12px;border:0;background:transparent;color:rgba(255,255,255,.92);cursor:pointer}
+.mentionItem.on{background:rgba(255,255,255,.10)}
+.mh{font-weight:950}.mn{opacity:.7;font-size:12px}
+.c-enter-active,.c-leave-active{transition:all .22s ease}
+.c-enter-from{opacity:0;transform:translateY(6px) scale(.98)}
+.c-leave-to{opacity:0;transform:translateY(-6px) scale(.98)}
+@media (max-width:700px){
+  .flowHint{width:100%;margin-left:0}
+  .doubleGrid{grid-template-columns:1fr}
+  .gridShot{aspect-ratio:4/3}
+}
+@media (max-width:520px){
+  .page{padding-left:12px;padding-right:12px;padding-bottom:calc(128px + env(safe-area-inset-bottom))}
+  .shot{width:88vw}
+  .card{padding:13px}
+  .cHead{align-items:stretch;flex-direction:column}
+  .cControls{justify-content:flex-start}
+  .cItem.depth1{margin-left:12px;padding-left:12px}
+  .replyRow{grid-template-columns:1fr}
+  .composerInner{grid-template-columns:1fr auto}
+  .composerHint{font-size:11px}
+  .sheetActions{grid-template-columns:1fr}
+}
 </style>

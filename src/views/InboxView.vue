@@ -1,4 +1,4 @@
-<!-- src/views/InboxView.vue (v3.6 bridge helper: pending action banner) -->
+<!-- src/views/InboxView.vue -->
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, nextTick } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
@@ -12,10 +12,10 @@ const toast = useToastStore();
 const noti = useNotificationsStore();
 const busy = ref(false);
 const cleaning = ref(false);
-const autoReadDone = ref(false);
 
 const items = computed(() => noti.items);
 const hasUnread = computed(() => noti.hasUnread);
+const unreadCount = computed(() => Number(noti.unreadCount || 0));
 const loading = computed(() => noti.loading);
 const loadingMore = computed(() => noti.loadingMore);
 const hasNext = computed(() => noti.hasNext);
@@ -35,26 +35,38 @@ function goConversations() { router.push("/inbox/conversations"); }
 function formatType(t) {
   if (t === "MESSAGE_RECEIVED") return "메시지";
   if (t === "COMMENT_CREATED" || t === "POST_COMMENT") return "댓글";
-  if (t === "POST_LIKED") return "좋아요";
+  if (t === "POST_LIKED" || t === "POST_LIKE") return "좋아요";
   if (t === "PIN_CREATED") return "핀";
   if (t === "PIN_REMIND") return "리마인드";
   return t || "알림";
 }
-function formatTime(iso) { return iso ? iso.replace("T", " ").slice(0, 19) : ""; }
+function formatTime(iso) {
+  const t = Date.parse(iso || "");
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) {
+    return d.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
+  }
+  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
 
 async function refreshNow() {
   await noti._refreshNow?.();
   if (!noti._refreshNow) await noti.refresh();
 }
-async function markAllRead({ silent = false } = {}) {
+async function markAllRead() {
   if (busy.value) return;
   busy.value = true;
+  noti.markAllLocalRead?.();
   try {
     await readAllNotifications();
-    await refreshNow();
-    if (!silent) toast.success("완료", "알림을 모두 읽음 처리했어요.");
+    toast.success("완료", "알림을 모두 읽음 처리했어요.");
+    noti.refresh?.();
   } catch (e) {
     toast.error("실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
+    await refreshNow();
   } finally { busy.value = false; }
 }
 async function clearRead() {
@@ -79,13 +91,24 @@ async function routeForNotification(n) {
   }
   if (n.type === "MESSAGE_RECEIVED") {
     if (!n.refId) return "/inbox/conversations";
-    if (n.messageId) return `/inbox/conversations/${enc(n.refId)}?notiId=${enc(n.id)}&fromNoti=1&mid=${enc(n.messageId)}`;
+    if (n.messageId || n.ref2Id) return `/inbox/conversations/${enc(n.refId)}?notiId=${enc(n.id)}&fromNoti=1&mid=${enc(n.messageId || n.ref2Id)}`;
     return `/inbox/conversations/${enc(n.refId)}?notiId=${enc(n.id)}&fromNoti=1`;
+  }
+  if (n.type === "POST_COMMENT") {
+    const pid = n.ref2Id || n.postId || null;
+    if (pid) return `/posts/${enc(pid)}?notiId=${enc(n.id)}&fromNoti=1`;
+    return "/inbox";
+  }
+  if (n.type === "POST_LIKE" || n.type === "POST_LIKED") {
+    if (n.refId) return `/posts/${enc(n.refId)}?notiId=${enc(n.id)}&fromNoti=1`;
+    return "/inbox";
   }
   return "/inbox/conversations";
 }
 async function openItem(n) {
-  try { if (!n.read) await readNotification(n.id); } catch {}
+  const wasUnread = !n.read;
+  if (wasUnread) noti.markLocalRead?.(n.id);
+  try { if (wasUnread) await readNotification(n.id); } catch {}
   const to = await routeForNotification(n);
   if (router.currentRoute.value.fullPath !== to) router.push(to);
   noti.refresh?.();
@@ -110,10 +133,6 @@ function attachObserver() {
 onMounted(async () => {
   loadPendingAction();
   await refreshNow();
-  if (!autoReadDone.value && hasUnread.value) {
-    autoReadDone.value = true;
-    await markAllRead({ silent: true });
-  }
   await nextTick();
   attachObserver();
 });
@@ -122,7 +141,7 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
 
 <template>
   <div class="page">
-    <header class="head">
+    <header class="head rl-cardish">
       <div>
         <h1 class="title">Inbox</h1>
         <p class="sub">알림 & 메시지</p>
@@ -134,7 +153,7 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
       </div>
     </header>
 
-    <div v-if="pendingAction" class="bridge">
+    <div v-if="pendingAction" class="bridge rl-cardish">
       <div class="bTitle">댓글에서 가져온 액션이 준비되어 있어요</div>
       <div class="bSub">
         <span v-if="pendingAction.kind==='PROMISE'">📅 약속</span>
@@ -148,19 +167,28 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
       </div>
     </div>
 
-    <div class="row2">
-      <RlButton size="sm" variant="soft" @click="markAllRead()" :disabled="busy || loading || !items.length">전체 읽음</RlButton>
-      <RlButton size="sm" variant="soft" @click="clearRead" :disabled="cleaning || loading || !items.length">읽은 알림 정리</RlButton>
+    <div class="summary rl-cardish">
+      <div class="sumLeft">
+        <div class="sumTitle">읽지 않은 알림</div>
+        <div class="sumValue">{{ unreadCount }}개</div>
+      </div>
+      <div class="sumActions">
+        <RlButton size="sm" variant="soft" @click="markAllRead" :disabled="busy || loading || !hasUnread">전체 읽음</RlButton>
+        <RlButton size="sm" variant="soft" @click="clearRead" :disabled="cleaning || loading || !items.length">읽은 알림 정리</RlButton>
+      </div>
     </div>
 
-    <div v-if="loading && !items.length" class="state">불러오는 중…</div>
-    <div v-else-if="error" class="state err">{{ error }}</div>
-    <div v-else-if="items.length === 0" class="state">아직 알림이 없어요 ✨</div>
+    <div v-if="loading && !items.length" class="state rl-cardish">불러오는 중…</div>
+    <div v-else-if="error" class="state err rl-cardish">{{ error }}</div>
+    <div v-else-if="items.length === 0" class="state rl-cardish">아직 알림이 없어요 ✨</div>
 
     <div v-else class="list">
-      <button v-for="n in items" :key="n.id" class="item" :class="{ unread: !n.read }" type="button" @click="openItem(n)">
+      <button v-for="n in items" :key="n.id" class="item rl-cardish" :class="{ unread: !n.read }" type="button" @click="openItem(n)">
         <div class="line1">
-          <span class="type">{{ formatType(n.type) }}</span>
+          <span class="typeWrap">
+            <span class="type">{{ formatType(n.type) }}</span>
+            <span v-if="!n.read" class="newBadge">NEW</span>
+          </span>
           <span class="time">{{ formatTime(n.createdAt) }}</span>
         </div>
         <div class="body">{{ n.body }}</div>
@@ -175,5 +203,29 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
 </template>
 
 <style scoped>
-.page{padding:16px 16px calc(90px + env(safe-area-inset-bottom));max-width:860px;margin:0 auto}.head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}.title{font-size:22px;font-weight:950;letter-spacing:-.02em}.sub{margin-top:2px;font-size:12px;opacity:.7}.actions,.row2{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.bridge{margin-top:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);border-radius:18px;padding:14px}.bTitle{font-weight:950}.bSub{margin-top:6px;font-size:13px;opacity:.82}.bActions{display:flex;gap:8px;margin-top:10px}.state{margin-top:20px;padding:24px;border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(255,255,255,.04);text-align:center}.err{color:#ffb4b4}.list{margin-top:14px;display:flex;flex-direction:column;gap:10px}.item{text-align:left;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);border-radius:16px;padding:12px;cursor:pointer;color:var(--text);box-shadow:0 10px 30px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.04);transition:border-color .16s ease,background .16s ease,transform .16s ease}.item:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.16);background:rgba(255,255,255,.07)}.item.unread{border-color:color-mix(in oklab,var(--accent) 30%, rgba(255,255,255,.16));background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.07));box-shadow:0 16px 34px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.06)}.line1{display:flex;justify-content:space-between;gap:10px;align-items:center}.type{font-size:12px;font-weight:900;color:color-mix(in oklab,var(--text) 92%, white)}.time{font-size:12px;color:color-mix(in oklab,var(--muted) 82%, white)}.body{margin-top:6px;line-height:1.45;color:color-mix(in oklab,var(--text) 94%, white);font-weight:700}.item.unread .body{color:color-mix(in oklab,var(--text) 96%, white)}.sentinel{display:grid;place-items:center;padding:14px 0}.hint{font-size:12px;opacity:.65}
+.page{padding:16px 16px calc(92px + env(safe-area-inset-bottom));max-width:980px;margin:0 auto}
+.rl-cardish{border:1px solid color-mix(in oklab,var(--border) 88%,transparent);background:color-mix(in oklab,var(--surface) 88%,transparent);box-shadow:0 18px 46px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.04)}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:14px;border-radius:20px}
+.title{font-size:22px;font-weight:950;letter-spacing:-.02em}.sub{margin-top:2px;font-size:12px;opacity:.7}
+.actions,.sumActions,.bActions{display:flex;gap:8px;flex-wrap:wrap}
+.bridge,.summary{margin-top:14px;border-radius:20px;padding:14px}
+.bTitle,.sumTitle{font-weight:950}.bSub{margin-top:6px;font-size:13px;opacity:.82}
+.summary{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sumValue{margin-top:4px;font-size:24px;font-weight:950;letter-spacing:-.03em}
+.state{margin-top:20px;padding:24px;border-radius:18px;text-align:center}.err{color:#ffb4b4}
+.list{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+.item{text-align:left;border-radius:18px;padding:13px;cursor:pointer;color:var(--text);transition:border-color .16s ease,background .16s ease,transform .16s ease}
+.item:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.16);background:rgba(255,255,255,.07)}
+.item.unread{border-color:color-mix(in oklab,var(--accent) 34%, rgba(255,255,255,.16));background:linear-gradient(180deg, color-mix(in oklab,var(--accent) 10%, rgba(255,255,255,.06)), rgba(255,255,255,.06));box-shadow:0 16px 34px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.06)}
+.line1{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.typeWrap{display:flex;align-items:center;gap:8px}
+.type{font-size:12px;font-weight:900;color:color-mix(in oklab,var(--text) 92%, white)}
+.newBadge{display:inline-flex;align-items:center;justify-content:center;height:18px;padding:0 7px;border-radius:999px;background:color-mix(in oklab,var(--accent) 72%, white);color:#0b1020;font-size:10px;font-weight:950}
+.time{font-size:12px;color:color-mix(in oklab,var(--muted) 82%, white)}
+.body{margin-top:6px;line-height:1.45;color:color-mix(in oklab,var(--text) 94%, white);font-weight:700}
+.item.unread .body{color:color-mix(in oklab,var(--text) 96%, white)}
+.sentinel{display:grid;place-items:center;padding:14px 0}.hint{font-size:12px;opacity:.65}
+@media (max-width: 720px){
+  .summary{align-items:flex-start;flex-direction:column}
+}
 </style>

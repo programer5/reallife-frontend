@@ -984,6 +984,7 @@ function loadPendingAction() {
 }
 function clearPendingAction() {
   try { sessionStorage.removeItem("reallife:pendingAction"); } catch {}
+  try { sessionStorage.removeItem("reallife:pendingActionTargetConversationId"); } catch {}
   pendingAction.value = null;
   pendingActionPrimed.value = false;
   pendingActionTempId.value = null;
@@ -1007,9 +1008,9 @@ function focusComposer() {
     el?.focus?.();
   } catch {}
 }
-function primePendingAction(silent = false) {
+function primePendingAction(silent = false, force = false) {
   if (!pendingAction.value) return;
-  if (String(content.value || "").trim()) {
+  if (!force && String(content.value || "").trim()) {
     // 이미 사용자가 입력 중이면 방해하지 않음
     focusComposer();
     return;
@@ -1018,6 +1019,13 @@ function primePendingAction(silent = false) {
   pendingActionPrimed.value = true;
   nextTick(() => focusComposer());
   if (!silent) toast.success?.("액션 준비됨", "전송하면 ✨ 제안으로 바로 뜹니다.");
+}
+async function quickSendPendingAction() {
+  if (!pendingAction.value || sending.value) return;
+  primePendingAction(true, true);
+  bumpPendingHighlight();
+  await nextTick();
+  await onSend();
 }
 
 const flashMid = ref("");
@@ -1958,7 +1966,10 @@ onMounted(async () => {
   } catch {}
   if (canViewConversation.value && pendingAction.value) {
     primePendingAction(true);
-    if (targetOk) bumpPendingHighlight();
+    if (targetOk) {
+      bumpPendingHighlight();
+      try { sessionStorage.removeItem("reallife:pendingActionTargetConversationId"); } catch {}
+    }
   }
 
   // ✅ 알림으로 진입한 경우: 읽음 처리 + 해당 메시지로 스크롤
@@ -2384,14 +2395,21 @@ onBeforeUnmount(() => {
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
     <div ref="composerRef" class="composerWrap" v-if="canViewConversation">
       <div v-if="pendingAction" class="pendingBridge" :class="{ 'pendingBridge--highlight': pendingHighlight }">
-      <div class="pbTitle">댓글에서 가져온 액션</div>
-      <div class="pbSub">
-        <span class="pbKind">{{ pendingKindLabel(pendingAction.kind) }}</span>
-        <span class="pbQuote">“{{ pendingAction.text }}”</span>
+      <div class="pbHead">
+        <div>
+          <div class="pbTitle">댓글에서 가져온 액션</div>
+          <div class="pbSub">
+            <span class="pbKind">{{ pendingKindLabel(pendingAction.kind) }}</span>
+            <span class="pbQuote">“{{ pendingAction.text }}”</span>
+          </div>
+        </div>
+        <span v-if="pendingActionPrimed" class="pbReady">입력 준비됨</span>
       </div>
+      <div class="pbHint">바로 보내면 이 대화의 ✨ 제안 Dock으로 이어집니다.</div>
       <div class="pbActions">
-        <RlButton size="sm" variant="primary" @click="() => { primePendingAction(false); bumpPendingHighlight(); }">입력창에 넣기</RlButton>
-        <RlButton size="sm" variant="soft" @click="clearPendingAction">닫기</RlButton>
+        <RlButton size="sm" variant="primary" @click="quickSendPendingAction">바로 보내고 제안 열기</RlButton>
+        <RlButton size="sm" variant="soft" @click="() => { primePendingAction(false, true); bumpPendingHighlight(); }">입력창에 넣기</RlButton>
+        <RlButton size="sm" variant="ghost" @click="clearPendingAction">닫기</RlButton>
       </div>
     </div>
 

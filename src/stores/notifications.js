@@ -4,17 +4,19 @@ import { fetchNotifications } from "../api/notifications";
 
 function normalizeNoti(payload) {
   if (!payload) return null;
-  // SSE payload: { notificationId, body, createdAt, type, refId }
-  // API payload: { id, body, createdAt, type, refId, read }
   const id = payload.id || payload.notificationId;
   if (!id) return null;
+
+  const ref2Id = payload.ref2Id || payload.messageId || payload.postId || null;
 
   return {
     id,
     type: payload.type || "UNKNOWN",
     refId: payload.refId || null,
+    ref2Id,
     conversationId: payload.conversationId || null,
-    messageId: payload.ref2Id || payload.messageId || null, // ✅ 추가
+    messageId: payload.messageId || (payload.type === "MESSAGE_RECEIVED" ? ref2Id : null),
+    postId: payload.postId || (payload.type === "POST_COMMENT" ? ref2Id : null),
     body: payload.body || "",
     createdAt: payload.createdAt || new Date().toISOString(),
     read: typeof payload.read === "boolean" ? payload.read : false,
@@ -35,27 +37,33 @@ function uniqAppend(existing, incoming) {
   return out;
 }
 
+function countUnread(items) {
+  return (items || []).reduce((sum, item) => sum + (item?.read ? 0 : 1), 0);
+}
+
 export const useNotificationsStore = defineStore("notifications", {
   state: () => ({
     items: [],
     nextCursor: null,
     hasNext: false,
     hasUnread: false,
+    unreadCount: 0,
 
-    loading: false,       // 최초/새로고침 로딩
-    loadingMore: false,   // 추가 로딩
+    loading: false,
+    loadingMore: false,
     error: "",
 
     _refreshTimer: null,
-
-    // ✅ SSE 중복 방지(가끔 같은 noti가 여러 번 올 수 있음)
     _seenIds: new Set(),
   }),
 
   actions: {
-    /**
-     * ✅ SSE 알림 즉시 prepend + 이후 refresh()로 보정
-     */
+    _syncUnreadMeta() {
+      const unread = countUnread(this.items);
+      this.unreadCount = unread;
+      this.hasUnread = unread > 0;
+    },
+
     ingestFromSse(raw) {
       const n = normalizeNoti(raw);
       if (!n) return;
@@ -68,8 +76,8 @@ export const useNotificationsStore = defineStore("notifications", {
         this._seenIds.add(n.id);
       }
 
-      this.hasUnread = true;
-      this.items = [n, ...(this.items || [])].slice(0, 200); // ✅ 리스트는 너무 커지지 않게
+      this.items = [n, ...(this.items || [])].slice(0, 200);
+      this._syncUnreadMeta();
     },
 
     async refresh() {
@@ -87,7 +95,10 @@ export const useNotificationsStore = defineStore("notifications", {
         this.items = (res.items || []).map(normalizeNoti).filter(Boolean);
         this.nextCursor = res.nextCursor;
         this.hasNext = res.hasNext;
-        this.hasUnread = !!res.hasUnread;
+        this._syncUnreadMeta();
+        if (res.hasUnread && this.unreadCount === 0) {
+          this.hasUnread = true;
+        }
 
         this._seenIds = new Set((this.items || []).slice(0, 150).map((x) => x.id));
       } catch (e) {
@@ -97,9 +108,6 @@ export const useNotificationsStore = defineStore("notifications", {
       }
     },
 
-    /**
-     * ✅ 커서 기반 추가 로드 (무한 스크롤 / 더보기 버튼용)
-     */
     async loadMore({ size = 20 } = {}) {
       if (this.loadingMore || this.loading) return;
       if (!this.hasNext) return;
@@ -109,15 +117,13 @@ export const useNotificationsStore = defineStore("notifications", {
 
       try {
         const res = await fetchNotifications({ size, cursor: this.nextCursor });
-
-        // ✅ append + dedupe
         this.items = uniqAppend(this.items, res.items).slice(0, 400);
-
         this.nextCursor = res.nextCursor;
         this.hasNext = res.hasNext;
-        this.hasUnread = !!res.hasUnread;
-
-        // seen 동기화
+        this._syncUnreadMeta();
+        if (res.hasUnread && this.unreadCount === 0) {
+          this.hasUnread = true;
+        }
         this._seenIds = new Set((this.items || []).slice(0, 200).map((x) => x.id));
       } catch (e) {
         this.error = e?.response?.data?.message || "알림을 더 불러오지 못했습니다.";
@@ -125,18 +131,30 @@ export const useNotificationsStore = defineStore("notifications", {
         this.loadingMore = false;
       }
     },
-    // ✅ 읽은 알림을 로컬 리스트에서 즉시 제거 (Optimistic UI)
+
+    markLocalRead(id) {
+      const idx = (this.items || []).findIndex((n) => String(n.id) === String(id));
+      if (idx < 0) return false;
+      if (this.items[idx]?.read) return false;
+
+      const copy = this.items.slice();
+      copy[idx] = { ...copy[idx], read: true };
+      this.items = copy;
+      this._syncUnreadMeta();
+      return true;
+    },
+
+    markAllLocalRead() {
+      this.items = (this.items || []).map((n) => ({ ...n, read: true }));
+      this._syncUnreadMeta();
+    },
+
     purgeReadLocal() {
       const before = (this.items || []).length;
-      const next = (this.items || []).filter((n) => !n.read);
-
-      this.items = next;
-      this.hasUnread = next.some((n) => !n.read);
-
-      // seen 동기화 (삭제된 id는 seen에서 없어도 됨. refresh가 다시 맞춰줌)
+      this.items = (this.items || []).filter((n) => !n.read);
+      this._syncUnreadMeta();
       this._seenIds = new Set((this.items || []).slice(0, 200).map((x) => x.id));
-
-      return before - next.length; // 제거된 개수
+      return before - this.items.length;
     },
   },
 });

@@ -13,6 +13,22 @@
     </div>
 
     <div class="right">
+      <button
+        class="inboxEntry"
+        :class="{ inboxEntryActive: route.path.startsWith('/inbox'), inboxEntryUnread: totalUnread > 0 }"
+        type="button"
+        @click="goInbox"
+        aria-label="Inbox 열기"
+      >
+        <span class="inboxIcon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 5h16v10H7l-3 3V5Z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="inboxText">Inbox</span>
+        <span v-if="totalUnread > 0" class="inboxBadge">{{ unreadBadge }}</span>
+      </button>
+
       <span class="live" :data-on="live">
         <span class="dot" aria-hidden="true"></span>
         {{ live ? "LIVE" : "OFFLINE" }}
@@ -22,19 +38,43 @@
 </template>
 
 <script setup>
-import { useRouter } from "vue-router";
+import { computed, onMounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useNotificationsStore } from "@/stores/notifications";
+import { useConversationsStore } from "@/stores/conversations";
 import logo from "@/assets/brand/logo.png";
 
 const router = useRouter();
+const route = useRoute();
+const noti = useNotificationsStore();
+const conv = useConversationsStore();
 
-defineProps({
+const props = defineProps({
   subtitle: { type: String, default: "" },
   live: { type: Boolean, default: false },
+});
+
+const conversationsUnread = computed(() =>
+  (conv.items || []).reduce((sum, item) => sum + Number(item?.unreadCount || 0), 0)
+);
+const totalUnread = computed(() => Number(noti.unreadCount || 0) + conversationsUnread.value);
+const unreadBadge = computed(() => {
+  const n = totalUnread.value;
+  if (n > 99) return "99+";
+  return String(n);
 });
 
 function goHome() {
   router.push("/home");
 }
+function goInbox() {
+  router.push("/inbox");
+}
+
+onMounted(() => {
+  if (!noti.loading && !(noti.items || []).length) noti.refresh?.();
+  if (!conv.loading && !(conv.items || []).length) conv.refresh?.();
+});
 </script>
 
 <style scoped>
@@ -45,6 +85,7 @@ function goHome() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 14px 14px 10px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in oklab, var(--surface) 88%, transparent);
@@ -52,6 +93,7 @@ function goHome() {
 }
 
 .left {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -77,6 +119,7 @@ function goHome() {
 }
 
 .brandText {
+  min-width: 0;
   display: grid;
   gap: 2px;
 }
@@ -95,6 +138,63 @@ function goHome() {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.inboxEntry {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.inboxEntry:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--accent) 26%, var(--border));
+  background: color-mix(in oklab, var(--surface) 76%, transparent);
+}
+.inboxEntryActive {
+  border-color: color-mix(in oklab, var(--accent) 34%, var(--border));
+  box-shadow: 0 10px 22px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.inboxEntryUnread {
+  border-color: color-mix(in oklab, var(--accent) 38%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 16%, transparent) inset;
+}
+.inboxIcon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.inboxIcon svg {
+  width: 16px;
+  height: 16px;
+}
+.inboxText {
+  white-space: nowrap;
+}
+.inboxBadge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--accent) 72%, white);
+  color: #0b1020;
+  font-size: 11px;
+  font-weight: 950;
+  box-shadow: 0 6px 14px rgba(0,0,0,.22);
 }
 
 .live {
@@ -123,5 +223,31 @@ function goHome() {
 .live[data-on="true"] .dot {
   background: var(--success);
   box-shadow: 0 0 0 6px rgba(85, 227, 160, 0.14);
+}
+
+@media (max-width: 640px) {
+  .header {
+    padding: 12px 12px 9px;
+  }
+  .brandSub {
+    font-size: 11px;
+  }
+  .inboxText {
+    display: none;
+  }
+  .inboxEntry {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+  .inboxBadge {
+    position: absolute;
+    right: -2px;
+    top: -3px;
+    min-width: 17px;
+    height: 17px;
+    font-size: 10px;
+    padding: 0 4px;
+  }
 }
 </style>
