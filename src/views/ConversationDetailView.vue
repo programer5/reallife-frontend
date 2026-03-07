@@ -1098,13 +1098,33 @@ function feedShareTextForPin(pin) {
   const title = String(pin?.title || meta.label || "액션").trim();
   const time = pin?.startAt ? pinTimeText(pin) : "";
   const place = String(pin?.placeText || "").trim();
+  const remind = pin?.remindAt ? reminderTimeText(pin) : "";
 
-  const line2 = [time, place].filter(Boolean).join(" · ");
   return [
-    `${meta.emoji} ${title}` ,
-    line2 || "오늘 이어갈 액션을 정리했어요.",
+    `${meta.emoji} ${title}`,
+    time ? `🕒 ${time}` : "",
+    place ? `📍 ${place}` : "",
+    remind && remind !== "리마인드 없음" ? `⏰ ${remind}` : "",
     "#RealLife"
-  ].join("\n");
+  ].filter(Boolean).join("");
+}
+
+function feedShareMetaForPin(pin) {
+  const meta = pinKindMeta(pin);
+  const title = String(pin?.title || meta.label || "액션").trim();
+  const time = pin?.startAt ? pinTimeText(pin) : "시간 미정";
+  const place = String(pin?.placeText || "장소 미정").trim();
+  const remind = pin?.remindAt ? reminderTimeText(pin) : "리마인드 없음";
+
+  return {
+    badge: "액션 공유",
+    title,
+    description: [time, place].filter(Boolean).join(" · "),
+    state: remind && remind !== "리마인드 없음" ? remind : meta.label,
+    kind: meta.label,
+    emoji: meta.emoji,
+    chips: [time, place].filter(Boolean),
+  };
 }
 
 function sharePinToFeed(pin) {
@@ -1114,6 +1134,7 @@ function sharePinToFeed(pin) {
       visibility: "ALL",
       source: "action-pin",
       pinId: pin?.pinId || null,
+      sourceMeta: feedShareMetaForPin(pin),
     }));
     toast.success?.("피드 공유 준비", "홈에서 바로 게시할 수 있게 초안을 채워뒀어요.");
     router.push({ path: "/home", query: { compose: "1" } });

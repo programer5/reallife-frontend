@@ -109,7 +109,7 @@ function consumeShareDraft(opts = {}) {
     composerDraft.value = {
       content: String(parsed?.content || "").trim(),
       visibility: String(parsed?.visibility || "ALL").toUpperCase(),
-      meta: parsed?.meta || null,
+      sourceMeta: parsed?.sourceMeta || parsed?.meta || null,
     };
     sessionStorage.removeItem("reallife:feedShareDraft");
     composerOpen.value = true;

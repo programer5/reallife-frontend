@@ -3,7 +3,7 @@
   <div class="backdrop" @click.self="close">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Create post">
       <div class="top">
-        <div class="heading">
+        <div>
           <div class="title">새 게시글</div>
           <div class="sub">누가 볼 수 있을지도 선택할 수 있어요</div>
         </div>
@@ -12,23 +12,14 @@
 
       <form class="form" @submit.prevent="submit">
         <div class="bodyScroll">
-          <div class="row row--top">
+          <div class="row">
             <label class="label">
               공개 범위
-              <div class="visibilityPicker" role="radiogroup" aria-label="공개 범위">
-                <button
-                  v-for="opt in visibilityOptions"
-                  :key="opt.value"
-                  type="button"
-                  class="visibilityBtn"
-                  :class="{ on: visibility === opt.value }"
-                  :aria-pressed="visibility === opt.value"
-                  @click="visibility = opt.value"
-                >
-                  <span class="visibilityTitle">{{ opt.label }}</span>
-                  <span class="visibilityDesc">{{ opt.desc }}</span>
-                </button>
-              </div>
+              <select v-model="visibility" class="select">
+                <option value="ALL">전체 공개</option>
+                <option value="FOLLOWERS">서로 연결된 사람 중심</option>
+                <option value="PRIVATE">나만</option>
+              </select>
             </label>
 
             <label class="label">
@@ -42,12 +33,17 @@
             </label>
           </div>
 
-
-          <div v-if="props.initialDraft?.sourceMeta" class="draftSourceCard">
-            <div class="draftSourceBadge">{{ props.initialDraft.sourceMeta.badge || '액션 공유' }}</div>
-            <div class="draftSourceTitle">{{ props.initialDraft.sourceMeta.title || '공유할 액션 초안' }}</div>
-            <div class="draftSourceMeta">{{ [props.initialDraft.sourceMeta.description, props.initialDraft.sourceMeta.state].filter(Boolean).join(' · ') }}</div>
-          </div>
+          <section v-if="shareMeta" class="shareMetaCard">
+            <div class="shareEyebrow">액션 공유</div>
+            <div class="shareTitle">{{ shareMeta.title || '공유할 액션' }}</div>
+            <div v-if="shareMeta.subtitle" class="shareSub">{{ shareMeta.subtitle }}</div>
+            <div class="shareChips">
+              <span v-if="shareMeta.time" class="shareChip">🕒 {{ shareMeta.time }}</span>
+              <span v-if="shareMeta.place" class="shareChip">📍 {{ shareMeta.place }}</span>
+              <span v-if="shareMeta.remindAt" class="shareChip">⏰ {{ shareMeta.remindAt }}</span>
+              <span v-if="shareMeta.status" class="shareChip">{{ shareMeta.status }}</span>
+            </div>
+          </section>
 
           <label class="label">
             내용
@@ -96,9 +92,7 @@
             <div v-if="previews.length" class="grid" aria-label="Selected images">
               <div v-for="p in previews" :key="p.key" class="thumb">
                 <img :src="p.url" alt="" class="img" />
-                <button class="rm" type="button" @click="remove(p.key)" aria-label="Remove image">
-                  ✕
-                </button>
+                <button class="rm" type="button" @click="remove(p.key)" aria-label="Remove image">✕</button>
               </div>
             </div>
 
@@ -113,15 +107,13 @@
             </div>
           </div>
 
-          <div class="footNote">
-            • 피드 목록은 <b>/api/feed</b>, 게시글 생성은 <b>/api/posts</b>로 맞춰져 있어요.
-          </div>
+          <div class="footNote">• 피드 목록은 <b>/api/feed</b>, 게시글 생성은 <b>/api/posts</b>로 맞춰져 있어요.</div>
         </div>
 
         <div class="actions">
           <button type="button" class="btn ghost" @click="close" :disabled="busy">취소</button>
           <button type="submit" class="btn primary" :disabled="!canSubmit || busy">
-            {{ busy ? "게시 중..." : "게시하기" }}
+            {{ busy ? '게시 중...' : '게시하기' }}
           </button>
         </div>
       </form>
@@ -137,6 +129,7 @@ import { createPost } from "../api/posts";
 
 const props = defineProps({
   initialDraft: { type: Object, default: null },
+  sourceMeta: { type: Object, default: null },
 });
 
 const emit = defineEmits(["close", "created"]);
@@ -146,12 +139,6 @@ const MAX_FILES = 5;
 const MAX_MB = 10;
 const MAX_BYTES = MAX_MB * 1024 * 1024;
 
-const visibilityOptions = [
-  { value: "ALL", label: "전체 공개", desc: "누구나 볼 수 있어요" },
-  { value: "FOLLOWERS", label: "팔로워만", desc: "서로 연결된 사람 중심" },
-  { value: "PRIVATE", label: "나만", desc: "임시 저장처럼 남겨둘 수 있어요" },
-];
-
 const content = ref("");
 const contentEl = ref(null);
 const visibility = ref("ALL");
@@ -159,25 +146,15 @@ const legacyUrl = ref("");
 
 const fileInput = ref(null);
 const dragOver = ref(false);
-
 const selectedFiles = ref([]);
 const previews = ref([]);
 const uploadedIds = ref([]);
-
 const uploading = ref(false);
 const progress = ref(0);
 const uploadError = ref("");
 const busy = ref(false);
 
-
-function applyInitialDraft() {
-  const draft = props.initialDraft || null;
-  if (!draft) return;
-  const draftContent = String(draft.content || "").trim();
-  if (draftContent) content.value = draftContent;
-  const draftVisibility = String(draft.visibility || "ALL").toUpperCase();
-  if (["ALL", "FOLLOWERS", "PRIVATE"].includes(draftVisibility)) visibility.value = draftVisibility;
-}
+const shareMeta = computed(() => props.sourceMeta || props.initialDraft?.sourceMeta || null);
 
 let prevOverflow = "";
 function onKeydown(e) {
@@ -189,7 +166,12 @@ onMounted(async () => {
   document.body.style.overflow = "hidden";
   window.addEventListener("keydown", onKeydown);
 
-  applyInitialDraft();
+  if (props.initialDraft) {
+    content.value = String(props.initialDraft.content || props.initialDraft.text || "");
+    visibility.value = props.initialDraft.visibility || "ALL";
+    legacyUrl.value = props.initialDraft.legacyUrl || "";
+  }
+
   await nextTick();
   contentEl.value?.focus?.();
 });
@@ -211,7 +193,6 @@ function makeKey(file) {
 function addFiles(files) {
   const incoming = Array.from(files || []);
   if (!incoming.length) return;
-
   const remaining = MAX_FILES - selectedFiles.value.length;
   const clipped = incoming.slice(0, Math.max(0, remaining));
 
@@ -251,11 +232,9 @@ function onDrop(e) {
 function remove(key) {
   const idx = previews.value.findIndex((p) => p.key === key);
   if (idx < 0) return;
-
   URL.revokeObjectURL(previews.value[idx].url);
   previews.value.splice(idx, 1);
   selectedFiles.value.splice(idx, 1);
-
   uploadedIds.value = [];
   uploadError.value = "";
 }
@@ -294,23 +273,18 @@ const canSubmit = computed(() => {
 async function submit() {
   if (!canSubmit.value) return;
   busy.value = true;
-
   try {
     let imageFileIds = uploadedIds.value;
-
     if (selectedFiles.value.length && !uploadedIds.value.length) {
       imageFileIds = await uploadNow();
     }
-
     const imageUrls = legacyUrl.value.trim() ? [legacyUrl.value.trim()] : [];
-
     const created = await createPost({
       content: content.value.trim(),
       visibility: visibility.value,
       imageFileIds: imageFileIds || [],
       imageUrls,
     });
-
     toast.success("게시 완료", "피드에 반영되었습니다.");
     emit("created", created);
     emit("close");
@@ -327,316 +301,57 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.backdrop{
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background:
-    radial-gradient(circle at 20% 12%, rgba(87, 180, 255, .08), transparent 28%),
-    radial-gradient(circle at 82% 84%, rgba(103, 76, 255, .10), transparent 24%),
-    rgba(2, 6, 18, .64);
-  backdrop-filter: blur(12px);
-}
-
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:end center;z-index:1000;padding:0}
 .sheet{
-  width: min(760px, 100%);
-  max-height: min(880px, calc(100dvh - 40px));
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  border-radius: 28px;
-  border: 1px solid color-mix(in oklab, var(--border) 88%, rgba(255,255,255,.08));
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01)),
-    color-mix(in oklab, var(--surface) 94%, rgba(6, 10, 26, .92));
-  box-shadow:
-    0 28px 90px rgba(0,0,0,.48),
-    inset 0 1px 0 rgba(255,255,255,.05);
-  overflow: hidden;
-}
-
-.top{
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap:12px;
-  padding: 18px 18px 14px;
-  border-bottom: 1px solid rgba(255,255,255,.06);
-  background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0));
-}
-
-.heading{min-width:0}
-.title{font-weight:950;font-size:28px;letter-spacing:-.03em;line-height:1.1}
-.sub{margin-top:6px;font-size:14px;color:rgba(255,255,255,.72)}
-
-.x{
-  flex: 0 0 auto;
-  width:48px;
-  height:48px;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.10);
-  background:rgba(255,255,255,.03);
-  color:var(--text);
-  font-size:18px;
-}
-
-.form{
-  min-height: 0;
+  width:min(720px,100%);
+  max-height:min(92dvh,920px);
   display:grid;
-  grid-template-rows:minmax(0, 1fr) auto;
+  grid-template-rows:auto minmax(0,1fr);
+  border-radius:22px 22px 0 0;
+  border:1px solid var(--border);
+  background:color-mix(in oklab,var(--surface) 92%,transparent);
+  backdrop-filter:blur(16px);
+  box-shadow:0 22px 80px rgba(0,0,0,.55);
+  overflow:hidden;
 }
-
-.bodyScroll{
-  min-height: 0;
-  overflow: auto;
-  padding: 16px 18px 14px;
-  display:grid;
-  gap:16px;
-}
-
-.bodyScroll::-webkit-scrollbar{width:10px}
-.bodyScroll::-webkit-scrollbar-thumb{
-  background: rgba(255,255,255,.14);
-  border-radius: 999px;
-}
-
-.row{display:grid;grid-template-columns:1.2fr 1fr;gap:12px;align-items:start}
-.label{display:grid;gap:8px;font-size:13px;font-weight:700;color:rgba(255,255,255,.84)}
-
-.visibilityPicker{
-  display:grid;
-  grid-template-columns:repeat(3, minmax(0, 1fr));
-  gap:8px;
-}
-
-.visibilityBtn{
-  min-width:0;
-  min-height:72px;
-  border-radius:18px;
-  border:1px solid rgba(255,255,255,.10);
-  background: linear-gradient(180deg, rgba(18,28,60,.92), rgba(11,18,42,.92));
-  color:rgba(255,255,255,.94);
-  padding:12px 12px 11px;
-  display:grid;
-  gap:4px;
-  text-align:left;
-  transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease;
-}
-
-.visibilityBtn:hover{
-  transform:translateY(-1px);
-  border-color: rgba(255,255,255,.16);
-}
-
-.visibilityBtn.on{
-  border-color: color-mix(in oklab, var(--accent) 56%, rgba(255,255,255,.16));
-  background:
-    linear-gradient(180deg, rgba(29, 54, 120, .88), rgba(15, 28, 68, .96)),
-    color-mix(in oklab, var(--accent) 12%, rgba(255,255,255,.03));
-  box-shadow: 0 0 0 3px rgba(94, 129, 255, .15);
-}
-
-.visibilityTitle{
-  font-size:13px;
-  font-weight:900;
-  letter-spacing:-.02em;
-}
-
-.visibilityDesc{
-  font-size:11.5px;
-  line-height:1.35;
-  color:rgba(255,255,255,.62);
-}
-
-.input{
-  width: 100%;
-  height: 48px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: linear-gradient(180deg, rgba(18,28,60,.92), rgba(11,18,42,.92));
-  padding: 0 14px;
-  color: rgba(255,255,255,.96);
-  outline: none;
-}
-
-.textarea{
-  width: 100%;
-  resize: vertical;
-  min-height: 170px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: linear-gradient(180deg, rgba(19,30,65,.96), rgba(12,20,46,.96));
-  padding: 14px 16px;
-  color: rgba(255,255,255,.96);
-  line-height: 1.55;
-  outline: none;
-}
-
-.visibilityBtn:focus-visible,
-.input:focus,
-.textarea:focus{
-  border-color: color-mix(in oklab, var(--accent) 56%, rgba(255,255,255,.16));
-  box-shadow: 0 0 0 3px rgba(94, 129, 255, .16);
-}
-
-.input::placeholder,
-.textarea::placeholder{color:rgba(255,255,255,.34)}
-
-.hint{display:flex;justify-content:flex-end;gap:2px;font-size:12px;color:rgba(255,255,255,.62)}
+.top{display:flex;justify-content:space-between;align-items:start;gap:12px;padding:16px 16px 12px;border-bottom:1px solid var(--border)}
+.title{font-weight:950;font-size:16px}.sub{margin-top:4px;font-size:12.5px;color:var(--muted)}
+.x{width:40px;height:40px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text);opacity:.9}
+.form{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0}
+.bodyScroll{min-height:0;overflow:auto;padding:14px 16px 8px;display:grid;gap:14px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:640px){.row{grid-template-columns:1fr}}
+.label{display:grid;gap:8px;font-size:13px;color:var(--muted)}
+.select,.input{height:44px;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:0 12px;color:var(--text)}
+.textarea{resize:vertical;min-height:110px;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:12px;color:var(--text);line-height:1.4}
+.hint{display:flex;justify-content:end;gap:2px;font-size:12px;color:var(--muted)}
+.shareMetaCard{border:1px solid color-mix(in oklab,var(--accent) 32%,var(--border));background:linear-gradient(180deg, rgba(124,156,255,.10), rgba(124,156,255,.04));border-radius:18px;padding:14px}
+.shareEyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+.shareTitle{margin-top:6px;font-size:16px;font-weight:950;color:var(--text)}
+.shareSub{margin-top:4px;font-size:13px;color:var(--muted);line-height:1.45}
+.shareChips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.shareChip{padding:7px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);font-size:12px;color:var(--text)}
 .uploader{display:grid;gap:12px}
-
-.drop{
-  border-radius:20px;
-  border:1px dashed rgba(255,255,255,.12);
-  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,.01));
-  padding:16px;
-  display:grid;
-  gap:8px;
-}
-
-.drop[data-drag="true"]{
-  border-color:color-mix(in oklab,var(--accent) 62%, rgba(255,255,255,.16));
-  background:color-mix(in oklab,var(--accent) 11%, rgba(255,255,255,.02));
-}
-
-.dropTitle{font-weight:900;color:rgba(255,255,255,.96)}
-.dropSub{font-size:13px;color:rgba(255,255,255,.72)}
+.drop{border-radius:18px;border:1px dashed color-mix(in oklab,var(--border) 80%,transparent);background:color-mix(in oklab,var(--surface) 88%,transparent);padding:14px;display:grid;gap:8px}
+.drop[data-drag="true"]{border-color:color-mix(in oklab,var(--accent) 55%,var(--border));background:color-mix(in oklab,var(--accent) 12%,var(--surface))}
+.dropTitle{font-weight:900;color:var(--text)}
+.dropSub{font-size:12.5px;color:var(--muted)}
 .hiddenInput{display:none}
-
-.pickBtn{
-  justify-self:start;
-  height:42px;
-  padding:0 14px;
-  border-radius:14px;
-  border:1px solid color-mix(in oklab,var(--accent) 48%, rgba(255,255,255,.12));
-  background:color-mix(in oklab,var(--accent) 16%, rgba(255,255,255,.03));
-  color:rgba(255,255,255,.96);
-  font-weight:900;
-}
-
-.rules{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:rgba(255,255,255,.68)}
+.pickBtn{justify-self:start;height:40px;padding:0 12px;border-radius:14px;border:1px solid color-mix(in oklab,var(--accent) 40%,var(--border));background:color-mix(in oklab,var(--accent) 14%,transparent);color:var(--text);font-weight:900}
+.rules{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
-.thumb{position:relative;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);background:#000;aspect-ratio:1/1}
+@media (max-width:560px){.grid{grid-template-columns:repeat(3,1fr)}}
+.thumb{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--border);background:#000;aspect-ratio:1/1}
 .img{width:100%;height:100%;object-fit:cover;display:block}
 .rm{position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.35);color:#fff}
 .progress{display:grid;gap:6px}
-.bar{height:10px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);overflow:hidden}
+.bar{height:10px;border-radius:999px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 80%,transparent);overflow:hidden}
 .barFill{height:100%;background:linear-gradient(90deg,var(--accent),var(--success));border-radius:999px}
-.progressText{font-size:12px;color:rgba(255,255,255,.68)}
+.progressText{font-size:12px;color:var(--muted)}
 .err{font-size:12.5px;color:color-mix(in oklab,var(--danger) 80%,white);display:flex;align-items:center;justify-content:space-between;gap:10px}
-.retry{height:34px;padding:0 10px;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:transparent;color:var(--text);font-weight:900}
-.footNote{margin-top:2px;font-size:11.5px;color:rgba(255,255,255,.60);line-height:1.45}
-
-.actions{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-  padding: 14px 18px calc(16px + env(safe-area-inset-bottom));
-  border-top: 1px solid rgba(255,255,255,.06);
-  background:
-    linear-gradient(180deg, rgba(8, 14, 34, .18), rgba(8, 14, 34, .96) 26%),
-    color-mix(in oklab, var(--surface) 94%, rgba(6, 10, 26, .96));
-}
-
-.btn{height:52px;border-radius:18px;border:1px solid rgba(255,255,255,.10);color:rgba(255,255,255,.96);font-weight:950}
-.btn.ghost{background:rgba(255,255,255,.025)}
-.btn.primary{border-color:color-mix(in oklab,var(--accent) 45%, rgba(255,255,255,.12));background:color-mix(in oklab,var(--accent) 19%, rgba(255,255,255,.03))}
-.btn:disabled{opacity:.55}
-
-@media (max-width: 900px){
-  .backdrop{
-    place-items: end center;
-    padding: 12px;
-  }
-
-  .sheet{
-    width: min(100%, 720px);
-    max-height: calc(100dvh - 12px);
-    border-radius: 28px 28px 0 0;
-  }
-
-  .title{font-size:24px}
-}
-
-@media (max-width: 640px){
-  .backdrop{
-    padding: 0;
-    background: rgba(2, 6, 18, .70);
-  }
-
-  .sheet{
-    width: 100%;
-    height: 100dvh;
-    max-height: 100dvh;
-    border-radius: 24px 24px 0 0;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-  }
-
-  .top{
-    padding: 16px 14px 12px;
-  }
-
-  .title{font-size:20px}
-  .sub{font-size:13px}
-  .x{width:44px;height:44px;border-radius:15px}
-
-  .bodyScroll{
-    padding: 14px 14px 12px;
-    gap: 14px;
-  }
-
-  .row{grid-template-columns:1fr}
-  .input{height:46px;border-radius:15px}
-
-  .visibilityPicker{
-    grid-template-columns:1fr;
-  }
-
-  .visibilityBtn{
-    min-height:58px;
-    border-radius:16px;
-    padding:11px 12px 10px;
-  }
-
-  .textarea{
-    min-height: 132px;
-    max-height: 240px;
-    border-radius: 16px;
-    padding: 12px 14px;
-  }
-
-  .drop{padding:14px;border-radius:18px}
-  .grid{grid-template-columns:repeat(3,1fr)}
-
-  .actions{
-    position: sticky;
-    bottom: 0;
-    padding: 12px 14px calc(14px + env(safe-area-inset-bottom) + 8px);
-    gap: 8px;
-  }
-
-  .btn{
-    height: 48px;
-    border-radius: 16px;
-  }
-}
-
-@media (max-width: 360px){
-  .bodyScroll{padding: 12px 12px 10px;}
-  .top{padding: 14px 12px 10px;}
-  .actions{padding: 10px 12px calc(12px + env(safe-area-inset-bottom) + 8px);}
-  .btn{font-size:14px;}
-}
-</style>
-
-
-<style scoped>
-.draftSourceCard{display:grid; gap:6px; padding:12px 14px; border-radius:18px; border:1px solid rgba(255,255,255,.10); background:linear-gradient(180deg, rgba(91,128,255,.10), rgba(255,255,255,.02));}
-.draftSourceBadge{justify-self:start; display:inline-flex; align-items:center; height:28px; padding:0 10px; border-radius:999px; background:rgba(255,255,255,.08); color:rgba(255,255,255,.94); font-size:12px; font-weight:900;}
-.draftSourceTitle{font-size:14px; font-weight:900; color:rgba(255,255,255,.98);}
-.draftSourceMeta{font-size:12px; color:rgba(255,255,255,.68);}
+.retry{height:34px;padding:0 10px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text);font-weight:900}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--border);background:color-mix(in oklab,var(--surface) 95%,transparent);position:sticky;bottom:0}
+.btn{height:48px;border-radius:16px;border:1px solid var(--border);color:var(--text);font-weight:950}.btn.ghost{background:transparent}.btn.primary{border-color:color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 18%,transparent)}.btn:disabled{opacity:.55}
+.footNote{margin-top:2px;font-size:11.5px;color:var(--muted);line-height:1.35}
+@media (min-width:900px){.backdrop{padding:16px;place-items:center}.sheet{border-radius:24px;max-width:760px}}
 </style>

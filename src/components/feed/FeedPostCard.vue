@@ -169,10 +169,18 @@ function isActionSharePost(post) {
 
 function getActionShareMeta(post) {
   if (!isActionSharePost(post)) return [];
-  const lines = String(post?.content || "").split("").map(v => v.trim()).filter(Boolean);
-  const second = lines.find((line) => /^\d{4}-\d{2}-\d{2}/.test(line)) || "";
-  if (!second) return [];
-  return second.split("·").map(v => v.trim()).filter(Boolean).slice(0, 2);
+  const lines = String(post?.content || "").split("")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .filter((line) => line !== "#RealLife");
+
+  const chips = [];
+  for (const line of lines.slice(1)) {
+    if (line.startsWith("🕒")) chips.push(line.replace(/^🕒\s*/, ""));
+    else if (line.startsWith("📍")) chips.push(line.replace(/^📍\s*/, ""));
+    else if (line.startsWith("⏰")) chips.push(line.replace(/^⏰\s*/, ""));
+  }
+  return chips.slice(0, 3);
 }
 </script>
 
