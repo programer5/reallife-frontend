@@ -774,7 +774,7 @@ watch(sortMode, () => loadCommentsFirst());
 .composerField{display:grid;gap:6px}
 .cInput{min-height:46px;max-height:120px;resize:none;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:11px 12px;color:var(--text);line-height:1.35}
 .composerHint{font-size:11.5px;color:rgba(255,255,255,.62);padding:0 2px}
-.cBtn{height:44px;min-width:0;width:100%;padding:0 18px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text);font-size:14px}
+.cBtn{height:42px;min-width:0;width:100%;padding:0 18px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text);font-size:14px}
 .cBtn:disabled{opacity:.6}
 .mentionPopup{position:fixed;left:14px;right:14px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:90;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.92);backdrop-filter:blur(16px);padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.35);max-width:980px;margin:0 auto}
 .mentionItem{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border-radius:12px;border:0;background:transparent;color:rgba(255,255,255,.92);cursor:pointer}
@@ -788,13 +788,13 @@ watch(sortMode, () => loadCommentsFirst());
   .doubleGrid{grid-template-columns:1fr}
   .gridShot{aspect-ratio:4/3}
 }
-@media (min-width:1080px){
+@media (min-width:1280px){
   .composerInner{grid-template-columns:minmax(0,1fr) auto;align-items:center}
-  .cBtn{width:auto;min-width:88px;justify-self:auto}
+  .cBtn{width:auto;min-width:90px;justify-self:auto}
 }
 
 @media (max-width:520px){
-  .page{padding-left:12px;padding-right:12px;padding-bottom:calc(128px + env(safe-area-inset-bottom))}
+  .page{padding-left:12px;padding-right:12px;padding-bottom:calc(142px + env(safe-area-inset-bottom))}
   .shot{width:88vw}
   .card{padding:13px}
   .cHead{align-items:stretch;flex-direction:column}
