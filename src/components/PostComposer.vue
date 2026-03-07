@@ -42,6 +42,13 @@
             </label>
           </div>
 
+
+          <div v-if="props.initialDraft?.sourceMeta" class="draftSourceCard">
+            <div class="draftSourceBadge">{{ props.initialDraft.sourceMeta.badge || '액션 공유' }}</div>
+            <div class="draftSourceTitle">{{ props.initialDraft.sourceMeta.title || '공유할 액션 초안' }}</div>
+            <div class="draftSourceMeta">{{ [props.initialDraft.sourceMeta.description, props.initialDraft.sourceMeta.state].filter(Boolean).join(' · ') }}</div>
+          </div>
+
           <label class="label">
             내용
             <textarea
@@ -624,4 +631,12 @@ onBeforeUnmount(() => {
   .actions{padding: 10px 12px calc(12px + env(safe-area-inset-bottom) + 8px);}
   .btn{font-size:14px;}
 }
+</style>
+
+
+<style scoped>
+.draftSourceCard{display:grid; gap:6px; padding:12px 14px; border-radius:18px; border:1px solid rgba(255,255,255,.10); background:linear-gradient(180deg, rgba(91,128,255,.10), rgba(255,255,255,.02));}
+.draftSourceBadge{justify-self:start; display:inline-flex; align-items:center; height:28px; padding:0 10px; border-radius:999px; background:rgba(255,255,255,.08); color:rgba(255,255,255,.94); font-size:12px; font-weight:900;}
+.draftSourceTitle{font-size:14px; font-weight:900; color:rgba(255,255,255,.98);}
+.draftSourceMeta{font-size:12px; color:rgba(255,255,255,.68);}
 </style>

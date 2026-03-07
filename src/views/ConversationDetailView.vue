@@ -935,6 +935,17 @@ const reminderDueSoonCount = computed(() => {
   }).length;
 });
 
+const reminderTodayCount = computed(() => {
+  const now = new Date();
+  return upcomingReminderPins.value.filter((p) => {
+    const ts = p?.remindAt ? new Date(p.remindAt) : null;
+    if (!ts || Number.isNaN(ts.getTime())) return false;
+    return ts.getFullYear() === now.getFullYear()
+      && ts.getMonth() === now.getMonth()
+      && ts.getDate() === now.getDate();
+  }).length;
+});
+
 function reminderTimeText(pin) {
   const remind = pin?.remindAt ? new Date(pin.remindAt).getTime() : 0;
   if (!remind) return '리마인드 없음';
@@ -2504,7 +2515,7 @@ onBeforeUnmount(() => {
             <div class="timelineReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
           </div>
           <div class="timelineReminderActions">
-            <span class="timelineReminderCount">24시간 내 {{ reminderDueSoonCount }}개</span>
+            <span class="timelineReminderCount">오늘 {{ reminderTodayCount }}개 · 24시간 내 {{ reminderDueSoonCount }}개</span>
             <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더 보기</button>
           </div>
         </div>
@@ -2524,6 +2535,7 @@ onBeforeUnmount(() => {
                 <div class="timelineRecentTitle">{{ item.title }}</div>
                 <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
               </div>
+              <button class="timelineRecentShare" type="button" @click="sharePinActivityToFeed(item)">피드 공유</button>
             </div>
           </div>
         </div>
@@ -4655,4 +4667,23 @@ onBeforeUnmount(() => {
   .timelineReminderActions{justify-items:start}
 }
 
+</style>
+
+
+<style scoped>
+.timelineRecentShare{
+  flex:0 0 auto;
+  height:32px;
+  padding:0 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.04);
+  color:rgba(255,255,255,.92);
+  font-size:12px;
+  font-weight:800;
+}
+.timelineRecentShare:hover{
+  border-color:rgba(255,255,255,.22);
+  background:rgba(255,255,255,.08);
+}
 </style>

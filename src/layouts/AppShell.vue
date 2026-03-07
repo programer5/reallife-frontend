@@ -72,7 +72,13 @@ const connected = computed(() => status.value.connected);
   position: relative;
   z-index: 1;
   overflow: auto;
-  padding-bottom: 6px; /* 탭바랑 겹침 방지 */
+  padding-bottom: 6px;
+}
+
+@media (min-width: 1024px){
+  .shell{grid-template-rows:auto 1fr;}
+  .content{padding-bottom:0;}
+  .bgLayer::after{display:none;}
 }
 
 </style>

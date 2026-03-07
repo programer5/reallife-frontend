@@ -158,6 +158,10 @@ onMounted(() => {
 }
 .active .lbl{ opacity: 1; }
 
+@media (min-width: 1024px) {
+  .tabs{display:none;}
+}
+
 @media (max-width: 640px) {
   .tabs{ padding: 8px 8px 10px; }
   .tab{ gap: 5px; }

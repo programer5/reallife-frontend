@@ -39,6 +39,19 @@ const mediaBadge = computed(() => {
   return `${count}장`;
 });
 
+const actionShareMeta = computed(() => {
+  const raw = String(props.post?.content || "").trim();
+  if (!raw || !raw.includes("#RealLife")) return null;
+  const lines = raw.split(/ +/).map((v) => v.trim()).filter(Boolean);
+  const head = lines[0] || "";
+  const info = lines[1] || "";
+  let label = "액션 공유";
+  if (head.includes("약속") || raw.includes("📅")) label = "약속 공유";
+  else if (head.includes("할일") || raw.includes("✅")) label = "할일 공유";
+  else if (head.includes("장소") || raw.includes("📍")) label = "장소 공유";
+  return { label, info };
+});
+
 const flowHint = computed(() => {
   const commentCount = Number(props.post?.commentCount || 0);
   if (commentCount <= 0) return "첫 댓글로 대화 흐름을 만들어보세요";
@@ -183,11 +196,17 @@ async function sharePost(e) {
             <span class="bTxt">{{ visBadge.label }}</span>
           </span>
           <span v-if="mediaBadge" class="badge badge--media">{{ mediaBadge }}</span>
+          <span v-if="actionShareMeta" class="badge badge--action">{{ actionShareMeta.label }}</span>
         </div>
       </div>
     </div>
 
     <div v-if="post.content" class="content">{{ post.content }}</div>
+
+    <div v-if="actionShareMeta?.info" class="actionMetaBar">
+      <span class="actionMetaDot"></span>
+      <span>{{ actionShareMeta.info }}</span>
+    </div>
 
     <div
       v-if="visibleImages.length"
@@ -202,7 +221,7 @@ async function sharePost(e) {
           :key="idx"
           class="slide"
           type="button"
-          @click.stop="openLightbox(idx, $event)"
+          @click.stop="openDetail"
           :aria-label="`이미지 ${idx+1} 확대`"
         >
           <img class="img" :src="u" alt="post image" loading="lazy" decoding="async" />
@@ -217,7 +236,10 @@ async function sharePost(e) {
 
       <div class="mediaTopMeta">
         <span class="mediaPill">{{ slide + 1 }} / {{ visibleImages.length }}</span>
-        <span v-if="visibleImages.length > 1" class="mediaPill mediaPill--soft">스와이프</span>
+        <div class="mediaTopActions">
+          <span v-if="visibleImages.length > 1" class="mediaPill mediaPill--soft">스와이프</span>
+          <button class="zoomBtn" type="button" @click.stop="openLightbox(slide, $event)" aria-label="이미지 확대">⌕</button>
+        </div>
       </div>
 
       <button v-if="visibleImages.length>1" class="nav left" type="button" @click.stop="prevSlide" aria-label="이전">‹</button>
@@ -306,10 +328,13 @@ async function sharePost(e) {
   opacity: .9;
 }
 .badge--media{ background: color-mix(in oklab, var(--accent) 12%, rgba(255,255,255,.05)); }
+.badge--action{ background: color-mix(in oklab, var(--accent) 18%, rgba(255,255,255,.05)); border-color: color-mix(in oklab, var(--accent) 40%, rgba(255,255,255,.12)); }
 .bIco{ font-size: 12px; }
 .bTxt{ letter-spacing: -0.01em; }
 
 .content{ margin-top: 10px; white-space: pre-wrap; line-height: 1.5; color: rgba(255,255,255,.94); }
+.actionMetaBar{ margin-top: 8px; min-height: 32px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius: 12px; border:1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.035); font-size: 12px; color: rgba(255,255,255,.76); }
+.actionMetaDot{ width: 8px; height: 8px; border-radius: 999px; background: color-mix(in oklab, var(--accent) 72%, white); box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent); }
 
 .mediaSlider{
   margin-top: 10px;
@@ -322,7 +347,7 @@ async function sharePost(e) {
   touch-action: pan-y;
 }
 .track{ display:flex; width: 100%; transition: transform .28s cubic-bezier(.2,.9,.2,1); }
-.slide{ flex: 0 0 100%; border: 0; background: transparent; padding: 0; cursor: zoom-in; }
+.slide{ flex: 0 0 100%; border: 0; background: transparent; padding: 0; cursor: pointer; }
 .img{
   width: 100%;
   display:block;
@@ -348,8 +373,10 @@ async function sharePost(e) {
   display:flex;
   justify-content:space-between;
   gap:8px;
+  align-items:center;
   pointer-events:none;
 }
+.mediaTopActions{ display:flex; align-items:center; gap:8px; pointer-events:auto; }
 .mediaPill{
   display:inline-flex;
   align-items:center;
@@ -364,6 +391,7 @@ async function sharePost(e) {
   backdrop-filter: blur(10px);
 }
 .mediaPill--soft{ opacity: .82; }
+.zoomBtn{ width: 30px; height: 30px; border-radius: 999px; border:1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.28); color: rgba(255,255,255,.94); font-size: 16px; font-weight: 900; cursor:pointer; backdrop-filter: blur(10px); }
 
 .nav{
   position:absolute; top: 50%; transform: translateY(-50%);

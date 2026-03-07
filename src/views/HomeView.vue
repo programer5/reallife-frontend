@@ -1,7 +1,6 @@
 <!-- src/views/HomeView.vue -->
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
 import sse from "../lib/sse";
 import { fetchFeed } from "../api/posts";
 import { likePost, unlikePost } from "../api/likes";
@@ -12,8 +11,6 @@ import FeedPostCard from "../components/feed/FeedPostCard.vue";
 import AsyncStatePanel from "../components/ui/AsyncStatePanel.vue";
 
 const toast = useToastStore();
-const router = useRouter();
-const route = useRoute();
 
 const loading = ref(false);
 const loadingMore = ref(false);
@@ -24,7 +21,6 @@ const nextCursor = ref(null);
 const hasNext = ref(false);
 
 const composerOpen = ref(false);
-const composerDraft = ref(null);
 const viewMode = ref("FOLLOWING");
 const sentinelRef = ref(null);
 const newPostCount = ref(0);
@@ -94,30 +90,6 @@ async function loadMore() {
   }
 }
 
-
-function consumeShareDraft(opts = {}) {
-  const { silent = false } = opts;
-  try {
-    const raw = sessionStorage.getItem("reallife:feedShareDraft");
-    if (!raw) return false;
-    const parsed = JSON.parse(raw);
-    composerDraft.value = {
-      content: String(parsed?.content || "").trim(),
-      visibility: String(parsed?.visibility || "ALL").toUpperCase(),
-    };
-    sessionStorage.removeItem("reallife:feedShareDraft");
-    composerOpen.value = true;
-    if (!silent) toast.success?.("공유 준비됨", "피드에 올릴 문장을 미리 채워뒀어요.");
-    if (route.query?.compose === "1") {
-      router.replace({ path: route.path, query: { ...route.query, compose: undefined } });
-    }
-    return true;
-  } catch {
-    sessionStorage.removeItem("reallife:feedShareDraft");
-    return false;
-  }
-}
-
 async function onCreated() {
   composerOpen.value = false;
   newPostCount.value = 0;
@@ -155,7 +127,6 @@ async function toggleLike(p) {
 }
 
 function openComposer() {
-  composerDraft.value = null;
   composerOpen.value = true;
 }
 
@@ -165,8 +136,7 @@ function onSwitchMode(m) {
 }
 
 function onNearbyClick() {
-  toast.info?.("근처", "v3.2에서 위치 권한과 함께 연결할게요.");
-  onSwitchMode("NEARBY");
+  toast.info?.("근처", "위치 기반 흐름은 준비 중이에요.");
 }
 
 function bindFeedSse() {
@@ -191,7 +161,6 @@ function bindVisibilitySoftSync() {
     if (document.visibilityState === "hidden") return;
     if (focusReloadTimer) window.clearTimeout(focusReloadTimer);
     focusReloadTimer = window.setTimeout(() => {
-      consumeShareDraft({ silent: true });
       if (!loading.value && !loadingMore.value) loadFirst({ silent: true });
     }, 250);
   };
@@ -226,7 +195,6 @@ onMounted(async () => {
   attachObserver();
   bindFeedSse();
   offVisibility = bindVisibilitySoftSync();
-  consumeShareDraft({ silent: true });
   await loadFirst();
 });
 
@@ -260,7 +228,7 @@ onBeforeUnmount(() => {
           <div class="modeRail" role="tablist" aria-label="피드 필터">
             <button class="modePill" :class="{ on: viewMode === 'FOLLOWING' }" type="button" @click="onSwitchMode('FOLLOWING')">팔로잉</button>
             <button class="modePill" :class="{ on: viewMode === 'FOR_YOU' }" type="button" @click="onSwitchMode('FOR_YOU')">추천</button>
-            <button class="modePill" :class="{ on: viewMode === 'NEARBY' }" type="button" @click="onNearbyClick">근처</button>
+            <button class="modePill modePill--disabled" type="button" @click="onNearbyClick">근처 · 준비중</button>
           </div>
           <div class="modeMeta">{{ modeMeta }}</div>
         </div>
@@ -358,14 +326,14 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <PostComposer v-if="composerOpen" :initial-draft="composerDraft" @close="composerOpen = false" @created="onCreated" />
+    <PostComposer v-if="composerOpen" @close="composerOpen = false" @created="onCreated" />
   </div>
 </template>
 
 <style scoped>
 .page{
   padding: 18px 16px calc(112px + env(safe-area-inset-bottom));
-  max-width: 840px;
+  max-width: 1360px;
   margin: 0 auto;
 }
 
@@ -375,11 +343,13 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   bottom: calc(60px + env(safe-area-inset-bottom));
-  height: 160px;
+  height: 96px;
   pointer-events: none;
-  background: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.55));
+  background: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.32));
   z-index: 9;
 }
+
+.pageInner{ max-width: 1360px; margin: 0 auto; }
 
 .toolbarCard{
   position: sticky;
@@ -452,6 +422,11 @@ onBeforeUnmount(() => {
   background: color-mix(in oklab, var(--accent) 18%, rgba(255,255,255,.08));
   border-color: color-mix(in oklab, var(--accent) 42%, rgba(255,255,255,.16));
   box-shadow: 0 8px 24px rgba(27, 44, 95, .20);
+}
+.modePill--disabled{
+  opacity: .72;
+  cursor: not-allowed;
+  background: rgba(255,255,255,.03);
 }
 .modeMeta{
   min-height: 18px;
@@ -529,9 +504,9 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 30px rgba(25, 48, 110, .22);
 }
 
-.masonryFeed{ column-count: 2; column-gap: 12px; }
-.masonryItem{ break-inside: avoid; margin-bottom: 12px; }
-.masonryItem :deep(.card){ margin-bottom: 0; }
+.masonryFeed{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items:start; }
+.masonryItem{ min-width: 0; }
+.masonryItem :deep(.card){ margin-bottom: 0; height: 100%; }
 
 .sentinel{ padding: 16px 0 6px; display:flex; justify-content:center; }
 .loadingMoreHint,.endHint{ font-size: 12px; }
@@ -591,8 +566,13 @@ onBeforeUnmount(() => {
 }
 
 @media (min-width: 980px){
-  .page{ max-width: 1100px; }
-  .masonryFeed{ column-count: 3; column-gap: 14px; }
+  .page{ max-width: 1360px; }
+  .masonryFeed{ grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+}
+
+@media (min-width: 1280px){
+  .masonryFeed{ grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+  .page::after{ display:none; }
 }
 
 @media (max-width: 720px){
@@ -610,8 +590,13 @@ onBeforeUnmount(() => {
   .overviewStats{ justify-content:flex-start; }
 }
 
+@media (max-width: 900px){
+  .page{ max-width: 980px; }
+  .masonryFeed{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 700px){
-  .masonryFeed{ column-count: 1; }
+  .masonryFeed{ grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px){

@@ -25,6 +25,10 @@ const error = computed(() => noti.error);
 const reminderItems = computed(() => (items.value || []).filter((n) => String(n?.type || '') === 'PIN_REMIND'));
 const unreadReminderCount = computed(() => reminderItems.value.filter((n) => !n.read).length);
 const latestReminder = computed(() => reminderItems.value[0] || null);
+const reminderSummaryMeta = computed(() => {
+  const body = String(latestReminder.value?.body || '').trim();
+  return body ? body : '곧 다가오는 약속·할일을 바로 이어갈 수 있어요.';
+});
 
 const pendingAction = ref(null);
 function loadPendingAction() {
@@ -221,10 +225,10 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
       <div class="remLeft">
         <div class="sumTitle">다가오는 리마인더</div>
         <div class="remValue">{{ unreadReminderCount }}개 미확인</div>
-        <div class="remBody">{{ latestReminder?.body || '곧 다가오는 약속/할일을 확인해보세요.' }}</div>
+        <div class="remBody">{{ reminderSummaryMeta }}</div>
       </div>
       <div class="sumActions">
-        <RlButton size="sm" variant="primary" @click="openLatestReminder">리마인더 보기</RlButton>
+        <RlButton size="sm" variant="primary" @click="openLatestReminder">지금 이어가기</RlButton>
       </div>
     </div>
 
