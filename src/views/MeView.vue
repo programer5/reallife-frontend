@@ -9,11 +9,11 @@
             <div class="heroTitle">내 프로필</div>
             <div class="heroName">{{ form.name || me?.name || '사용자' }}</div>
             <div class="heroHandle">@{{ me?.handle || 'user' }}</div>
-            <div class="heroSub">가입 직후 넣은 정보도 여기서 계속 다듬을 수 있어요.</div>
+            <div class="heroSub">가입 직후 넣은 정보도 여기서 계속 다듬을 수 있어요. RealLife에서는 이 프로필이 대화와 팔로우의 첫인상이 돼요.</div>
           </div>
         </div>
         <div class="heroActions">
-          <button class="softBtn" type="button" @click="goMyPublicProfile" :disabled="!me?.handle">내 프로필 보기</button>
+          <button class="softBtn" type="button" @click="goMyPublicProfile" :disabled="!me?.handle">내 공개 프로필 보기</button>
           <button class="ghostBtn" type="button" @click="refreshAll" :disabled="loading">새로고침</button>
           <button class="dangerBtn" type="button" @click="onLogout" :disabled="loading">로그아웃</button>
         </div>
@@ -25,11 +25,31 @@
       </div>
     </section>
 
+    <section class="progressCard">
+      <div>
+        <div class="title">프로필 완성도</div>
+        <div class="sub">이름, 소개, 링크, 사진까지 채우면 팔로우와 DM 전환이 더 자연스러워져요.</div>
+      </div>
+      <div class="progressSide">
+        <div class="progressValue">{{ completionPercent }}%</div>
+        <div class="progressBar"><span :style="{ width: completionPercent + '%' }"></span></div>
+      </div>
+      <div class="checkGrid">
+        <div v-for="item in completionItems" :key="item.key" class="checkItem" :data-done="item.done">
+          <span class="checkIcon">{{ item.done ? '✓' : '•' }}</span>
+          <div>
+            <div class="checkLabel">{{ item.label }}</div>
+            <div class="checkHint">{{ item.hint }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="card">
       <div class="sectionHead">
         <div>
           <div class="title">프로필 편집</div>
-          <div class="sub">이름, 소개, 웹사이트, 사진을 바로 바꿀 수 있어요.</div>
+          <div class="sub">이름, 소개, 웹사이트, 사진을 한 번에 바꿀 수 있어요.</div>
         </div>
         <button class="primaryBtn" type="button" @click="saveProfile" :disabled="saving">{{ saving ? '저장 중...' : '저장' }}</button>
       </div>
@@ -43,6 +63,7 @@
               <button class="softBtn" type="button" @click="onPickAvatar">사진 변경</button>
               <button class="ghostBtn" type="button" @click="clearAvatar" :disabled="saving">사진 제거</button>
             </div>
+            <div class="microHint">정사각형 이미지가 가장 자연스럽게 보여요.</div>
             <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onUploadAvatar" />
           </div>
         </label>
@@ -60,24 +81,50 @@
           <label class="label">
             웹사이트
             <input v-model.trim="form.website" class="input" placeholder="https://example.com" />
+            <div class="microHint">포트폴리오, 블로그, 링크 모음 페이지를 넣어도 좋아요.</div>
           </label>
         </div>
       </div>
     </section>
 
-    <section class="card">
-      <div class="sectionHead compact">
-        <div>
-          <div class="title">공개 프로필 미리보기</div>
-          <div class="sub">다른 사용자가 보게 될 모습이에요.</div>
+    <section class="card twoCol">
+      <div>
+        <div class="sectionHead compact">
+          <div>
+            <div class="title">공개 프로필 미리보기</div>
+            <div class="sub">다른 사용자가 보게 될 모습이에요.</div>
+          </div>
+        </div>
+        <div class="preview">
+          <div class="previewName">{{ form.name || me?.name || '사용자' }}</div>
+          <div class="previewHandle">@{{ me?.handle || 'user' }}</div>
+          <div v-if="form.bio" class="previewBio">{{ form.bio }}</div>
+          <div v-else class="previewEmpty">소개를 적으면 다른 사람이 나를 더 쉽게 이해할 수 있어요.</div>
+          <a v-if="form.website" class="previewWebsite" :href="websiteUrl(form.website)" target="_blank" rel="noreferrer">{{ form.website }}</a>
         </div>
       </div>
-      <div class="preview">
-        <div class="previewName">{{ form.name || me?.name || '사용자' }}</div>
-        <div class="previewHandle">@{{ me?.handle || 'user' }}</div>
-        <div v-if="form.bio" class="previewBio">{{ form.bio }}</div>
-        <a v-if="form.website" class="previewWebsite" :href="websiteUrl(form.website)" target="_blank" rel="noreferrer">{{ form.website }}</a>
-        <div v-else class="previewEmpty">아직 웹사이트를 입력하지 않았어요.</div>
+
+      <div>
+        <div class="sectionHead compact">
+          <div>
+            <div class="title">바로 이어서 할 것</div>
+            <div class="sub">프로필을 다듬은 뒤 바로 RealLife 흐름으로 이어가요.</div>
+          </div>
+        </div>
+        <div class="nextList">
+          <button class="nextItem" type="button" @click="router.push('/home')">
+            <strong>피드로 이동</strong>
+            <span>공개 글을 보고 댓글에서 액션을 시작해보세요.</span>
+          </button>
+          <button class="nextItem" type="button" @click="router.push('/inbox')">
+            <strong>Inbox 보기</strong>
+            <span>알림과 대화 흐름을 확인하고 액션으로 이어갈 수 있어요.</span>
+          </button>
+          <button class="nextItem" type="button" @click="goMyPublicProfile" :disabled="!me?.handle">
+            <strong>공개 프로필 확인</strong>
+            <span>팔로우/DM 버튼이 다른 사람에게 어떻게 보이는지 확인해보세요.</span>
+          </button>
+        </div>
       </div>
     </section>
   </div>
@@ -109,6 +156,19 @@ const initials = computed(() => {
   return raw ? raw[0].toUpperCase() : 'R';
 });
 
+const completionItems = computed(() => ([
+  { key: 'name', label: '이름', hint: '대화와 프로필에서 보여요.', done: !!String(form.name || me.value?.name || '').trim() },
+  { key: 'bio', label: '소개', hint: '나를 설명하는 한두 줄이에요.', done: !!String(form.bio || '').trim() },
+  { key: 'website', label: '링크', hint: '블로그나 포트폴리오를 연결할 수 있어요.', done: !!String(form.website || '').trim() },
+  { key: 'avatar', label: '프로필 사진', hint: '팔로우와 DM 전환이 더 자연스러워져요.', done: !!String(avatarUrl.value || publicProfile.value?.profileImageUrl || '').trim() },
+]));
+
+const completionPercent = computed(() => {
+  const total = completionItems.value.length || 1;
+  const done = completionItems.value.filter((item) => item.done).length;
+  return Math.round((done / total) * 100);
+});
+
 function websiteUrl(v) {
   const s = String(v || '').trim();
   if (!s) return '';
@@ -125,6 +185,7 @@ async function refreshAll() {
     form.bio = publicProfile.value?.bio || '';
     form.website = publicProfile.value?.website || '';
     avatarUrl.value = publicProfile.value?.profileImageUrl || '';
+    avatarFileId.value = undefined;
   } catch (e) {
     toast.error('불러오기 실패', e?.response?.data?.message || '내 프로필을 불러오지 못했어요.');
   } finally { loading.value = false; }
@@ -147,7 +208,12 @@ function clearAvatar() { avatarUrl.value = ''; avatarFileId.value = null; }
 async function saveProfile() {
   saving.value = true;
   try {
-    await updateMyProfile({ name: form.name || null, bio: form.bio || null, website: form.website || null, profileImageFileId: avatarFileId.value });
+    await updateMyProfile({
+      name: form.name || null,
+      bio: form.bio || null,
+      website: form.website || null,
+      profileImageFileId: avatarFileId.value,
+    });
     await refreshAll();
     toast.success('저장 완료', '내 프로필이 업데이트됐어요.');
   } catch (e) {
@@ -160,5 +226,45 @@ onMounted(async () => { try { if (!auth.me) await auth.ensureSession(); } catch 
 </script>
 
 <style scoped>
-.page{max-width:920px;margin:0 auto;padding:18px 14px 100px;display:grid;gap:14px}.heroCard,.card{border:1px solid var(--border);border-radius:24px;background:color-mix(in oklab,var(--surface) 92%,transparent);box-shadow:0 14px 42px rgba(0,0,0,.18)}.heroCard{padding:18px}.card{padding:18px}.heroTop{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.identity{display:flex;gap:14px;align-items:center}.avatarImg,.avatar,.avatarLg{object-fit:cover;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10)}.avatarImg,.avatar{width:78px;height:78px;border-radius:24px}.avatarLg{width:112px;height:112px;border-radius:28px}.fallback{display:grid;place-items:center;font-size:30px;font-weight:950;background:linear-gradient(135deg,color-mix(in oklab,var(--accent) 34%,transparent),color-mix(in oklab,var(--accent) 12%,transparent))}.heroTitle{font-size:12px;font-weight:900;letter-spacing:.16em;color:var(--muted)}.heroName{margin-top:4px;font-size:24px;font-weight:950}.heroHandle{margin-top:2px;color:var(--muted)}.heroSub{margin-top:8px;color:var(--muted);line-height:1.55;max-width:520px}.heroActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.stat{padding:12px;border:1px solid var(--border);border-radius:16px;background:color-mix(in oklab,var(--surface-2) 80%,transparent);display:grid;gap:4px}.stat strong{font-size:18px}.stat span{font-size:12px;color:var(--muted)}.sectionHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.title{font-size:18px;font-weight:950}.sub{margin-top:4px;color:var(--muted);line-height:1.5}.compact{margin-bottom:10px}.formGrid{display:grid;grid-template-columns:260px 1fr;gap:18px}.label{display:grid;gap:8px;font-size:13px;color:var(--muted)}.avatarPanel{display:grid;gap:12px;justify-items:start}.avatarBtns{display:flex;gap:8px;flex-wrap:wrap}.fields{display:grid;gap:14px}.input,.textarea{width:100%;border-radius:14px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);color:var(--text);padding:12px}.textarea{min-height:120px;resize:vertical}.count{justify-self:end;font-size:12px;color:var(--muted)}.preview{padding:14px;border:1px solid var(--border);border-radius:18px;background:color-mix(in oklab,var(--surface-2) 76%,transparent)}.previewName{font-size:20px;font-weight:950}.previewHandle{margin-top:4px;color:var(--muted)}.previewBio{margin-top:10px;line-height:1.6}.previewWebsite{display:inline-block;margin-top:10px;color:var(--text)}.previewEmpty{margin-top:10px;color:var(--muted)}.primaryBtn,.softBtn,.ghostBtn,.dangerBtn{height:42px;padding:0 14px;border-radius:14px;font-weight:900}.primaryBtn{border:1px solid color-mix(in oklab,var(--accent) 40%, var(--border));background:color-mix(in oklab,var(--accent) 18%,transparent);color:var(--text)}.softBtn{border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 82%,transparent);color:var(--text)}.ghostBtn{border:1px solid var(--border);background:transparent;color:var(--text)}.dangerBtn{border:1px solid color-mix(in oklab,var(--danger) 42%, var(--border));background:color-mix(in oklab,var(--danger) 10%, transparent);color:var(--text)}.hidden{display:none}@media (max-width:780px){.heroTop{flex-direction:column}.heroActions{justify-content:flex-start}.stats{grid-template-columns:1fr}.formGrid{grid-template-columns:1fr}.avatarLg{width:96px;height:96px;border-radius:22px}}
+.page{max-width:960px;margin:0 auto;padding:18px 14px 100px;display:grid;gap:14px}
+.heroCard,.card,.progressCard{border:1px solid var(--border);border-radius:24px;background:color-mix(in oklab,var(--surface) 92%,transparent);box-shadow:0 14px 42px rgba(0,0,0,.18)}
+.heroCard,.card,.progressCard{padding:18px}
+.heroTop{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.identity{display:flex;gap:14px;align-items:center}
+.avatarImg,.avatar,.avatarLg{object-fit:cover;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10)}
+.avatarImg,.avatar{width:78px;height:78px;border-radius:24px}
+.avatarLg{width:112px;height:112px;border-radius:28px}
+.fallback{display:grid;place-items:center;font-size:30px;font-weight:950;background:linear-gradient(135deg,color-mix(in oklab,var(--accent) 34%,transparent),color-mix(in oklab,var(--accent) 12%,transparent))}
+.heroTitle{font-size:12px;font-weight:900;letter-spacing:.16em;color:var(--muted)}
+.heroName{margin-top:4px;font-size:24px;font-weight:950}
+.heroHandle{margin-top:2px;color:var(--muted)}
+.heroSub{margin-top:8px;color:var(--muted);line-height:1.55;max-width:560px}
+.heroActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.stat{padding:12px;border:1px solid var(--border);border-radius:16px;background:color-mix(in oklab,var(--surface-2) 80%,transparent);display:grid;gap:4px}
+.stat strong{font-size:18px}.stat span{font-size:12px;color:var(--muted)}
+.progressCard{display:grid;gap:14px}
+.progressSide{display:grid;gap:8px}
+.progressValue{font-size:28px;font-weight:950;letter-spacing:-.03em}
+.progressBar{height:12px;border-radius:999px;background:color-mix(in oklab,var(--surface-2) 80%,transparent);border:1px solid var(--border);overflow:hidden}
+.progressBar span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,color-mix(in oklab,var(--accent) 80%,white),color-mix(in oklab,var(--accent) 28%,transparent))}
+.checkGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.checkItem{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 76%,transparent)}
+.checkItem[data-done="true"]{border-color:color-mix(in oklab,var(--accent) 34%,var(--border));background:color-mix(in oklab,var(--accent) 10%,transparent)}
+.checkIcon{width:24px;height:24px;border-radius:999px;display:grid;place-items:center;font-weight:950;background:rgba(255,255,255,.06)}
+.checkLabel{font-weight:900}.checkHint{margin-top:3px;font-size:12px;color:var(--muted);line-height:1.45}
+.sectionHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}
+.title{font-size:18px;font-weight:950}.sub{margin-top:4px;color:var(--muted);line-height:1.5}.compact{margin-bottom:10px}
+.formGrid{display:grid;grid-template-columns:260px 1fr;gap:18px}
+.label{display:grid;gap:8px;font-size:13px;color:var(--muted)}
+.avatarPanel{display:grid;gap:12px;justify-items:start}.avatarBtns{display:flex;gap:8px;flex-wrap:wrap}.fields{display:grid;gap:14px}
+.input,.textarea{width:100%;border-radius:14px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);color:var(--text);padding:12px}
+.textarea{min-height:120px;resize:vertical}.count{justify-self:end;font-size:12px;color:var(--muted)}
+.microHint{font-size:12px;color:var(--muted);line-height:1.45}
+.twoCol{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
+.preview{padding:14px;border:1px solid var(--border);border-radius:18px;background:color-mix(in oklab,var(--surface-2) 76%,transparent)}
+.previewName{font-size:20px;font-weight:950}.previewHandle{margin-top:4px;color:var(--muted)}.previewBio{margin-top:10px;line-height:1.6}.previewWebsite{display:inline-block;margin-top:10px;color:var(--text)}.previewEmpty{margin-top:10px;color:var(--muted)}
+.nextList{display:grid;gap:10px}.nextItem{text-align:left;padding:14px;border-radius:18px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 76%,transparent);display:grid;gap:5px;color:var(--text)}.nextItem strong{font-size:15px}.nextItem span{font-size:13px;line-height:1.5;color:var(--muted)}
+.primaryBtn,.softBtn,.ghostBtn,.dangerBtn{height:42px;padding:0 14px;border-radius:14px;font-weight:900}.primaryBtn{border:1px solid color-mix(in oklab,var(--accent) 40%, var(--border));background:color-mix(in oklab,var(--accent) 18%,transparent);color:var(--text)}.softBtn{border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 82%,transparent);color:var(--text)}.ghostBtn{border:1px solid var(--border);background:transparent;color:var(--text)}.dangerBtn{border:1px solid color-mix(in oklab,var(--danger) 42%, var(--border));background:color-mix(in oklab,var(--danger) 10%, transparent);color:var(--text)}.hidden{display:none}
+@media (max-width:820px){.heroTop{flex-direction:column}.heroActions{justify-content:flex-start}.stats{grid-template-columns:1fr}.formGrid,.twoCol,.checkGrid{grid-template-columns:1fr}.avatarLg{width:96px;height:96px;border-radius:22px}}
 </style>

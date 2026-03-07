@@ -128,6 +128,10 @@ import { useToastStore } from "../stores/toast";
 import { uploadImages } from "../api/files";
 import { createPost } from "../api/posts";
 
+const props = defineProps({
+  initialDraft: { type: Object, default: null },
+});
+
 const emit = defineEmits(["close", "created"]);
 const toast = useToastStore();
 
@@ -158,6 +162,16 @@ const progress = ref(0);
 const uploadError = ref("");
 const busy = ref(false);
 
+
+function applyInitialDraft() {
+  const draft = props.initialDraft || null;
+  if (!draft) return;
+  const draftContent = String(draft.content || "").trim();
+  if (draftContent) content.value = draftContent;
+  const draftVisibility = String(draft.visibility || "ALL").toUpperCase();
+  if (["ALL", "FOLLOWERS", "PRIVATE"].includes(draftVisibility)) visibility.value = draftVisibility;
+}
+
 let prevOverflow = "";
 function onKeydown(e) {
   if (e.key === "Escape") close();
@@ -168,6 +182,7 @@ onMounted(async () => {
   document.body.style.overflow = "hidden";
   window.addEventListener("keydown", onKeydown);
 
+  applyInitialDraft();
   await nextTick();
   contentEl.value?.focus?.();
 });

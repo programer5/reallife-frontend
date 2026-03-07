@@ -22,6 +22,12 @@ const dmBusy = ref(false);
 const followBusy = ref(false);
 const isMe = computed(() => String(profile.value?.id || '') === String(auth.me?.id || ''));
 const isFollowing = computed(() => !!profile.value?.followedByMe);
+const headline = computed(() => {
+  if (!profile.value) return '';
+  if (isMe.value) return '내 공개 프로필이에요. 다른 사람이 보는 모습을 여기서 바로 확인할 수 있어요.';
+  if (isFollowing.value) return '이미 연결된 사용자예요. 공개 글과 대화를 더 자연스럽게 이어갈 수 있어요.';
+  return '팔로우하면 이 사용자의 공개 글이 피드에서 더 잘 보이고, 댓글에서 액션으로 이어가기 쉬워져요.';
+});
 
 function pickInitial(p) { const s = String(p?.name || p?.handle || "").trim(); return s ? s[0].toUpperCase() : "U"; }
 function websiteUrl(u) { const s = String(u || "").trim(); if (!s) return ""; return /^(http|https):\/\//i.test(s) ? s : `https://${s}`; }
@@ -72,8 +78,8 @@ onMounted(load);
       <div class="topTitle">프로필</div>
       <RlButton size="sm" variant="soft" @click="load" :disabled="loading">새로고침</RlButton>
     </div>
-    <AsyncStatePanel v-if="loading" mode="loading" title="프로필을 불러오는 중이에요" description="잠시만 기다리면 사용자 정보를 보여드릴게요." />
-    <AsyncStatePanel v-else-if="error" mode="error" title="프로필을 불러오지 못했어요" :description="error" action-label="다시 불러오기" @action="load" />
+    <AsyncStatePanel v-if="loading" icon="⏳" title="프로필을 불러오는 중이에요" description="잠시만 기다리면 사용자 정보를 보여드릴게요." tone="loading" :show-actions="false" />
+    <AsyncStatePanel v-else-if="error" icon="⚠️" title="프로필을 불러오지 못했어요" :description="error" tone="danger" primary-label="다시 불러오기" @primary="load" />
     <div v-else-if="profile" class="card">
       <div class="hero">
         <img v-if="profile.profileImageUrl" :src="profile.profileImageUrl" class="avatarImg" alt="avatar" />
@@ -86,6 +92,7 @@ onMounted(load);
             </div>
             <span v-if="isFollowing" class="pill">팔로잉</span>
           </div>
+          <div class="headline">{{ headline }}</div>
           <div v-if="profile.bio" class="bio">{{ profile.bio }}</div>
           <div v-else class="emptyText">아직 소개가 없어요.</div>
           <a v-if="profile.website" class="website" :href="websiteUrl(profile.website)" target="_blank" rel="noreferrer">{{ profile.website }}</a>
@@ -97,7 +104,7 @@ onMounted(load);
       </div>
       <div class="hintBox">
         <div class="hintTitle">RealLife 흐름</div>
-        <div class="hintText">이 사용자의 공개 게시글에서 댓글을 시작하고, 대화로 이어가며 실제 약속이나 할 일을 만들 수 있어요.</div>
+        <div class="hintText">공개 게시글에서 댓글을 시작하고, 대화로 이어가며 실제 약속이나 할 일을 만들 수 있어요.</div>
       </div>
       <div class="actions">
         <RlButton v-if="isMe" size="sm" variant="primary" @click="router.push('/me')">내 프로필 편집</RlButton>
@@ -109,5 +116,5 @@ onMounted(load);
   </div>
 </template>
 <style scoped>
-.page{padding:18px 14px 96px;max-width:760px;margin:0 auto}.topbar{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;margin-bottom:14px}.topTitle{font-weight:950;text-align:center}.card{display:grid;gap:14px;padding:18px;border:1px solid var(--border);border-radius:24px;background:color-mix(in oklab,var(--surface) 92%, transparent);box-shadow:0 12px 42px rgba(0,0,0,.18)}.hero{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}.avatar,.avatarImg{width:80px;height:80px;border-radius:24px;object-fit:cover}.avatar{display:grid;place-items:center;background:linear-gradient(135deg,color-mix(in oklab,var(--accent) 38%, transparent),color-mix(in oklab,var(--accent) 12%, transparent));font-size:28px;font-weight:950}.nameRow{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.name{font-size:22px;font-weight:950}.handle{margin-top:4px;color:var(--muted)}.pill{height:28px;padding:0 10px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 38%, var(--border));display:grid;place-items:center;font-size:12px;font-weight:900;background:color-mix(in oklab,var(--accent) 12%, transparent)}.bio{margin-top:10px;line-height:1.65}.emptyText{margin-top:10px;color:var(--muted)}.website{display:inline-block;margin-top:10px;color:var(--text)}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.stat{padding:12px;border:1px solid var(--border);border-radius:16px;background:color-mix(in oklab,var(--surface-2) 78%, transparent);display:grid;gap:4px}.stat strong{font-size:18px}.stat span{font-size:12px;color:var(--muted)}.hintBox{padding:14px;border-radius:18px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 76%, transparent)}.hintTitle{font-size:12px;font-weight:900;letter-spacing:.14em;color:var(--muted)}.hintText{margin-top:8px;line-height:1.6;color:var(--text)}.actions{display:flex;gap:8px;flex-wrap:wrap}@media (max-width:640px){.hero{grid-template-columns:1fr}.avatar,.avatarImg{width:72px;height:72px;border-radius:20px}.name{font-size:20px}.stats{grid-template-columns:1fr}}
+.page{padding:18px 14px 96px;max-width:760px;margin:0 auto}.topbar{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;margin-bottom:14px}.topTitle{font-weight:950;text-align:center}.card{display:grid;gap:14px;padding:18px;border:1px solid var(--border);border-radius:24px;background:color-mix(in oklab,var(--surface) 92%, transparent);box-shadow:0 12px 42px rgba(0,0,0,.18)}.hero{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}.avatar,.avatarImg{width:80px;height:80px;border-radius:24px;object-fit:cover}.avatar{display:grid;place-items:center;background:linear-gradient(135deg,color-mix(in oklab,var(--accent) 38%, transparent),color-mix(in oklab,var(--accent) 12%, transparent));font-size:28px;font-weight:950}.nameRow{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.name{font-size:22px;font-weight:950}.handle{margin-top:4px;color:var(--muted)}.pill{height:28px;padding:0 10px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 38%, var(--border));display:grid;place-items:center;font-size:12px;font-weight:900;background:color-mix(in oklab,var(--accent) 12%, transparent)}.headline{margin-top:10px;font-size:13px;line-height:1.55;color:var(--muted)}.bio{margin-top:10px;line-height:1.65}.emptyText{margin-top:10px;color:var(--muted)}.website{display:inline-block;margin-top:10px;color:var(--text)}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.stat{padding:12px;border:1px solid var(--border);border-radius:16px;background:color-mix(in oklab,var(--surface-2) 78%, transparent);display:grid;gap:4px}.stat strong{font-size:18px}.stat span{font-size:12px;color:var(--muted)}.hintBox{padding:14px;border-radius:18px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 76%, transparent)}.hintTitle{font-size:12px;font-weight:900;letter-spacing:.14em;color:var(--muted)}.hintText{margin-top:8px;line-height:1.6;color:var(--text)}.actions{display:flex;gap:8px;flex-wrap:wrap}@media (max-width:640px){.hero{grid-template-columns:1fr}.avatar,.avatarImg{width:72px;height:72px;border-radius:20px}.name{font-size:20px}.stats{grid-template-columns:1fr}}
 </style>

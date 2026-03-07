@@ -22,6 +22,10 @@ const loadingMore = computed(() => noti.loadingMore);
 const hasNext = computed(() => noti.hasNext);
 const error = computed(() => noti.error);
 
+const reminderItems = computed(() => (items.value || []).filter((n) => String(n?.type || '') === 'PIN_REMIND'));
+const unreadReminderCount = computed(() => reminderItems.value.filter((n) => !n.read).length);
+const latestReminder = computed(() => reminderItems.value[0] || null);
+
 const pendingAction = ref(null);
 function loadPendingAction() {
   try { pendingAction.value = JSON.parse(sessionStorage.getItem("reallife:pendingAction") || "null"); }
@@ -59,6 +63,11 @@ function pendingSourcePreview() {
 function goPendingSource() {
   const to = pendingSourceRoute();
   if (to) router.push(to);
+}
+
+async function openLatestReminder() {
+  if (!latestReminder.value) return;
+  await openItem(latestReminder.value);
 }
 
 function formatType(t) {
@@ -208,6 +217,17 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
       </div>
     </div>
 
+    <div v-if="reminderItems.length" class="reminderSummary rl-cardish">
+      <div class="remLeft">
+        <div class="sumTitle">다가오는 리마인더</div>
+        <div class="remValue">{{ unreadReminderCount }}개 미확인</div>
+        <div class="remBody">{{ latestReminder?.body || '곧 다가오는 약속/할일을 확인해보세요.' }}</div>
+      </div>
+      <div class="sumActions">
+        <RlButton size="sm" variant="primary" @click="openLatestReminder">리마인더 보기</RlButton>
+      </div>
+    </div>
+
     <AsyncStatePanel
       v-if="loading && !items.length"
       icon="⏳"
@@ -264,14 +284,14 @@ onBeforeUnmount(() => { if (io) io.disconnect(); io = null; });
 .head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:14px;border-radius:20px}
 .title{font-size:22px;font-weight:950;letter-spacing:-.02em}.sub{margin-top:2px;font-size:12px;opacity:.7}
 .actions,.sumActions,.bActions{display:flex;gap:8px;flex-wrap:wrap}
-.bridge,.summary{margin-top:14px;border-radius:20px;padding:14px}
+.bridge,.summary,.reminderSummary{margin-top:14px;border-radius:20px;padding:14px}
 .bTopline{font-size:11px;font-weight:800;letter-spacing:.02em;color:color-mix(in oklab,var(--accent) 76%, white)}
 .bTitle,.sumTitle{font-weight:950}.bSub{margin-top:6px;font-size:13px;opacity:.92;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .bKind{font-weight:900}
 .bQuote{opacity:.92}
 .bSourcePreview{margin-top:8px;font-size:12px;line-height:1.45;color:rgba(255,255,255,.72)}
-.summary{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.sumValue{margin-top:4px;font-size:24px;font-weight:950;letter-spacing:-.03em}
+.summary,.reminderSummary{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sumValue{margin-top:4px;font-size:24px;font-weight:950;letter-spacing:-.03em}.remValue{margin-top:4px;font-size:18px;font-weight:950;letter-spacing:-.02em}.remBody{margin-top:8px;font-size:13px;line-height:1.55;color:rgba(255,255,255,.78)}
 .state{margin-top:20px;padding:24px;border-radius:18px;text-align:center}.err{color:#ffb4b4}
 .list{margin-top:14px;display:flex;flex-direction:column;gap:10px}
 .item{text-align:left;border-radius:18px;padding:13px;cursor:pointer;color:var(--text);transition:border-color .16s ease,background .16s ease,transform .16s ease}

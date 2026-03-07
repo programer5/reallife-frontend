@@ -41,6 +41,16 @@ function isRefreshRequest(config) {
     return url.includes("/api/auth/refresh-cookie");
 }
 
+function shouldSkipRefreshForRequest(config) {
+    const url = String(config?.url || "");
+    const method = String(config?.method || "get").toLowerCase();
+
+    if (url.includes("/api/auth/login") || url.includes("/api/auth/login-cookie")) return true;
+    if (url.includes("/api/users/exists") && method === "get") return true;
+    if (url === "/api/users" && method === "post") return true;
+    return false;
+}
+
 api.interceptors.response.use(
     (res) => res,
     async (error) => {
@@ -52,6 +62,11 @@ api.interceptors.response.use(
 
         // refresh-cookie 자체가 401이면 여기서 더는 못함
         if (status === 401 && isRefreshRequest(config)) {
+            throw error;
+        }
+
+        // 공개 엔드포인트 / 로그인 / 회원가입 / handle 중복확인에서는 refresh를 시도하지 않음
+        if (status === 401 && shouldSkipRefreshForRequest(config)) {
             throw error;
         }
 

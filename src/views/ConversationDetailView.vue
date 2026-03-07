@@ -916,6 +916,38 @@ const dockStatusSummary = computed(() => {
   return { overdue, upcoming, todoReady, placeSaved };
 });
 
+const upcomingReminderPins = computed(() => {
+  const now = Date.now();
+  return (Array.isArray(pins.value) ? pins.value : [])
+    .filter((p) => p?.remindAt)
+    .map((p) => ({ pin: p, ts: new Date(p.remindAt).getTime() }))
+    .filter((x) => x.ts && x.ts >= now)
+    .sort((a, b) => a.ts - b.ts)
+    .map((x) => x.pin);
+});
+
+const nextReminderPin = computed(() => upcomingReminderPins.value[0] || null);
+const reminderDueSoonCount = computed(() => {
+  const limit = Date.now() + 1000 * 60 * 60 * 24;
+  return upcomingReminderPins.value.filter((p) => {
+    const ts = p?.remindAt ? new Date(p.remindAt).getTime() : 0;
+    return ts && ts <= limit;
+  }).length;
+});
+
+function reminderTimeText(pin) {
+  const remind = pin?.remindAt ? new Date(pin.remindAt).getTime() : 0;
+  if (!remind) return '리마인드 없음';
+  const startText = pin?.startAt ? ` · 일정 ${pinTimeText(pin)}` : '';
+  return `${String(pin.remindAt).replace('T', ' ').slice(0, 16)}${startText}`;
+}
+
+function openReminderPins(pin) {
+  if (!conversationId.value) return;
+  const q = pin?.pinId ? `?pinId=${encodeURIComponent(String(pin.pinId))}` : '';
+  router.push(`/inbox/conversations/${encodeURIComponent(String(conversationId.value))}/pins${q}`);
+}
+
 const recentPinActivity = computed(() => pinActivity.value.slice(0, 4));
 
 function pinActivityLabel(item) {
@@ -1047,6 +1079,36 @@ function fromLocalInput(v) {
   // "YYYY-MM-DDTHH:mm" -> "YYYY-MM-DDTHH:mm:00"
   if (!v) return null;
   return v.length === 16 ? `${v}:00` : v;
+}
+
+
+function feedShareTextForPin(pin) {
+  const meta = pinKindMeta(pin);
+  const title = String(pin?.title || meta.label || "액션").trim();
+  const time = pin?.startAt ? pinTimeText(pin) : "";
+  const place = String(pin?.placeText || "").trim();
+
+  const line2 = [time, place].filter(Boolean).join(" · ");
+  return [
+    `${meta.emoji} ${title}` ,
+    line2 || "오늘 이어갈 액션을 정리했어요.",
+    "#RealLife"
+  ].join("\n");
+}
+
+function sharePinToFeed(pin) {
+  try {
+    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
+      content: feedShareTextForPin(pin),
+      visibility: "ALL",
+      source: "action-pin",
+      pinId: pin?.pinId || null,
+    }));
+    toast.success?.("피드 공유 준비", "홈에서 바로 게시할 수 있게 초안을 채워뒀어요.");
+    router.push({ path: "/home", query: { compose: "1" } });
+  } catch {
+    toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
+  }
 }
 
 function openPinEdit(pin) {
@@ -2435,6 +2497,18 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div v-if="nextReminderPin" class="timelineReminderCard">
+          <div>
+            <div class="timelineReminderEyebrow">Action Reminder</div>
+            <div class="timelineReminderTitle">다음 리마인더는 “{{ nextReminderPin.title || '액션' }}”예요</div>
+            <div class="timelineReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
+          </div>
+          <div class="timelineReminderActions">
+            <span class="timelineReminderCount">24시간 내 {{ reminderDueSoonCount }}개</span>
+            <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더 보기</button>
+          </div>
+        </div>
+
         <div v-if="dockTimelineSummary.nextTitle" class="timelineHeroNext">
           <span class="timelineHeroNextLabel">다음 약속</span>
           <span class="timelineHeroNextTitle">{{ dockTimelineSummary.nextTitle }}</span>
@@ -2470,6 +2544,7 @@ onBeforeUnmount(() => {
             <span v-if="p.placeText" class="sep">·</span>
             <span v-if="p.placeText">📍 {{ p.placeText }}</span>
           </div>
+          <div v-if="p.remindAt" class="dockReminderRow">⏰ {{ reminderTimeText(p) }}</div>
           <div class="dockProgress">
             <div class="dockProgressFill" :style="{ width: pinTimelineState(p).progress + '%' }"></div>
           </div>
@@ -2479,6 +2554,7 @@ onBeforeUnmount(() => {
             <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
             <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
           </div>
+          <button v-if="!p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
         </div>
         </div>
       </div>
@@ -4486,6 +4562,18 @@ onBeforeUnmount(() => {
   background:color-mix(in oklab, var(--danger) 14%, rgba(255,255,255,.03));
   color:color-mix(in oklab, white 96%, var(--danger));
 }
+.dockShareBtn{
+  margin-top:8px;
+  min-height:38px;
+  width:100%;
+  border-radius:12px;
+  border:1px dashed color-mix(in oklab, var(--accent) 38%, var(--border));
+  background:color-mix(in oklab, var(--accent) 10%, rgba(255,255,255,.03));
+  color:var(--text);
+  font-size:12px;
+  font-weight:900;
+}
+.dockShareBtn:hover{background:color-mix(in oklab, var(--accent) 14%, rgba(255,255,255,.03));}
 .dockTimelineHero{
   position:static;
   padding:14px;
@@ -4541,6 +4629,30 @@ onBeforeUnmount(() => {
   .dockCard{padding:12px;}
   .dockCardActions{grid-template-columns:1fr 1fr 1fr;gap:6px;}
   .dockMiniBtn{font-size:12px;min-height:38px;padding:0 10px;}
+}
+
+
+.timelineReminderCard{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:12px;
+  padding:14px 16px;
+  border-radius:18px;
+  border:1px solid color-mix(in oklab,var(--accent) 26%, var(--border));
+  background:linear-gradient(180deg,color-mix(in oklab,var(--accent) 10%, transparent),color-mix(in oklab,var(--surface-2) 84%, transparent));
+}
+.timelineReminderEyebrow{font-size:11px;font-weight:900;letter-spacing:.14em;color:var(--muted)}
+.timelineReminderTitle{margin-top:4px;font-size:15px;font-weight:900;line-height:1.45}
+.timelineReminderMeta{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.45}
+.timelineReminderActions{display:grid;gap:8px;justify-items:end}
+.timelineReminderCount{font-size:12px;font-weight:800;color:color-mix(in oklab,var(--accent) 74%,white)}
+.timelineReminderBtn{height:38px;padding:0 12px;border-radius:12px;border:1px solid color-mix(in oklab,var(--accent) 34%, var(--border));background:color-mix(in oklab,var(--accent) 18%, transparent);color:var(--text);font-weight:900}
+.dockReminderRow{margin-top:8px;font-size:12px;line-height:1.45;color:color-mix(in oklab,var(--accent) 78%, white)}
+@media (max-width: 720px){
+  .timelineReminderCard{grid-template-columns:1fr;display:grid;align-items:start}
+  .timelineReminderActions{justify-items:start}
 }
 
 </style>

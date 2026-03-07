@@ -1,6 +1,7 @@
 <!-- src/views/HomeView.vue -->
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import sse from "../lib/sse";
 import { fetchFeed } from "../api/posts";
 import { likePost, unlikePost } from "../api/likes";
@@ -11,6 +12,8 @@ import FeedPostCard from "../components/feed/FeedPostCard.vue";
 import AsyncStatePanel from "../components/ui/AsyncStatePanel.vue";
 
 const toast = useToastStore();
+const router = useRouter();
+const route = useRoute();
 
 const loading = ref(false);
 const loadingMore = ref(false);
@@ -21,6 +24,7 @@ const nextCursor = ref(null);
 const hasNext = ref(false);
 
 const composerOpen = ref(false);
+const composerDraft = ref(null);
 const viewMode = ref("FOLLOWING");
 const sentinelRef = ref(null);
 const newPostCount = ref(0);
@@ -90,6 +94,30 @@ async function loadMore() {
   }
 }
 
+
+function consumeShareDraft(opts = {}) {
+  const { silent = false } = opts;
+  try {
+    const raw = sessionStorage.getItem("reallife:feedShareDraft");
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    composerDraft.value = {
+      content: String(parsed?.content || "").trim(),
+      visibility: String(parsed?.visibility || "ALL").toUpperCase(),
+    };
+    sessionStorage.removeItem("reallife:feedShareDraft");
+    composerOpen.value = true;
+    if (!silent) toast.success?.("공유 준비됨", "피드에 올릴 문장을 미리 채워뒀어요.");
+    if (route.query?.compose === "1") {
+      router.replace({ path: route.path, query: { ...route.query, compose: undefined } });
+    }
+    return true;
+  } catch {
+    sessionStorage.removeItem("reallife:feedShareDraft");
+    return false;
+  }
+}
+
 async function onCreated() {
   composerOpen.value = false;
   newPostCount.value = 0;
@@ -127,6 +155,7 @@ async function toggleLike(p) {
 }
 
 function openComposer() {
+  composerDraft.value = null;
   composerOpen.value = true;
 }
 
@@ -162,6 +191,7 @@ function bindVisibilitySoftSync() {
     if (document.visibilityState === "hidden") return;
     if (focusReloadTimer) window.clearTimeout(focusReloadTimer);
     focusReloadTimer = window.setTimeout(() => {
+      consumeShareDraft({ silent: true });
       if (!loading.value && !loadingMore.value) loadFirst({ silent: true });
     }, 250);
   };
@@ -196,6 +226,7 @@ onMounted(async () => {
   attachObserver();
   bindFeedSse();
   offVisibility = bindVisibilitySoftSync();
+  consumeShareDraft({ silent: true });
   await loadFirst();
 });
 
@@ -327,7 +358,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <PostComposer v-if="composerOpen" @close="composerOpen = false" @created="onCreated" />
+    <PostComposer v-if="composerOpen" :initial-draft="composerDraft" @close="composerOpen = false" @created="onCreated" />
   </div>
 </template>
 
