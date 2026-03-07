@@ -657,8 +657,8 @@ watch(sortMode, () => loadCommentsFirst());
 
 <style scoped>
 .page{
-  padding:14px 14px calc(124px + env(safe-area-inset-bottom));
-  max-width:1100px;
+  padding:14px 14px calc(128px + env(safe-area-inset-bottom));
+  max-width:980px;
   margin:0 auto;
 }
 .topbar{
@@ -769,14 +769,14 @@ watch(sortMode, () => loadCommentsFirst());
 .sheetActions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
 .sheetBtn{height:46px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.95);font-weight:950;cursor:pointer}
 .sheetClose{margin-top:10px;width:100%;height:42px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:transparent;color:rgba(255,255,255,.88);font-weight:900}
-.composerBar{position:fixed;left:0;right:0;bottom:0;z-index:80;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(to bottom,color-mix(in oklab,var(--bg) 0%,transparent),color-mix(in oklab,var(--bg) 96%,transparent));backdrop-filter:blur(18px);border-top:1px solid rgba(255,255,255,.08)}
-.composerInner{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:12px;align-items:center;padding:10px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:rgba(10,14,26,.78);box-shadow:0 18px 40px rgba(0,0,0,.16)}
-.composerField{display:grid;gap:6px;min-width:0}
-.cInput{min-height:46px;max-height:120px;resize:none;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:11px 12px;color:var(--text);line-height:1.35;width:100%}
+.composerBar{position:fixed;left:0;right:0;bottom:0;z-index:80;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to bottom,color-mix(in oklab,var(--bg) 0%,transparent),color-mix(in oklab,var(--bg) 96%,transparent));backdrop-filter:blur(18px);border-top:1px solid rgba(255,255,255,.08)}
+.composerInner{max-width:980px;margin:0 auto;display:grid;grid-template-columns:1fr;gap:10px;align-items:end;padding:8px;border:1px solid rgba(255,255,255,.10);border-radius:20px;background:rgba(7,12,28,.78);box-shadow:0 12px 34px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.03)}
+.composerField{display:grid;gap:6px}
+.cInput{min-height:46px;max-height:120px;resize:none;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:11px 12px;color:var(--text);line-height:1.35}
 .composerHint{font-size:11.5px;color:rgba(255,255,255,.62);padding:0 2px}
-.cBtn{height:44px;min-width:96px;padding:0 14px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text);justify-self:stretch}
+.cBtn{height:44px;min-width:0;width:100%;padding:0 18px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text);font-size:14px}
 .cBtn:disabled{opacity:.6}
-.mentionPopup{position:fixed;left:14px;right:14px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:90;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.92);backdrop-filter:blur(16px);padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.35);max-width:1100px;margin:0 auto}
+.mentionPopup{position:fixed;left:14px;right:14px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:90;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.92);backdrop-filter:blur(16px);padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.35);max-width:980px;margin:0 auto}
 .mentionItem{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border-radius:12px;border:0;background:transparent;color:rgba(255,255,255,.92);cursor:pointer}
 .mentionItem.on{background:rgba(255,255,255,.10)}
 .mh{font-weight:950}.mn{opacity:.7;font-size:12px}
@@ -788,6 +788,11 @@ watch(sortMode, () => loadCommentsFirst());
   .doubleGrid{grid-template-columns:1fr}
   .gridShot{aspect-ratio:4/3}
 }
+@media (min-width:1080px){
+  .composerInner{grid-template-columns:minmax(0,1fr) auto;align-items:center}
+  .cBtn{width:auto;min-width:88px;justify-self:auto}
+}
+
 @media (max-width:520px){
   .page{padding-left:12px;padding-right:12px;padding-bottom:calc(128px + env(safe-area-inset-bottom))}
   .shot{width:88vw}
@@ -796,8 +801,6 @@ watch(sortMode, () => loadCommentsFirst());
   .cControls{justify-content:flex-start}
   .cItem.depth1{margin-left:12px;padding-left:12px}
   .replyRow{grid-template-columns:1fr}
-  .composerInner{grid-template-columns:1fr}
-  .cBtn{width:100%;height:44px}
   .composerHint{font-size:11px}
   .sheetActions{grid-template-columns:1fr}
 }
