@@ -135,8 +135,12 @@ function onPointerUp(e) {
     else prevSlide();
   }
 }
-function prevSlide() { slide.value = Math.max(0, slide.value - 1); }
-function nextSlide() { slide.value = Math.min(visibleImages.value.length - 1, slide.value + 1); }
+function prevSlide() {
+  slide.value = Math.max(0, slide.value - 1);
+}
+function nextSlide() {
+  slide.value = Math.min(visibleImages.value.length - 1, slide.value + 1);
+}
 
 async function sharePost(e) {
   e?.stopPropagation?.();
@@ -164,24 +168,63 @@ async function sharePost(e) {
 }
 
 function isActionSharePost(post) {
-  return (post?.content || "").includes("#RealLife");
+  if (post?.sourceMeta) return true;
+  return String(post?.content || "").includes("#RealLife");
 }
 
-function getActionShareMeta(post) {
-  if (!isActionSharePost(post)) return [];
-  const lines = String(post?.content || "").split("")
-    .map((v) => v.trim())
-    .filter(Boolean)
-    .filter((line) => line !== "#RealLife");
+function normalizedLines(post) {
+  return String(post?.content || "")
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((v) => v.trim())
+      .filter(Boolean);
+}
 
+function fallbackActionMetaFromContent(post) {
+  const lines = normalizedLines(post).filter((line) => line !== "#RealLife");
   const chips = [];
-  for (const line of lines.slice(1)) {
-    if (line.startsWith("🕒")) chips.push(line.replace(/^🕒\s*/, ""));
-    else if (line.startsWith("📍")) chips.push(line.replace(/^📍\s*/, ""));
-    else if (line.startsWith("⏰")) chips.push(line.replace(/^⏰\s*/, ""));
+
+  for (const line of lines) {
+    if (line.startsWith("🕒")) chips.push(`🕒 ${line.replace(/^🕒\s*/, "")}`);
+    else if (line.startsWith("📍")) chips.push(`📍 ${line.replace(/^📍\s*/, "")}`);
+    else if (line.startsWith("⏰")) chips.push(`⏰ ${line.replace(/^⏰\s*/, "")}`);
   }
+
   return chips.slice(0, 3);
 }
+
+const actionShareMeta = computed(() => {
+  const meta = props.post?.sourceMeta || null;
+  if (meta) {
+    const chips = [];
+
+    if (Array.isArray(meta.chips) && meta.chips.length) {
+      chips.push(...meta.chips.filter(Boolean).map((v) => String(v).trim()));
+    } else {
+      if (meta.time) chips.push(`🕒 ${meta.time}`);
+      if (meta.place) chips.push(`📍 ${meta.place}`);
+      if (meta.remindAt) chips.push(`⏰ ${meta.remindAt}`);
+    }
+
+    return {
+      badge: meta.badge || "액션 공유",
+      title: meta.title || "",
+      subtitle: meta.subtitle || meta.description || "",
+      state: meta.status || meta.state || "",
+      chips: chips.slice(0, 3),
+    };
+  }
+
+  if (!isActionSharePost(props.post)) return null;
+
+  return {
+    badge: "액션 공유",
+    title: "",
+    subtitle: "",
+    state: "",
+    chips: fallbackActionMetaFromContent(props.post),
+  };
+});
 </script>
 
 <template>
@@ -203,32 +246,43 @@ function getActionShareMeta(post) {
             <span class="bTxt">{{ visBadge.label }}</span>
           </span>
           <span v-if="mediaBadge" class="badge badge--media">{{ mediaBadge }}</span>
-          <span v-if="isActionSharePost(post)" class="badge badge--actionShare">액션 공유</span>
+          <span v-if="actionShareMeta" class="badge badge--actionShare">{{ actionShareMeta.badge }}</span>
         </div>
       </div>
     </div>
 
+    <section v-if="actionShareMeta && (actionShareMeta.title || actionShareMeta.subtitle || actionShareMeta.state || actionShareMeta.chips.length)" class="shareCard">
+      <div class="shareCard__top">
+        <div class="shareCard__icon">✨</div>
+        <div class="shareCard__body">
+          <div v-if="actionShareMeta.title" class="shareCard__title">{{ actionShareMeta.title }}</div>
+          <div v-if="actionShareMeta.subtitle" class="shareCard__sub">{{ actionShareMeta.subtitle }}</div>
+        </div>
+        <div v-if="actionShareMeta.state" class="shareCard__state">{{ actionShareMeta.state }}</div>
+      </div>
+
+      <div v-if="actionShareMeta.chips.length" class="actionMetaBar">
+        <span v-for="chip in actionShareMeta.chips" :key="chip" class="actionMetaChip">{{ chip }}</span>
+      </div>
+    </section>
+
     <div v-if="post.content" class="content">{{ post.content }}</div>
 
-    <div v-if="isActionSharePost(post) && getActionShareMeta(post).length" class="actionMetaBar">
-      <span v-for="chip in getActionShareMeta(post)" :key="chip" class="actionMetaChip">{{ chip }}</span>
-    </div>
-
     <div
-      v-if="visibleImages.length"
-      class="mediaSlider"
-      @click.stop="onMediaTap"
-      @pointerdown="onPointerDown"
-      @pointerup="onPointerUp"
+        v-if="visibleImages.length"
+        class="mediaSlider"
+        @click.stop="onMediaTap"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
     >
       <div class="track" :style="{ transform: `translateX(${-slide * 100}%)` }">
         <button
-          v-for="(u,idx) in visibleImages"
-          :key="idx"
-          class="slide"
-          type="button"
-          @click.stop="openLightbox(idx, $event)"
-          :aria-label="`이미지 ${idx+1} 확대`"
+            v-for="(u,idx) in visibleImages"
+            :key="idx"
+            class="slide"
+            type="button"
+            @click.stop="openLightbox(idx, $event)"
+            :aria-label="`이미지 ${idx+1} 확대`"
         >
           <img class="img" :src="u" alt="post image" loading="lazy" decoding="async" />
         </button>
@@ -246,8 +300,8 @@ function getActionShareMeta(post) {
         <span v-if="visibleImages.length > 1" class="mediaPill mediaPill--soft">스와이프</span>
       </div>
 
-      <button v-if="visibleImages.length>1" class="nav left" type="button" @click.stop="prevSlide" aria-label="이전">‹</button>
-      <button v-if="visibleImages.length>1" class="nav right" type="button" @click.stop="nextSlide" aria-label="다음">›</button>
+      <button v-if="visibleImages.length > 1" class="nav left" type="button" @click.stop="prevSlide" aria-label="이전">‹</button>
+      <button v-if="visibleImages.length > 1" class="nav right" type="button" @click.stop="nextSlide" aria-label="다음">›</button>
     </div>
 
     <div class="flowBar">
@@ -282,10 +336,10 @@ function getActionShareMeta(post) {
     </div>
 
     <Lightbox
-      v-if="lightboxOpen"
-      :images="visibleImages"
-      :start-index="lightboxIndex"
-      @close="lightboxOpen=false"
+        v-if="lightboxOpen"
+        :images="visibleImages"
+        :start-index="lightboxIndex"
+        @close="lightboxOpen = false"
     />
   </article>
 </template>
@@ -331,14 +385,95 @@ function getActionShareMeta(post) {
   font-weight: 900;
   opacity: .9;
 }
-.badge--media{ background: color-mix(in oklab, var(--accent) 12%, rgba(255,255,255,.05)); }
-.badge--actionShare{background:color-mix(in oklab,var(--accent) 18%, rgba(255,255,255,.05));border-color:color-mix(in oklab,var(--accent) 34%, rgba(255,255,255,.12));}
+.badge--media{
+  background: color-mix(in oklab, var(--accent) 12%, rgba(255,255,255,.05));
+}
+.badge--actionShare{
+  background: color-mix(in oklab,var(--accent) 18%, rgba(255,255,255,.05));
+  border-color: color-mix(in oklab,var(--accent) 34%, rgba(255,255,255,.12));
+}
 .bIco{ font-size: 12px; }
 .bTxt{ letter-spacing: -0.01em; }
 
-.content{ margin-top: 10px; white-space: pre-wrap; line-height: 1.5; color: rgba(255,255,255,.94); }
-.actionMetaBar{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
-.actionMetaChip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.045);font-size:11px;font-weight:900;color:rgba(255,255,255,.82)}
+.shareCard{
+  margin-top: 10px;
+  border: 1px solid color-mix(in oklab, var(--accent) 28%, rgba(255,255,255,.12));
+  background:
+      linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, transparent), rgba(255,255,255,.02));
+  border-radius: 18px;
+  padding: 12px;
+}
+.shareCard__top{
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+}
+.shareCard__icon{
+  width:32px;
+  height:32px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  background: color-mix(in oklab, var(--accent) 18%, rgba(255,255,255,.04));
+  border: 1px solid rgba(255,255,255,.10);
+  flex: 0 0 auto;
+}
+.shareCard__body{
+  flex:1;
+  min-width:0;
+}
+.shareCard__title{
+  font-size:15px;
+  font-weight:950;
+  color: rgba(255,255,255,.96);
+  line-height:1.35;
+}
+.shareCard__sub{
+  margin-top:4px;
+  font-size:12.5px;
+  color: rgba(255,255,255,.72);
+  line-height:1.45;
+}
+.shareCard__state{
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  font-size: 11px;
+  font-weight: 900;
+  color: rgba(255,255,255,.86);
+  white-space: nowrap;
+}
+
+.content{
+  margin-top: 10px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: rgba(255,255,255,.94);
+}
+
+.actionMetaBar{
+  margin-top:10px;
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.actionMetaChip{
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  padding:0 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.045);
+  font-size:11px;
+  font-weight:900;
+  color:rgba(255,255,255,.82);
+}
 
 .mediaSlider{
   margin-top: 10px;
@@ -379,12 +514,24 @@ function getActionShareMeta(post) {
   gap:8px;
   pointer-events:none;
 }
-.mediaTopMeta > *{pointer-events:auto}
+.mediaTopMeta > *{ pointer-events:auto; }
+
 .zoomBtn{
-  width:32px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,.14);
-  background:rgba(0,0,0,.28);color:rgba(255,255,255,.94);font-size:16px;font-weight:900;cursor:pointer;
-  backdrop-filter:blur(10px);display:inline-flex;align-items:center;justify-content:center;
+  width:32px;
+  height:32px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(0,0,0,.28);
+  color:rgba(255,255,255,.94);
+  font-size:16px;
+  font-weight:900;
+  cursor:pointer;
+  backdrop-filter:blur(10px);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
 }
+
 .mediaPill{
   display:inline-flex;
   align-items:center;
@@ -477,5 +624,6 @@ function getActionShareMeta(post) {
   .img{ aspect-ratio: 1 / 1.08; }
   .mediaTopMeta{ top: 8px; left: 8px; right: 8px; }
   .nav{ width: 38px; height: 38px; }
+  .shareCard__top{ flex-wrap: wrap; }
 }
 </style>

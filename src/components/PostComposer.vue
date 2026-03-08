@@ -25,58 +25,65 @@
             <label class="label">
               레거시 이미지 URL(옵션)
               <input
-                v-model.trim="legacyUrl"
-                class="input"
-                placeholder="https://example.com/image.jpg"
-                inputmode="url"
+                  v-model.trim="legacyUrl"
+                  class="input"
+                  placeholder="https://example.com/image.jpg"
+                  inputmode="url"
               />
             </label>
           </div>
 
-          <section v-if="shareMeta" class="shareMetaCard">
-            <div class="shareEyebrow">액션 공유</div>
-            <div class="shareTitle">{{ shareMeta.title || '공유할 액션' }}</div>
-            <div v-if="shareMeta.subtitle" class="shareSub">{{ shareMeta.subtitle }}</div>
-            <div class="shareChips">
-              <span v-if="shareMeta.time" class="shareChip">🕒 {{ shareMeta.time }}</span>
-              <span v-if="shareMeta.place" class="shareChip">📍 {{ shareMeta.place }}</span>
-              <span v-if="shareMeta.remindAt" class="shareChip">⏰ {{ shareMeta.remindAt }}</span>
-              <span v-if="shareMeta.status" class="shareChip">{{ shareMeta.status }}</span>
+          <section v-if="normalizedShareMeta" class="shareMetaCard">
+            <div class="shareHead">
+              <div>
+                <div class="shareEyebrow">{{ normalizedShareMeta.badge }}</div>
+                <div class="shareTitle">{{ normalizedShareMeta.title }}</div>
+                <div v-if="normalizedShareMeta.subtitle" class="shareSub">{{ normalizedShareMeta.subtitle }}</div>
+              </div>
+              <div v-if="normalizedShareMeta.state" class="shareState">{{ normalizedShareMeta.state }}</div>
+            </div>
+
+            <div v-if="normalizedShareMeta.chips.length" class="shareChips">
+              <span v-for="chip in normalizedShareMeta.chips" :key="chip" class="shareChip">{{ chip }}</span>
+            </div>
+
+            <div class="shareHint">
+              이 액션 카드는 공유 맥락이고, 아래 본문에는 <b>내 코멘트</b>를 덧붙이면 더 자연스러워요.
             </div>
           </section>
 
           <label class="label">
             내용
             <textarea
-              ref="contentEl"
-              v-model="content"
-              class="textarea"
-              rows="6"
-              maxlength="2000"
-              placeholder="무슨 일이 있었나요?"
+                ref="contentEl"
+                v-model="content"
+                class="textarea"
+                rows="6"
+                maxlength="2000"
+                :placeholder="normalizedShareMeta ? '이 액션에 대한 내 생각이나 맥락을 덧붙여보세요.' : '무슨 일이 있었나요?'"
             />
             <div class="hint"><span>{{ content.length }}</span><span>/2000</span></div>
           </label>
 
           <div class="uploader">
             <div
-              class="drop"
-              :data-drag="dragOver"
-              @dragenter.prevent="dragOver = true"
-              @dragover.prevent="dragOver = true"
-              @dragleave.prevent="dragOver = false"
-              @drop.prevent="onDrop"
+                class="drop"
+                :data-drag="dragOver"
+                @dragenter.prevent="dragOver = true"
+                @dragover.prevent="dragOver = true"
+                @dragleave.prevent="dragOver = false"
+                @drop.prevent="onDrop"
             >
               <div class="dropTitle">이미지 업로드</div>
               <div class="dropSub">드래그&드롭 또는 파일 선택</div>
 
               <input
-                ref="fileInput"
-                class="hiddenInput"
-                type="file"
-                accept="image/*"
-                multiple
-                @change="onPick"
+                  ref="fileInput"
+                  class="hiddenInput"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  @change="onPick"
               />
 
               <button class="pickBtn" type="button" @click="fileInput?.click()">
@@ -113,7 +120,7 @@
         <div class="actions">
           <button type="button" class="btn ghost" @click="close" :disabled="busy">취소</button>
           <button type="submit" class="btn primary" :disabled="!canSubmit || busy">
-            {{ busy ? '게시 중...' : '게시하기' }}
+            {{ busy ? "게시 중..." : "게시하기" }}
           </button>
         </div>
       </form>
@@ -155,6 +162,28 @@ const uploadError = ref("");
 const busy = ref(false);
 
 const shareMeta = computed(() => props.sourceMeta || props.initialDraft?.sourceMeta || null);
+
+const normalizedShareMeta = computed(() => {
+  const meta = shareMeta.value;
+  if (!meta) return null;
+
+  const chips = [];
+  if (Array.isArray(meta.chips) && meta.chips.length) {
+    chips.push(...meta.chips.filter(Boolean).map((v) => String(v).trim()));
+  } else {
+    if (meta.time) chips.push(`🕒 ${meta.time}`);
+    if (meta.place) chips.push(`📍 ${meta.place}`);
+    if (meta.remindAt) chips.push(`⏰ ${meta.remindAt}`);
+  }
+
+  return {
+    badge: meta.badge || "액션 공유",
+    title: meta.title || "공유할 액션",
+    subtitle: meta.subtitle || meta.description || "",
+    state: meta.status || meta.state || "",
+    chips: chips.slice(0, 4),
+  };
+});
 
 let prevOverflow = "";
 function onKeydown(e) {
@@ -278,6 +307,7 @@ async function submit() {
     if (selectedFiles.value.length && !uploadedIds.value.length) {
       imageFileIds = await uploadNow();
     }
+
     const imageUrls = legacyUrl.value.trim() ? [legacyUrl.value.trim()] : [];
     const created = await createPost({
       content: content.value.trim(),
@@ -285,6 +315,7 @@ async function submit() {
       imageFileIds: imageFileIds || [],
       imageUrls,
     });
+
     toast.success("게시 완료", "피드에 반영되었습니다.");
     emit("created", created);
     emit("close");
@@ -315,7 +346,8 @@ onBeforeUnmount(() => {
   overflow:hidden;
 }
 .top{display:flex;justify-content:space-between;align-items:start;gap:12px;padding:16px 16px 12px;border-bottom:1px solid var(--border)}
-.title{font-weight:950;font-size:16px}.sub{margin-top:4px;font-size:12.5px;color:var(--muted)}
+.title{font-weight:950;font-size:16px}
+.sub{margin-top:4px;font-size:12.5px;color:var(--muted)}
 .x{width:40px;height:40px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text);opacity:.9}
 .form{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0}
 .bodyScroll{min-height:0;overflow:auto;padding:14px 16px 8px;display:grid;gap:14px}
@@ -325,12 +357,73 @@ onBeforeUnmount(() => {
 .select,.input{height:44px;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:0 12px;color:var(--text)}
 .textarea{resize:vertical;min-height:110px;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:12px;color:var(--text);line-height:1.4}
 .hint{display:flex;justify-content:end;gap:2px;font-size:12px;color:var(--muted)}
-.shareMetaCard{border:1px solid color-mix(in oklab,var(--accent) 32%,var(--border));background:linear-gradient(180deg, rgba(124,156,255,.10), rgba(124,156,255,.04));border-radius:18px;padding:14px}
-.shareEyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
-.shareTitle{margin-top:6px;font-size:16px;font-weight:950;color:var(--text)}
-.shareSub{margin-top:4px;font-size:13px;color:var(--muted);line-height:1.45}
-.shareChips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.shareChip{padding:7px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);font-size:12px;color:var(--text)}
+
+.shareMetaCard{
+  border:1px solid color-mix(in oklab,var(--accent) 32%,var(--border));
+  background:linear-gradient(180deg, rgba(124,156,255,.10), rgba(124,156,255,.04));
+  border-radius:18px;
+  padding:14px;
+}
+.shareHead{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+}
+.shareEyebrow{
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.08em;
+  color:var(--muted);
+  text-transform:uppercase;
+}
+.shareTitle{
+  margin-top:6px;
+  font-size:16px;
+  font-weight:950;
+  color:var(--text);
+}
+.shareSub{
+  margin-top:4px;
+  font-size:13px;
+  color:var(--muted);
+  line-height:1.45;
+}
+.shareState{
+  min-height:30px;
+  padding:0 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.04);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  font-weight:900;
+  color:var(--text);
+  white-space:nowrap;
+}
+.shareChips{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+.shareChip{
+  padding:7px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.04);
+  font-size:12px;
+  color:var(--text);
+}
+.shareHint{
+  margin-top:10px;
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.45;
+}
+
 .uploader{display:grid;gap:12px}
 .drop{border-radius:18px;border:1px dashed color-mix(in oklab,var(--border) 80%,transparent);background:color-mix(in oklab,var(--surface) 88%,transparent);padding:14px;display:grid;gap:8px}
 .drop[data-drag="true"]{border-color:color-mix(in oklab,var(--accent) 55%,var(--border));background:color-mix(in oklab,var(--accent) 12%,var(--surface))}
@@ -351,7 +444,17 @@ onBeforeUnmount(() => {
 .err{font-size:12.5px;color:color-mix(in oklab,var(--danger) 80%,white);display:flex;align-items:center;justify-content:space-between;gap:10px}
 .retry{height:34px;padding:0 10px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text);font-weight:900}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--border);background:color-mix(in oklab,var(--surface) 95%,transparent);position:sticky;bottom:0}
-.btn{height:48px;border-radius:16px;border:1px solid var(--border);color:var(--text);font-weight:950}.btn.ghost{background:transparent}.btn.primary{border-color:color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 18%,transparent)}.btn:disabled{opacity:.55}
+.btn{height:48px;border-radius:16px;border:1px solid var(--border);color:var(--text);font-weight:950}
+.btn.ghost{background:transparent}
+.btn.primary{border-color:color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 18%,transparent)}
+.btn:disabled{opacity:.55}
 .footNote{margin-top:2px;font-size:11.5px;color:var(--muted);line-height:1.35}
-@media (min-width:900px){.backdrop{padding:16px;place-items:center}.sheet{border-radius:24px;max-width:760px}}
+
+@media (max-width:640px){
+  .shareHead{flex-direction:column}
+}
+@media (min-width:900px){
+  .backdrop{padding:16px;place-items:center}
+  .sheet{border-radius:24px;max-width:760px}
+}
 </style>
