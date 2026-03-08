@@ -1105,8 +1105,14 @@ function feedShareTextForPin(pin) {
     time ? `🕒 ${time}` : "",
     place ? `📍 ${place}` : "",
     remind && remind !== "리마인드 없음" ? `⏰ ${remind}` : "",
-    "#RealLife"
-  ].filter(Boolean).join("");
+    "",
+    "#RealLife",
+  ]
+      .filter((line, idx, arr) => {
+        if (line) return true;
+        return idx === arr.length - 2; // 해시태그 위 한 줄 띄우기용 빈 줄만 유지
+      })
+      .join("\n");
 }
 
 function feedShareMetaForPin(pin) {
@@ -1116,14 +1122,27 @@ function feedShareMetaForPin(pin) {
   const place = String(pin?.placeText || "장소 미정").trim();
   const remind = pin?.remindAt ? reminderTimeText(pin) : "리마인드 없음";
 
+  const chips = [
+    time ? `🕒 ${time}` : "",
+    place ? `📍 ${place}` : "",
+    remind && remind !== "리마인드 없음" ? `⏰ ${remind}` : "",
+  ].filter(Boolean);
+
   return {
     badge: "액션 공유",
     title,
+    subtitle: [meta.label, place !== "장소 미정" ? place : ""].filter(Boolean).join(" · "),
     description: [time, place].filter(Boolean).join(" · "),
-    state: remind && remind !== "리마인드 없음" ? remind : meta.label,
+    state: remind && remind !== "리마인드 없음" ? "리마인더 설정됨" : meta.label,
+    status: remind && remind !== "리마인드 없음" ? remind : meta.label,
+
     kind: meta.label,
     emoji: meta.emoji,
-    chips: [time, place].filter(Boolean),
+
+    time,
+    place,
+    remindAt: remind && remind !== "리마인드 없음" ? remind : "",
+    chips,
   };
 }
 
