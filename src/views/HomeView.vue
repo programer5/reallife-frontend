@@ -56,9 +56,9 @@ const syncLabel = computed(() => {
 });
 
 const heroCopy = computed(() => {
-  if (viewMode.value === "FOR_YOU") return "사람 반응이 빠른 순간을 한눈에 모아봤어요.";
-  if (viewMode.value === "NEARBY") return "근처 흐름은 준비 중이에요. 위치 기반 액션으로 곧 연결할게요.";
-  return "댓글이 약속·할일·장소 액션으로 이어지는 흐름을 바로 살펴보세요.";
+  if (viewMode.value === "FOR_YOU") return "반응이 빠른 순간과 행동으로 이어지기 좋은 흐름을 먼저 보여줘요.";
+  if (viewMode.value === "NEARBY") return "근처 흐름은 준비 중이에요. 위치 기반 액션이 열리면 바로 연결할게요.";
+  return "오늘의 순간을 보고, 댓글에서 약속·할일·장소 액션으로 바로 이어가 보세요.";
 });
 
 async function loadFirst(opts = {}) {
@@ -249,12 +249,17 @@ onBeforeUnmount(() => {
   <div class="page">
     <section class="desktopHero cardSurface">
       <div class="heroCopyBlock">
-        <div class="heroEyebrow">REALIFE WEB</div>
-        <h1 class="heroTitle">게시글이 대화가 되고, 대화가 행동으로 이어지는 피드</h1>
+        <div class="heroEyebrow">TODAY · REALIFE FLOW</div>
+        <h1 class="heroTitle">오늘의 흐름을 보고, 바로 행동으로 이어지는 홈</h1>
         <p class="heroBody">{{ heroCopy }}</p>
+        <div class="heroGuideChips">
+          <span class="guideChip">댓글 → 액션</span>
+          <span class="guideChip">액션 → 대화</span>
+          <span class="guideChip">대화 → 실제 삶</span>
+        </div>
       </div>
       <div class="heroActionBlock">
-        <div class="overviewTitle">오늘 피드 흐름</div>
+        <div class="overviewTitle">지금 이어질 수 있는 흐름</div>
         <div class="overviewSub">{{ syncLabel }}</div>
         <div class="overviewStats">
           <div class="statPill">
@@ -386,14 +391,16 @@ onBeforeUnmount(() => {
   </div>
 </template>
 <style scoped>
-.page{padding:24px 24px calc(96px + env(safe-area-inset-bottom));max-width:1640px;margin:0 auto;display:grid;gap:18px}
+.page{padding:20px 20px calc(96px + env(safe-area-inset-bottom));max-width:1480px;margin:0 auto;display:grid;gap:16px}
 .cardSurface{border:1px solid rgba(255,255,255,.10);border-radius:24px;background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));box-shadow:0 18px 46px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.04)}
-.desktopHero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(380px,.85fr);gap:18px;align-items:stretch;padding:22px}
+.desktopHero{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:stretch;padding:18px 20px}
 
 .heroEyebrow{font-size:11px;font-weight:900;letter-spacing:.18em;color:rgba(255,255,255,.58)}
-.heroTitle{margin:0;font-size:40px;line-height:1.03;font-weight:950;letter-spacing:-.05em;max-width:13ch}
-.heroBody{margin:0;font-size:14px;line-height:1.7;color:rgba(255,255,255,.74);max-width:56ch}
+.heroTitle{margin:0;font-size:32px;line-height:1.06;font-weight:950;letter-spacing:-.04em;max-width:16ch}
+.heroBody{margin:0;font-size:14px;line-height:1.65;color:rgba(255,255,255,.74);max-width:60ch}
 .heroActions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.heroGuideChips{display:flex;gap:8px;flex-wrap:wrap}
+.guideChip{height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);display:inline-flex;align-items:center;font-size:12px;font-weight:800;color:rgba(255,255,255,.86)}
 
 
 .overviewTitle{font-size:13px;font-weight:900}
@@ -402,10 +409,10 @@ onBeforeUnmount(() => {
 .statPill{padding:14px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);display:grid;gap:6px}
 .statValue{font-size:20px;font-weight:950}
 .statLabel{font-size:11px;color:rgba(255,255,255,.64)}
-.desktopToolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;padding:16px 18px}
+.desktopToolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:14px 18px}
 .desktopToolbarHint{font-size:13px;color:rgba(255,255,255,.68);text-align:right;max-width:42ch;justify-self:end}
 .mobileToolbar{display:none}
-.feedGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;align-items:start}
+.feedGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,320px));gap:16px;align-items:start;justify-content:center}
 .feedGrid :deep(.card){height:auto}
 .modeRailWrap{min-width:0;display:grid;gap:8px}
 .modeRail{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -423,8 +430,8 @@ onBeforeUnmount(() => {
 .newPostBanner{align-self:center;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 40%, rgba(255,255,255,.14));background:color-mix(in oklab,var(--accent) 20%, rgba(255,255,255,.05));color:rgba(255,255,255,.96);font-weight:900;box-shadow:0 10px 30px rgba(25,48,110,.22)}
 .sentinel{padding:18px 0 10px;display:flex;justify-content:center}.loadingMoreHint,.endHint{font-size:12px}.loadingMoreHint{opacity:.75}.endHint{opacity:.65}
 .skeleton-card{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.045);border-radius:20px;padding:14px;overflow:hidden}.sk-head{display:flex;gap:10px;align-items:center}.sk-avatar{width:38px;height:38px;border-radius:14px;background:rgba(255,255,255,.08)}.sk-meta{flex:1}.sk-line{height:10px;border-radius:999px;background:linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.14), rgba(255,255,255,.08));background-size:180% 100%;animation:shimmer 1.2s linear infinite;margin-top:10px}.sk-title{height:14px;width:55%;margin-top:0}.sk-sub{width:32%}.short{width:72%}.sk-media{margin-top:12px;border-radius:16px;aspect-ratio:4 / 5;background:linear-gradient(90deg, rgba(255,255,255,.07), rgba(255,255,255,.12), rgba(255,255,255,.07));background-size:180% 100%;animation:shimmer 1.2s linear infinite}@keyframes shimmer{0%{background-position:180% 0}100%{background-position:-20% 0}}
-@media (min-width:1500px){.feedGrid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media (max-width:1460px){.feedGrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (min-width:1580px){.feedGrid{grid-template-columns:repeat(4,320px)}}
+@media (max-width:1460px){.feedGrid{grid-template-columns:repeat(auto-fit,minmax(280px,320px));justify-content:center}}
 @media (max-width:1180px){.feedGrid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));justify-content:stretch}}
 @media (max-width:1180px){.desktopHero,.desktopToolbar{display:none}.mobileToolbar{display:grid;gap:14px;position:sticky;top:0;z-index:20;padding:14px 0 12px;background:linear-gradient(180deg, rgba(4,8,22,.92), rgba(4,8,22,.68) 78%, rgba(4,8,22,0));backdrop-filter: blur(12px)}.toolbarTop{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.brandTitle{font-size:22px;font-weight:950;letter-spacing:-.02em;line-height:1.05}.brandSub{margin-top:4px;font-size:12px;color:rgba(255,255,255,.68)}.actionCluster{display:flex;align-items:center;gap:8px;flex-shrink:0}.toolbarBottom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:end}.page{padding-top:14px;max-width:960px}.feedGrid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));justify-content:stretch}}
 @media (max-width:860px){.page{padding:14px 12px calc(106px + env(safe-area-inset-bottom));max-width:840px}.feedGrid{grid-template-columns:1fr}.toolbarBottom{grid-template-columns:1fr;gap:12px;align-items:stretch}.composerShortcut{width:100%;justify-content:center;height:42px}}

@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import { fetchUserProfileByHandle, fetchUserProfileById, followUser, unfollowUser } from "@/api/users";
 import { createDirectConversation } from "@/api/conversations";
-import { getMe } from "@/api/me";
+import { fetchMe } from "@/api/me";
 import { useToastStore } from "@/stores/toast";
 
 const route = useRoute();
@@ -25,21 +25,27 @@ function pickInitial(p) {
   const s = String(p?.name || p?.handle || "").trim();
   return s ? s[0].toUpperCase() : "U";
 }
+
 function websiteUrl(u) {
   const s = String(u || "").trim();
   if (!s) return "";
   if (s.startsWith("http://") || s.startsWith("https://")) return s;
   return "https://" + s;
 }
+
 const isMe = computed(() => !!me.value && !!profile.value && me.value.handle === profile.value.handle);
 const followedByMe = ref(false);
 
 async function load() {
   loading.value = true;
   error.value = "";
+
   try {
-    me.value = await getMe().catch(() => null);
-    profile.value = handle.value ? await fetchUserProfileByHandle(handle.value) : await fetchUserProfileById(userId.value);
+    me.value = await fetchMe().catch(() => null);
+    profile.value = handle.value
+        ? await fetchUserProfileByHandle(handle.value)
+        : await fetchUserProfileById(userId.value);
+
     followedByMe.value = !!profile.value?.followedByMe;
   } catch (e) {
     error.value = e?.response?.data?.message || "프로필을 불러오지 못했습니다.";
@@ -51,6 +57,7 @@ async function load() {
 async function startDm() {
   const targetUserId = profile.value?.id;
   if (!targetUserId || dmBusy.value || isMe.value) return;
+
   dmBusy.value = true;
   try {
     const res = await createDirectConversation(targetUserId);
@@ -67,13 +74,20 @@ async function startDm() {
 async function toggleFollow() {
   const targetUserId = profile.value?.id;
   if (!targetUserId || followBusy.value || isMe.value) return;
+
   followBusy.value = true;
   const prev = followedByMe.value;
   const prevCount = Number(profile.value?.followerCount ?? 0);
+
   followedByMe.value = !prev;
   profile.value.followerCount = prev ? Math.max(0, prevCount - 1) : prevCount + 1;
+
   try {
-    if (prev) await unfollowUser(targetUserId); else await followUser(targetUserId);
+    if (prev) {
+      await unfollowUser(targetUserId);
+    } else {
+      await followUser(targetUserId);
+    }
   } catch (e) {
     followedByMe.value = prev;
     profile.value.followerCount = prevCount;
@@ -95,7 +109,7 @@ onMounted(load);
         <RlButton v-if="isMe" size="sm" variant="soft" @click="router.push('/me')">내 프로필 편집</RlButton>
         <template v-else>
           <RlButton size="sm" :variant="followedByMe ? 'soft' : 'primary'" @click="toggleFollow" :disabled="followBusy">
-            {{ followedByMe ? '언팔로우' : '팔로우' }}
+            {{ followedByMe ? "언팔로우" : "팔로우" }}
           </RlButton>
           <RlButton size="sm" variant="primary" @click="startDm" :disabled="dmBusy || !profile">메시지</RlButton>
         </template>
@@ -112,7 +126,7 @@ onMounted(load);
           <div v-else class="avatar" aria-hidden="true">{{ pickInitial(profile) }}</div>
         </div>
         <div class="meta">
-          <div class="name">{{ profile.name || 'User' }}</div>
+          <div class="name">{{ profile.name || "User" }}</div>
           <div class="handle">@{{ profile.handle }}</div>
           <div class="chips">
             <span class="chip">팔로워 {{ profile.followerCount ?? 0 }}</span>
@@ -123,11 +137,16 @@ onMounted(load);
       </div>
 
       <div v-if="profile.bio" class="bio">{{ profile.bio }}</div>
-      <div v-if="profile.website" class="links"><a class="link" :href="websiteUrl(profile.website)" target="_blank" rel="noreferrer">{{ profile.website }}</a></div>
+      <div v-if="profile.website" class="links">
+        <a class="link" :href="websiteUrl(profile.website)" target="_blank" rel="noreferrer">{{ profile.website }}</a>
+      </div>
 
       <div class="ctaBox">
         <div class="ctaTitle">RealLife에서 이 사용자와 이어가기</div>
-        <div class="ctaSub">팔로우하면 공개 피드와 관계 기반 순간을 더 쉽게 볼 수 있고, 메시지로 바로 액션을 이어갈 수 있어요.</div>
+        <div class="ctaSub">
+          팔로우하면 공개 피드와 관계 기반 순간을 더 쉽게 볼 수 있고,
+          메시지로 바로 액션을 이어갈 수 있어요.
+        </div>
       </div>
     </div>
   </div>

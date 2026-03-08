@@ -5,13 +5,34 @@
       <div class="head">
         <div class="eyebrow">WELCOME</div>
         <div class="title">처음 프로필을 조금만 정리해볼까요?</div>
-        <div class="sub">이름, 소개, 사진만 정리하면 다른 사람이 나를 더 쉽게 이해하고 팔로우/DM을 자연스럽게 시작할 수 있어요.</div>
+        <div class="sub">
+          이름, 소개, 사진만 정리하면 다른 사람이 나를 더 쉽게 이해하고
+          팔로우/DM을 자연스럽게 시작할 수 있어요.
+        </div>
       </div>
 
       <div class="steps">
-        <div class="step" :data-done="!!name.trim()"><span>1</span><div><strong>이름</strong><small>피드와 대화에서 보여요.</small></div></div>
-        <div class="step" :data-done="!!bio.trim()"><span>2</span><div><strong>소개</strong><small>한두 줄로 분위기를 알려주세요.</small></div></div>
-        <div class="step" :data-done="!!previewUrl"><span>3</span><div><strong>사진</strong><small>팔로우 전환이 더 자연스러워져요.</small></div></div>
+        <div class="step" :data-done="!!name.trim()">
+          <span>1</span>
+          <div>
+            <strong>이름</strong>
+            <small>피드와 대화에서 보여요.</small>
+          </div>
+        </div>
+        <div class="step" :data-done="!!bio.trim()">
+          <span>2</span>
+          <div>
+            <strong>소개</strong>
+            <small>한두 줄로 분위기를 알려주세요.</small>
+          </div>
+        </div>
+        <div class="step" :data-done="!!previewUrl">
+          <span>3</span>
+          <div>
+            <strong>사진</strong>
+            <small>팔로우 전환이 더 자연스러워져요.</small>
+          </div>
+        </div>
       </div>
 
       <div class="hero">
@@ -23,9 +44,11 @@
         </div>
 
         <div class="heroMeta">
-          <div class="heroName">{{ name || auth.me?.name || '사용자' }}</div>
-          <div class="heroHandle">@{{ auth.me?.handle || 'user' }}</div>
-          <div class="heroHint">지금 입력한 정보는 나중에 <b>내 프로필</b>에서 언제든 다시 바꿀 수 있어요.</div>
+          <div class="heroName">{{ name || auth.me?.name || "사용자" }}</div>
+          <div class="heroHandle">@{{ auth.me?.handle || "user" }}</div>
+          <div class="heroHint">
+            지금 입력한 정보는 나중에 <b>내 프로필</b>에서 언제든 다시 바꿀 수 있어요.
+          </div>
         </div>
       </div>
 
@@ -37,7 +60,13 @@
 
         <label class="label">
           소개
-          <textarea v-model.trim="bio" class="textarea" rows="4" maxlength="160" placeholder="예) 커피 좋아하고, 밤에 개발해요"></textarea>
+          <textarea
+              v-model.trim="bio"
+              class="textarea"
+              rows="4"
+              maxlength="160"
+              placeholder="예) 커피 좋아하고, 밤에 개발해요"
+          ></textarea>
           <div class="count">{{ bio.length }}/160</div>
         </label>
 
@@ -48,7 +77,9 @@
 
         <div class="actions">
           <button class="ghostBtn" type="button" @click="skip" :disabled="saving">지금은 건너뛰기</button>
-          <button class="primaryBtn" :disabled="saving">{{ saving ? '저장 중...' : '저장하고 시작하기' }}</button>
+          <button class="primaryBtn" :disabled="saving">
+            {{ saving ? "저장 중..." : "저장하고 시작하기" }}
+          </button>
         </div>
 
         <p v-if="error" class="err">{{ error }}</p>
@@ -63,7 +94,7 @@ import { useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useToastStore } from "@/stores/toast";
 import { uploadImages } from "@/api/files";
-import { updateMyProfile } from "@/api/me";
+import { updateProfile } from "@/api/me";
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -79,48 +110,66 @@ const saving = ref(false);
 const error = ref("");
 
 const initials = computed(() => {
-  const s = String(name.value || auth.me?.name || auth.me?.handle || 'U').trim();
-  return s ? s[0].toUpperCase() : 'U';
+  const s = String(name.value || auth.me?.name || auth.me?.handle || "U").trim();
+  return s ? s[0].toUpperCase() : "U";
 });
 
 onMounted(async () => {
   if (!auth.me) {
-    try { await auth.ensureSession(); } catch { router.replace('/login'); return; }
+    try {
+      await auth.ensureSession();
+    } catch {
+      router.replace("/login");
+      return;
+    }
   }
-  name.value = auth.me?.name || '';
+  name.value = auth.me?.name || "";
 });
 
-function pickAvatar() { fileInput.value?.click?.(); }
+function pickAvatar() {
+  fileInput.value?.click?.();
+}
 
 async function onUploadAvatar(e) {
   const file = e.target.files?.[0];
-  e.target.value = '';
+  e.target.value = "";
   if (!file) return;
+
   try {
     previewUrl.value = URL.createObjectURL(file);
     const ids = await uploadImages([file]);
     profileImageFileId.value = ids?.[0] || null;
-    toast.success('사진 준비 완료', '프로필 사진까지 같이 저장할 수 있어요.');
+    toast.success("사진 준비 완료", "프로필 사진까지 같이 저장할 수 있어요.");
   } catch (err) {
-    toast.error('업로드 실패', err?.response?.data?.message || '사진 업로드에 실패했어요.');
+    toast.error("업로드 실패", err?.response?.data?.message || "사진 업로드에 실패했어요.");
   }
 }
 
 async function onSave() {
   saving.value = true;
-  error.value = '';
+  error.value = "";
+
   try {
-    await updateMyProfile({ name: name.value || null, bio: bio.value || null, website: website.value || null, profileImageFileId: profileImageFileId.value || null });
+    await updateProfile({
+      name: name.value || null,
+      bio: bio.value || null,
+      website: website.value || null,
+      profileImageFileId: profileImageFileId.value || null,
+    });
+
     await auth.ensureSession();
-    toast.success('프로필 준비 완료', '이제 RealLife를 바로 시작할 수 있어요.');
-    router.replace('/home');
+    toast.success("프로필 준비 완료", "이제 RealLife를 바로 시작할 수 있어요.");
+    router.replace("/home");
   } catch (e) {
-    error.value = e?.response?.data?.message || '프로필 저장에 실패했어요.';
+    error.value = e?.response?.data?.message || "프로필 저장에 실패했어요.";
   } finally {
     saving.value = false;
   }
 }
-function skip() { router.replace('/home'); }
+
+function skip() {
+  router.replace("/home");
+}
 </script>
 
 <style scoped>

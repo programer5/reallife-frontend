@@ -7,7 +7,7 @@
         :live="connected"
     />
 
-    <main class="content">
+    <main class="content" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
       <router-view />
     </main>
 
@@ -19,12 +19,19 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import sse from "@/lib/sse";
 import AppHeader from "@/components/AppHeader.vue";
 import BottomTabs from "@/components/BottomTabs.vue";
 import ToastHost from "@/components/ToastHost.vue";
 
 const status = ref({ running: false, connected: false });
+const router = useRouter();
+const route = useRoute();
+const touchStartX = ref(0);
+const touchStartY = ref(0);
+const swiping = ref(false);
+const rootRoutes = ["/home", "/inbox", "/me"];
 let off = null;
 
 onMounted(() => {
@@ -35,6 +42,36 @@ onUnmounted(() => {
 });
 
 const connected = computed(() => status.value.connected);
+const rootRouteIndex = computed(() => rootRoutes.findIndex((p) => route.path === p));
+
+function shouldIgnoreSwipe(target) {
+  if (!target || !(target instanceof Element)) return false;
+  return !!target.closest('input, textarea, select, button, a, [contenteditable="true"], [data-no-app-swipe], .lightbox, .dockRow, .dockPanel, .composer, .carousel, .noSwipe');
+}
+
+function onTouchStart(e) {
+  if (rootRouteIndex.value < 0) return;
+  const t = e.changedTouches?.[0];
+  if (!t) return;
+  if (shouldIgnoreSwipe(e.target)) return;
+  touchStartX.value = t.clientX;
+  touchStartY.value = t.clientY;
+  swiping.value = true;
+}
+
+function onTouchEnd(e) {
+  if (!swiping.value || rootRouteIndex.value < 0) return;
+  swiping.value = false;
+  const t = e.changedTouches?.[0];
+  if (!t) return;
+  const dx = t.clientX - touchStartX.value;
+  const dy = t.clientY - touchStartY.value;
+  if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+  const dir = dx < 0 ? 1 : -1;
+  const nextIndex = rootRouteIndex.value + dir;
+  if (nextIndex < 0 || nextIndex >= rootRoutes.length) return;
+  router.push(rootRoutes[nextIndex]);
+}
 </script>
 
 
