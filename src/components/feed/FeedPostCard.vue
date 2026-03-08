@@ -180,17 +180,54 @@ function normalizedLines(post) {
       .filter(Boolean);
 }
 
+function stripLeadingEmojiTitle(line) {
+  return String(line || "")
+      .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "")
+      .trim();
+}
+
+function inferKindLabel(title) {
+  const s = String(title || "");
+  if (!s) return "액션";
+  if (/(약속|만나|미팅|식사|데이트|모임)/.test(s)) return "약속";
+  if (/(할일|해야|작업|업무|정리|구매|체크)/.test(s)) return "할일";
+  if (/(장소|가자|방문|성수|역|카페|공원|식당)/.test(s)) return "장소";
+  return "액션";
+}
+
 function fallbackActionMetaFromContent(post) {
   const lines = normalizedLines(post).filter((line) => line !== "#RealLife");
-  const chips = [];
+  if (!lines.length) return null;
 
-  for (const line of lines) {
-    if (line.startsWith("🕒")) chips.push(`🕒 ${line.replace(/^🕒\s*/, "")}`);
-    else if (line.startsWith("📍")) chips.push(`📍 ${line.replace(/^📍\s*/, "")}`);
-    else if (line.startsWith("⏰")) chips.push(`⏰ ${line.replace(/^⏰\s*/, "")}`);
+  const first = lines[0] || "";
+  const title = stripLeadingEmojiTitle(first);
+
+  let time = "";
+  let place = "";
+  let remindAt = "";
+
+  for (const line of lines.slice(1)) {
+    if (line.startsWith("🕒")) time = line.replace(/^🕒\s*/, "").trim();
+    else if (line.startsWith("📍")) place = line.replace(/^📍\s*/, "").trim();
+    else if (line.startsWith("⏰")) remindAt = line.replace(/^⏰\s*/, "").trim();
   }
 
-  return chips.slice(0, 3);
+  const kind = inferKindLabel(title);
+  const subtitle = [kind, place].filter(Boolean).join(" · ");
+  const description = [time, place].filter(Boolean).join(" · ");
+
+  const chips = [];
+  if (time) chips.push(`🕒 ${time}`);
+  if (place) chips.push(`📍 ${place}`);
+  if (remindAt && remindAt !== "리마인드 없음") chips.push(`⏰ ${remindAt}`);
+
+  return {
+    badge: "액션 공유",
+    title,
+    subtitle: subtitle || description || "",
+    state: remindAt ? "리마인더 설정됨" : kind,
+    chips: chips.slice(0, 3),
+  };
 }
 
 const actionShareMeta = computed(() => {
@@ -216,14 +253,7 @@ const actionShareMeta = computed(() => {
   }
 
   if (!isActionSharePost(props.post)) return null;
-
-  return {
-    badge: "액션 공유",
-    title: "",
-    subtitle: "",
-    state: "",
-    chips: fallbackActionMetaFromContent(props.post),
-  };
+  return fallbackActionMetaFromContent(props.post);
 });
 </script>
 
@@ -251,7 +281,10 @@ const actionShareMeta = computed(() => {
       </div>
     </div>
 
-    <section v-if="actionShareMeta && (actionShareMeta.title || actionShareMeta.subtitle || actionShareMeta.state || actionShareMeta.chips.length)" class="shareCard">
+    <section
+        v-if="actionShareMeta && (actionShareMeta.title || actionShareMeta.subtitle || actionShareMeta.state || actionShareMeta.chips.length)"
+        class="shareCard"
+    >
       <div class="shareCard__top">
         <div class="shareCard__icon">✨</div>
         <div class="shareCard__body">
@@ -277,19 +310,19 @@ const actionShareMeta = computed(() => {
     >
       <div class="track" :style="{ transform: `translateX(${-slide * 100}%)` }">
         <button
-            v-for="(u,idx) in visibleImages"
+            v-for="(u, idx) in visibleImages"
             :key="idx"
             class="slide"
             type="button"
             @click.stop="openLightbox(idx, $event)"
-            :aria-label="`이미지 ${idx+1} 확대`"
+            :aria-label="`이미지 ${idx + 1} 확대`"
         >
           <img class="img" :src="u" alt="post image" loading="lazy" decoding="async" />
         </button>
       </div>
 
       <div v-if="visibleImages.length > 1" class="dots" aria-hidden="true">
-        <span v-for="(_,i) in visibleImages.length" :key="i" class="dot" :class="{ on: i===slide }"></span>
+        <span v-for="(_, i) in visibleImages.length" :key="i" class="dot" :class="{ on: i === slide }"></span>
       </div>
 
       <div class="heartBurst" :class="{ on: burst }" aria-hidden="true">❤</div>
