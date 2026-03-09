@@ -13,6 +13,10 @@
         <div class="statusBadge" :data-status="normalizedDashboard.status">
           {{ normalizedDashboard.status }}
         </div>
+        <div class="refreshMeta">
+          <span>자동 새로고침 30초</span>
+          <span>마지막 갱신 {{ lastLoadedText }}</span>
+        </div>
         <RlButton size="sm" variant="soft" @click="load" :loading="loading">새로고침</RlButton>
       </div>
     </section>
@@ -164,7 +168,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 import { fetchAdminDashboard } from "@/api/admin";
@@ -175,6 +179,9 @@ const toast = useToastStore();
 const loading = ref(false);
 const error = ref("");
 const dashboard = ref(null);
+const lastLoadedAt = ref(null);
+
+let refreshTimer = null;
 
 const normalizedDashboard = computed(() => {
   const raw = dashboard.value || {};
@@ -222,17 +229,46 @@ const normalizedDashboard = computed(() => {
   };
 });
 
-async function load() {
-  loading.value = true;
+const lastLoadedText = computed(() => {
+  if (!lastLoadedAt.value) return "-";
+  return new Date(lastLoadedAt.value).toLocaleTimeString("ko-KR");
+});
+
+async function load({ silent = false } = {}) {
+  if (!silent) {
+    loading.value = true;
+  }
   error.value = "";
+
   try {
     const res = await fetchAdminDashboard();
     dashboard.value = res || {};
+    lastLoadedAt.value = Date.now();
   } catch (e) {
     error.value = e?.response?.data?.message || "운영 대시보드를 불러오지 못했어요.";
-    toast.error?.("대시보드 로드 실패", error.value);
+    if (!silent) {
+      toast.error?.("대시보드 로드 실패", error.value);
+    }
   } finally {
-    loading.value = false;
+    if (!silent) {
+      loading.value = false;
+    }
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === "visible") {
+      load({ silent: true });
+    }
+  }, 30000);
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer);
+    refreshTimer = null;
   }
 }
 
@@ -248,7 +284,14 @@ function shortId(v) {
   return s ? s.slice(0, 8) : "-";
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  startAutoRefresh();
+});
+
+onBeforeUnmount(() => {
+  stopAutoRefresh();
+});
 </script>
 
 <style scoped>
@@ -265,6 +308,7 @@ onMounted(load);
 .title{margin:6px 0 0;font-size:28px;font-weight:950}
 .sub{margin:8px 0 0;color:var(--muted);line-height:1.55}
 .heroRight{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.refreshMeta{display:grid;gap:2px;font-size:12px;color:var(--muted)}
 .statusBadge{
   min-width:88px;height:38px;padding:0 14px;border-radius:999px;
   display:inline-flex;align-items:center;justify-content:center;
