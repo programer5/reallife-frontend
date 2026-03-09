@@ -1,13 +1,11 @@
 <template>
   <div class="page">
-
-    <!-- HERO -->
     <section class="hero cardSurface">
       <div class="heroLeft">
         <div class="eyebrow">REALIFE OPS</div>
         <h1 class="title">Admin Dashboard</h1>
         <p class="sub">
-          서비스 상태, 실시간 연결, scheduler 상태, 이상징후를 한 화면에서 확인합니다.
+          서비스 상태, 실시간 연결, reminder 흐름, 최근 알림과 이상징후를 한 화면에서 확인합니다.
         </p>
       </div>
 
@@ -27,349 +25,884 @@
       </div>
     </section>
 
+    <AsyncStatePanel
+        v-if="loading && !dashboard"
+        icon="⏳"
+        title="운영 상태를 불러오는 중이에요"
+        description="DB, Redis, SSE, Reminder 상태를 모으고 있어요."
+        tone="loading"
+        :show-actions="false"
+    />
 
-    <!-- 이상징후 카드 -->
-    <section v-if="anomalyList.length" class="panel anomalyPanel">
+    <AsyncStatePanel
+        v-else-if="error"
+        icon="⚠️"
+        title="대시보드를 불러오지 못했어요"
+        :description="error"
+        tone="danger"
+        primary-label="다시 시도"
+        @primary="load"
+    />
 
-      <div class="panelTitle">⚠ 이상 징후 감지</div>
+    <template v-else>
+      <section v-if="anomalyList.length" class="panel anomalyPanel cardSurface">
+        <div class="panelTitle">⚠ 이상 징후 감지</div>
 
-      <div class="anomalyList">
-
-        <div
-            v-for="item in anomalyList"
-            :key="item.type"
-            class="anomalyCard"
-            :data-level="item.level"
-        >
-          <div class="anomalyTitle">{{ item.title }}</div>
-          <div class="anomalyDesc">{{ item.desc }}</div>
-        </div>
-
-      </div>
-
-    </section>
-
-
-    <!-- 통계 -->
-    <section class="grid4">
-
-      <div class="statCard cardSurface">
-        <div class="label">SSE 연결</div>
-        <div class="value">{{ normalizedDashboard.overview.activeSseConnections }}</div>
-      </div>
-
-      <div class="statCard cardSurface">
-        <div class="label">미읽음 알림</div>
-        <div class="value">{{ normalizedDashboard.overview.unreadNotifications }}</div>
-      </div>
-
-      <div class="statCard cardSurface">
-        <div class="label">활성 핀</div>
-        <div class="value">{{ normalizedDashboard.overview.activePins }}</div>
-      </div>
-
-      <div class="statCard cardSurface">
-        <div class="label">오늘 알림</div>
-        <div class="value">{{ normalizedDashboard.overview.todayCreatedNotifications }}</div>
-      </div>
-
-    </section>
-
-
-    <!-- health -->
-    <section class="healthGrid">
-
-      <div class="panel cardSurface">
-
-        <div class="panelTitle">Health Status</div>
-
-        <div class="healthList">
-
+        <div class="anomalyList">
           <div
-              v-for="(value,key) in normalizedDashboard.health.checks"
-              :key="key"
-              class="healthRow"
+              v-for="item in anomalyList"
+              :key="item.type"
+              class="anomalyCard"
+              :data-level="item.level"
           >
-            <span class="healthKey">{{ key }}</span>
+            <div class="anomalyTitle">{{ item.title }}</div>
+            <div class="anomalyDesc">{{ item.desc }}</div>
+          </div>
+        </div>
+      </section>
 
-            <span
-                class="healthValue"
-                :data-status="value"
+      <section class="grid4">
+        <div class="statCard cardSurface">
+          <div class="label">SSE 연결</div>
+          <div class="value">{{ normalizedDashboard.overview.activeSseConnections }}</div>
+          <div class="hint">실시간 연결 상태</div>
+        </div>
+
+        <div class="statCard cardSurface">
+          <div class="label">미읽음 알림</div>
+          <div class="value">{{ normalizedDashboard.overview.unreadNotifications }}</div>
+          <div class="hint">전체 unread 기준</div>
+        </div>
+
+        <div class="statCard cardSurface">
+          <div class="label">활성 핀</div>
+          <div class="value">{{ normalizedDashboard.overview.activePins }}</div>
+          <div class="hint">현재 진행 중 액션</div>
+        </div>
+
+        <div class="statCard cardSurface">
+          <div class="label">오늘 알림</div>
+          <div class="value">{{ normalizedDashboard.overview.todayCreatedNotifications }}</div>
+          <div class="hint">최근 24시간 기준</div>
+        </div>
+      </section>
+
+      <section class="focusGrid">
+        <div class="panel cardSurface">
+          <div class="panelTitle">운영 포커스</div>
+          <div class="focusList">
+            <div class="focusRow">
+              <span>지금 가장 먼저 볼 것</span>
+              <strong>{{ opsFocusTitle }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>우선 이유</span>
+              <strong>{{ opsFocusReason }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>서비스 상태</span>
+              <strong :data-status="normalizedDashboard.status">{{ normalizedDashboard.status }}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel cardSurface">
+          <div class="panelTitle">실시간 흐름 요약</div>
+          <div class="focusList">
+            <div class="focusRow">
+              <span>최근 SSE 이벤트</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastSseEventSentAt) }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>최근 Reminder 실행</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderRunAt) }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>최근 Reminder 성공</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderSuccessAt) }}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="healthGrid">
+        <div class="panel cardSurface">
+          <div class="panelTitle">Health Status</div>
+
+          <div class="healthList">
+            <div
+                v-for="(value, key) in normalizedDashboard.health.checks"
+                :key="key"
+                class="healthRow"
             >
-              {{ value }}
-            </span>
+              <span class="healthKey">{{ key }}</span>
 
+              <span class="healthValue" :data-status="value">
+                {{ value }}
+              </span>
+            </div>
           </div>
-
         </div>
 
-      </div>
+        <div class="panel cardSurface">
+          <div class="panelTitle">Scheduler</div>
 
+          <div class="timingList">
+            <div class="timingRow">
+              <span>Last SSE Event</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastSseEventSentAt) }}</strong>
+            </div>
 
-      <!-- scheduler -->
-      <div class="panel cardSurface">
+            <div class="timingRow">
+              <span>Last Reminder Run</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderRunAt) }}</strong>
+            </div>
 
-        <div class="panelTitle">Scheduler</div>
+            <div class="timingRow">
+              <span>Last Reminder Success</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderSuccessAt) }}</strong>
+            </div>
 
-        <div class="timingList">
+            <div class="timingRow">
+              <span>Reminder Delay</span>
+              <strong :data-delay="delayLevel">
+                {{ normalizedDashboard.health.minutesSinceLastReminderRun }} min
+              </strong>
+            </div>
 
-          <div class="timingRow">
-            <span>Last SSE Event</span>
-            <strong>{{ fmtDateTime(normalizedDashboard.health.lastSseEventSentAt) }}</strong>
+            <div class="timingRow">
+              <span>Recent Reminder Created</span>
+              <strong>{{ normalizedDashboard.health.recentReminderCreatedCount }}</strong>
+            </div>
           </div>
+        </div>
+      </section>
 
-          <div class="timingRow">
-            <span>Last Reminder Run</span>
-            <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderRunAt) }}</strong>
-          </div>
-
-          <div class="timingRow">
-            <span>Reminder Delay</span>
-            <strong>{{ normalizedDashboard.health.minutesSinceLastReminderRun }} min</strong>
-          </div>
-
+      <section class="grid3">
+        <div class="miniCard cardSurface">
+          <div class="label">Users</div>
+          <div class="value">{{ normalizedDashboard.totals.users }}</div>
         </div>
 
-      </div>
+        <div class="miniCard cardSurface">
+          <div class="label">Posts</div>
+          <div class="value">{{ normalizedDashboard.totals.posts }}</div>
+        </div>
 
-    </section>
+        <div class="miniCard cardSurface">
+          <div class="label">Comments</div>
+          <div class="value">{{ normalizedDashboard.totals.comments }}</div>
+        </div>
 
+        <div class="miniCard cardSurface">
+          <div class="label">Conversations</div>
+          <div class="value">{{ normalizedDashboard.totals.conversations }}</div>
+        </div>
 
-    <!-- totals -->
-    <section class="grid3">
+        <div class="miniCard cardSurface">
+          <div class="label">Messages</div>
+          <div class="value">{{ normalizedDashboard.totals.messages }}</div>
+        </div>
 
-      <div class="miniCard cardSurface">
-        <div class="label">Users</div>
-        <div class="value">{{ normalizedDashboard.totals.users }}</div>
-      </div>
+        <div class="miniCard cardSurface">
+          <div class="label">Notifications</div>
+          <div class="value">{{ normalizedDashboard.totals.notifications }}</div>
+        </div>
+      </section>
 
-      <div class="miniCard cardSurface">
-        <div class="label">Posts</div>
-        <div class="value">{{ normalizedDashboard.totals.posts }}</div>
-      </div>
+      <section class="insightGrid">
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">최근 알림 타입 통계</div>
+              <div class="panelSub">최근 알림 목록 기준으로 어떤 이벤트가 많이 발생하는지 보여줘요.</div>
+            </div>
+          </div>
 
-      <div class="miniCard cardSurface">
-        <div class="label">Messages</div>
-        <div class="value">{{ normalizedDashboard.totals.messages }}</div>
-      </div>
+          <div v-if="notificationTypeStats.length" class="typeStatsList">
+            <div v-for="item in notificationTypeStats" :key="item.type" class="typeStatsItem">
+              <div class="typeStatsTop">
+                <span class="typeName">{{ item.type }}</span>
+                <strong class="typeCount">{{ item.count }}</strong>
+              </div>
+              <div class="typeBar">
+                <span :style="{ width: item.ratio + '%' }"></span>
+              </div>
+              <div class="typeRatio">{{ item.ratio }}%</div>
+            </div>
+          </div>
 
-    </section>
+          <div v-else class="empty">최근 알림 통계가 아직 없어요.</div>
+        </div>
 
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">운영 신호 요약</div>
+              <div class="panelSub">지금 운영자가 빠르게 판단할 수 있는 핵심 신호예요.</div>
+            </div>
+          </div>
 
+          <div class="signalList">
+            <div class="signalItem">
+              <span class="signalLabel">Unread Pressure</span>
+              <strong>{{ unreadPressure }}</strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Realtime Health</span>
+              <strong :data-status="realtimeHealthLevel">{{ realtimeHealthLevel }}</strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Reminder Health</span>
+              <strong :data-status="reminderHealthLevel">{{ reminderHealthLevel }}</strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Recent Notification Flow</span>
+              <strong>{{ recentFlowTitle }}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel cardSurface">
+        <div class="panelHead">
+          <div>
+            <div class="panelTitle">최근 알림</div>
+            <div class="panelSub">운영자가 최근 흐름을 빠르게 볼 수 있는 요약이에요.</div>
+          </div>
+          <div class="generatedAt">생성 시각 {{ fmtDateTime(normalizedDashboard.generatedAt) }}</div>
+        </div>
+
+        <div v-if="normalizedDashboard.recent.notifications.length" class="recentList">
+          <div
+              v-for="item in normalizedDashboard.recent.notifications"
+              :key="item.id"
+              class="recentItem"
+          >
+            <div class="recentTop">
+              <span class="recentType">{{ item.type }}</span>
+              <span class="recentTime">{{ fmtDateTime(item.createdAt) }}</span>
+            </div>
+            <div class="recentBody">{{ item.body }}</div>
+            <div class="recentMeta">
+              <span>User {{ shortId(item.userId) }}</span>
+              <span :data-read="item.read">{{ item.read ? "읽음" : "미읽음" }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty">아직 최근 알림이 없어요.</div>
+      </section>
+
+      <section class="panel cardSurface">
+        <div class="panelTitle">운영 메모</div>
+        <ul class="notes">
+          <li v-for="note in normalizedDashboard.notes" :key="note">{{ note }}</li>
+        </ul>
+      </section>
+    </template>
   </div>
 </template>
 
-
 <script setup>
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import RlButton from "@/components/ui/RlButton.vue";
+import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
+import { fetchAdminDashboard } from "@/api/admin";
+import { useToastStore } from "@/stores/toast";
 
-import { ref,computed,onMounted,onBeforeUnmount } from "vue"
-import RlButton from "@/components/ui/RlButton.vue"
-import { fetchAdminDashboard } from "@/api/admin"
+const toast = useToastStore();
 
-const dashboard = ref(null)
-const loading = ref(false)
-const lastLoadedAt = ref(null)
+const dashboard = ref(null);
+const loading = ref(false);
+const error = ref("");
+const lastLoadedAt = ref(null);
 
-let refreshTimer = null
-
+let refreshTimer = null;
 
 const normalizedDashboard = computed(() => {
-
-  const raw = dashboard.value || {}
+  const raw = dashboard.value || {};
 
   return {
-
     status: raw.status || "UNKNOWN",
+    generatedAt: raw.generatedAt || null,
 
-    overview: raw.overview || {
-      activeSseConnections:0,
-      unreadNotifications:0,
-      activePins:0,
-      todayCreatedNotifications:0
+    overview: {
+      activeSseConnections: Number(raw?.overview?.activeSseConnections || 0),
+      unreadNotifications: Number(raw?.overview?.unreadNotifications || 0),
+      activePins: Number(raw?.overview?.activePins || 0),
+      todayCreatedNotifications: Number(raw?.overview?.todayCreatedNotifications || 0),
+      todayCreatedMessages: Number(raw?.overview?.todayCreatedMessages || 0),
+      todayCreatedPosts: Number(raw?.overview?.todayCreatedPosts || 0),
     },
 
-    health: raw.health || {
-      checks:{},
-      minutesSinceLastReminderRun:0
+    health: {
+      checks: raw?.health?.checks || {},
+      lastSseEventSentAt: raw?.health?.lastSseEventSentAt || null,
+      lastReminderRunAt: raw?.health?.lastReminderRunAt || null,
+      lastReminderSuccessAt: raw?.health?.lastReminderSuccessAt || null,
+      recentReminderCreatedCount: Number(raw?.health?.recentReminderCreatedCount || 0),
+      minutesSinceLastReminderRun: Number(raw?.health?.minutesSinceLastReminderRun || 0),
     },
 
-    totals: raw.totals || {
-      users:0,
-      posts:0,
-      messages:0
-    }
+    totals: {
+      users: Number(raw?.totals?.users || 0),
+      posts: Number(raw?.totals?.posts || 0),
+      comments: Number(raw?.totals?.comments || 0),
+      conversations: Number(raw?.totals?.conversations || 0),
+      messages: Number(raw?.totals?.messages || 0),
+      activePins: Number(raw?.totals?.activePins || 0),
+      notifications: Number(raw?.totals?.notifications || 0),
+    },
 
+    recent: {
+      notifications: Array.isArray(raw?.recent?.notifications) ? raw.recent.notifications : [],
+    },
+
+    notes: Array.isArray(raw?.notes) ? raw.notes : [],
+  };
+});
+
+const notificationTypeStats = computed(() => {
+  const list = normalizedDashboard.value.recent.notifications;
+  if (!list.length) return [];
+
+  const map = new Map();
+  for (const item of list) {
+    const key = item?.type || "UNKNOWN";
+    map.set(key, (map.get(key) || 0) + 1);
   }
 
-})
+  const total = list.length || 1;
 
+  return [...map.entries()]
+      .map(([type, count]) => ({
+        type,
+        count,
+        ratio: Math.round((count / total) * 100),
+      }))
+      .sort((a, b) => b.count - a.count);
+});
 
 const anomalyList = computed(() => {
-
-  const list = []
+  const list = [];
 
   if (normalizedDashboard.value.overview.activeSseConnections === 0) {
-
     list.push({
-      type:"sse",
-      level:"warning",
-      title:"SSE 연결 없음",
-      desc:"현재 활성 SSE 연결이 없습니다."
-    })
-
+      type: "sse",
+      level: "warning",
+      title: "SSE 연결 없음",
+      desc: "현재 활성 SSE 연결이 없습니다.",
+    });
   }
 
   if (normalizedDashboard.value.health.minutesSinceLastReminderRun > 15) {
-
     list.push({
-      type:"reminder",
-      level:"danger",
-      title:"Reminder Scheduler 지연",
-      desc:`${normalizedDashboard.value.health.minutesSinceLastReminderRun}분 동안 실행되지 않았습니다`
-    })
-
+      type: "reminder",
+      level: "danger",
+      title: "Reminder Scheduler 지연",
+      desc: `${normalizedDashboard.value.health.minutesSinceLastReminderRun}분 동안 실행되지 않았습니다.`,
+    });
   }
 
   if (normalizedDashboard.value.status !== "UP") {
-
     list.push({
-      type:"health",
-      level:"danger",
-      title:"서비스 상태 비정상",
-      desc:`현재 상태 ${normalizedDashboard.value.status}`
-    })
-
+      type: "health",
+      level: "danger",
+      title: "서비스 상태 비정상",
+      desc: `현재 상태 ${normalizedDashboard.value.status}`,
+    });
   }
 
-  return list
+  return list;
+});
 
-})
+const unreadPressure = computed(() => {
+  const n = normalizedDashboard.value.overview.unreadNotifications;
+  if (n >= 50) return "HIGH";
+  if (n >= 10) return "MEDIUM";
+  return "LOW";
+});
 
+const realtimeHealthLevel = computed(() => {
+  if (normalizedDashboard.value.overview.activeSseConnections === 0) return "WATCH";
+  return "GOOD";
+});
 
-async function load({silent=false}={}){
+const reminderHealthLevel = computed(() => {
+  const mins = normalizedDashboard.value.health.minutesSinceLastReminderRun;
+  if (mins > 15) return "DELAYED";
+  if (mins > 5) return "WATCH";
+  return "GOOD";
+});
 
-  if(!silent) loading.value=true
+const recentFlowTitle = computed(() => {
+  const top = notificationTypeStats.value[0];
+  if (!top) return "NO DATA";
+  return `${top.type} 우세`;
+});
 
-  try{
+const opsFocusTitle = computed(() => {
+  if (normalizedDashboard.value.status !== "UP") return "서비스 상태 확인";
+  if (normalizedDashboard.value.overview.activeSseConnections === 0) return "SSE 연결 확인";
+  if (normalizedDashboard.value.health.minutesSinceLastReminderRun > 15) return "Reminder Scheduler 확인";
+  if (normalizedDashboard.value.overview.unreadNotifications >= 10) return "미읽음 알림 흐름 확인";
+  return "정상 운영 중";
+});
 
-    dashboard.value = await fetchAdminDashboard()
+const opsFocusReason = computed(() => {
+  if (normalizedDashboard.value.status !== "UP") return "health 상태가 UP이 아닙니다.";
+  if (normalizedDashboard.value.overview.activeSseConnections === 0) return "실시간 수신 연결이 없습니다.";
+  if (normalizedDashboard.value.health.minutesSinceLastReminderRun > 15) return "scheduler 지연이 감지됐습니다.";
+  if (normalizedDashboard.value.overview.unreadNotifications >= 10) return "미읽음 알림이 누적되고 있습니다.";
+  return "이상 징후 없이 안정적으로 동작하고 있습니다.";
+});
 
-    lastLoadedAt.value = Date.now()
+const delayLevel = computed(() => {
+  const mins = normalizedDashboard.value.health.minutesSinceLastReminderRun;
+  if (mins > 15) return "danger";
+  if (mins > 5) return "warning";
+  return "normal";
+});
 
-  }finally{
+const lastLoadedText = computed(() => {
+  if (!lastLoadedAt.value) return "-";
+  return new Date(lastLoadedAt.value).toLocaleTimeString("ko-KR");
+});
 
-    loading.value=false
+async function load({ silent = false } = {}) {
+  if (!silent) loading.value = true;
 
-  }
-
-}
-
-
-function startAutoRefresh(){
-
-  refreshTimer = setInterval(()=>{
-
-    if(document.visibilityState==="visible"){
-
-      load({silent:true})
-
+  try {
+    dashboard.value = await fetchAdminDashboard();
+    lastLoadedAt.value = Date.now();
+    error.value = "";
+  } catch (e) {
+    error.value = e?.response?.data?.message || "운영 대시보드를 불러오지 못했어요.";
+    if (!silent) {
+      toast.error?.("대시보드 로드 실패", error.value);
     }
-
-  },30000)
-
+  } finally {
+    loading.value = false;
+  }
 }
 
-function stopAutoRefresh(){
-
-  if(refreshTimer) clearInterval(refreshTimer)
-
+function startAutoRefresh() {
+  stopAutoRefresh();
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === "visible") {
+      load({ silent: true });
+    }
+  }, 30000);
 }
 
-
-function fmtDateTime(v){
-
-  if(!v) return "-"
-
-  return new Date(v).toLocaleString("ko-KR")
-
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
 }
 
-const lastLoadedText = computed(()=>{
+function fmtDateTime(v) {
+  if (!v) return "-";
+  return new Date(v).toLocaleString("ko-KR");
+}
 
-  if(!lastLoadedAt.value) return "-"
+function shortId(v) {
+  const s = String(v || "");
+  return s ? s.slice(0, 8) : "-";
+}
 
-  return new Date(lastLoadedAt.value).toLocaleTimeString("ko-KR")
+onMounted(async () => {
+  await load();
+  startAutoRefresh();
+});
 
-})
-
-
-onMounted(async()=>{
-
-  await load()
-
-  startAutoRefresh()
-
-})
-
-onBeforeUnmount(()=>{
-
-  stopAutoRefresh()
-
-})
-
+onBeforeUnmount(() => {
+  stopAutoRefresh();
+});
 </script>
 
-
 <style scoped>
+.page{
+  max-width:1200px;
+  margin:0 auto;
+  padding:18px 14px 110px;
+  display:grid;
+  gap:14px;
+}
+
+.cardSurface{
+  border:1px solid color-mix(in oklab,var(--border) 88%,transparent);
+  border-radius:24px;
+  background:color-mix(in oklab,var(--surface) 88%,transparent);
+  box-shadow:0 18px 60px rgba(0,0,0,.24),0 1px 0 rgba(255,255,255,.05) inset;
+  backdrop-filter:blur(14px);
+}
+
+.hero{
+  padding:18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:16px;
+}
+
+.eyebrow{
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.15em;
+  color:var(--muted);
+}
+
+.title{
+  margin:6px 0 0;
+  font-size:28px;
+  font-weight:950;
+}
+
+.sub{
+  margin:8px 0 0;
+  color:var(--muted);
+  line-height:1.55;
+}
+
+.heroRight{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+.refreshMeta{
+  display:grid;
+  gap:2px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+.statusBadge{
+  min-width:88px;
+  height:38px;
+  padding:0 14px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--border);
+  font-weight:950;
+  background:rgba(255,255,255,.04);
+}
+
+.statusBadge[data-status="UP"]{
+  border-color:color-mix(in oklab,var(--success) 44%,var(--border));
+  background:color-mix(in oklab,var(--success) 12%,transparent);
+}
+
+.statusBadge[data-status="DEGRADED"]{
+  border-color:color-mix(in oklab,var(--warning) 44%,var(--border));
+  background:color-mix(in oklab,var(--warning) 12%,transparent);
+}
+
+.statusBadge[data-status="DOWN"]{
+  border-color:color-mix(in oklab,var(--danger) 44%,var(--border));
+  background:color-mix(in oklab,var(--danger) 12%,transparent);
+}
 
 .anomalyPanel{
-
-  border:1px solid rgba(255,120,0,0.4);
-  background:rgba(255,120,0,0.08)
-
+  border-color:rgba(255,120,0,.36);
+  background:linear-gradient(180deg, rgba(255,120,0,.10), rgba(255,120,0,.04));
+  padding:16px;
 }
 
 .anomalyList{
-
   display:grid;
   gap:10px;
-  margin-top:12px
-
+  margin-top:12px;
 }
 
 .anomalyCard{
-
   padding:12px;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,0.1)
-
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.10);
 }
 
 .anomalyCard[data-level="warning"]{
-
   border-color:#f6c344;
-  background:rgba(246,195,68,0.12)
-
+  background:rgba(246,195,68,.12);
 }
 
 .anomalyCard[data-level="danger"]{
-
   border-color:#ff5d5d;
-  background:rgba(255,93,93,0.12)
-
+  background:rgba(255,93,93,.12);
 }
 
 .anomalyTitle{
-
-  font-weight:800
-
+  font-weight:900;
 }
 
 .anomalyDesc{
-
+  margin-top:4px;
   font-size:13px;
-  opacity:0.8
-
+  opacity:.84;
 }
 
+.grid4{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+}
+
+.grid3{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+}
+
+.focusGrid,
+.healthGrid,
+.insightGrid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+
+.statCard,
+.miniCard,
+.panel{
+  padding:16px;
+}
+
+.label{
+  font-size:12px;
+  color:var(--muted);
+  font-weight:900;
+}
+
+.value{
+  margin-top:8px;
+  font-size:28px;
+  font-weight:950;
+  letter-spacing:-.03em;
+}
+
+.hint{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+.panelTitle{
+  font-size:18px;
+  font-weight:950;
+}
+
+.panelSub{
+  margin-top:4px;
+  font-size:13px;
+  color:var(--muted);
+}
+
+.focusList,
+.healthList,
+.timingList,
+.signalList{
+  margin-top:12px;
+  display:grid;
+  gap:10px;
+}
+
+.focusRow,
+.healthRow,
+.timingRow,
+.signalItem{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:center;
+  padding:12px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+}
+
+.healthKey{
+  font-weight:900;
+  text-transform:capitalize;
+}
+
+.healthValue{
+  min-width:88px;
+  height:32px;
+  padding:0 10px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--border);
+  font-size:12px;
+  font-weight:950;
+  background:rgba(255,255,255,.04);
+}
+
+.healthValue[data-status="UP"],
+strong[data-status="GOOD"]{
+  border-color:color-mix(in oklab,var(--success) 44%,var(--border));
+  color:color-mix(in oklab,var(--success) 90%,white);
+}
+
+.healthValue[data-status="DEGRADED"],
+strong[data-status="WATCH"]{
+  border-color:color-mix(in oklab,var(--warning) 44%,var(--border));
+  color:color-mix(in oklab,var(--warning) 88%,white);
+}
+
+.healthValue[data-status="DOWN"],
+strong[data-status="DELAYED"],
+strong[data-status="danger"]{
+  border-color:color-mix(in oklab,var(--danger) 44%,var(--border));
+  color:color-mix(in oklab,var(--danger) 88%,white);
+}
+
+strong[data-delay="warning"]{
+  color:color-mix(in oklab,var(--warning) 88%,white);
+}
+
+strong[data-delay="danger"]{
+  color:color-mix(in oklab,var(--danger) 88%,white);
+}
+
+.panelHead{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:flex-start;
+  flex-wrap:wrap;
+}
+
+.generatedAt{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.typeStatsList{
+  margin-top:12px;
+  display:grid;
+  gap:12px;
+}
+
+.typeStatsItem{
+  padding:12px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+}
+
+.typeStatsTop{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+}
+
+.typeName{
+  font-weight:900;
+}
+
+.typeCount{
+  font-size:16px;
+  font-weight:950;
+}
+
+.typeBar{
+  margin-top:10px;
+  height:10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.08);
+  overflow:hidden;
+}
+
+.typeBar span{
+  display:block;
+  height:100%;
+  border-radius:inherit;
+  background:linear-gradient(90deg, color-mix(in oklab,var(--accent) 70%,white), color-mix(in oklab,var(--accent) 30%,transparent));
+}
+
+.typeRatio{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+.recentList{
+  margin-top:12px;
+  display:grid;
+  gap:10px;
+}
+
+.recentItem{
+  padding:14px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.035);
+}
+
+.recentTop,
+.recentMeta{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.recentType{
+  font-size:12px;
+  font-weight:950;
+  color:color-mix(in oklab,var(--accent) 78%,white);
+}
+
+.recentTime{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.recentBody{
+  margin-top:8px;
+  line-height:1.55;
+}
+
+.recentMeta{
+  margin-top:8px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+.recentMeta span[data-read="false"]{
+  color:color-mix(in oklab,var(--warning) 80%,white);
+}
+
+.notes{
+  margin:10px 0 0;
+  padding-left:18px;
+  color:var(--muted);
+  line-height:1.6;
+}
+
+.empty{
+  margin-top:12px;
+  color:var(--muted);
+}
+
+@media (max-width:1024px){
+  .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid3{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .focusGrid,.healthGrid,.insightGrid{grid-template-columns:1fr}
+}
+
+@media (max-width:680px){
+  .page{padding:14px 12px 100px}
+  .hero{flex-direction:column}
+  .grid4,.grid3{grid-template-columns:1fr}
+  .title{font-size:24px}
+}
 </style>
