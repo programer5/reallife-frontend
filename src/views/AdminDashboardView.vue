@@ -10,8 +10,8 @@
       </div>
 
       <div class="heroRight">
-        <div class="statusBadge" :data-status="dashboard?.status || 'UP'">
-          {{ dashboard?.status || "UNKNOWN" }}
+        <div class="statusBadge" :data-status="normalizedDashboard.status">
+          {{ normalizedDashboard.status }}
         </div>
         <RlButton size="sm" variant="soft" @click="load" :loading="loading">새로고침</RlButton>
       </div>
@@ -36,29 +36,29 @@
         @primary="load"
     />
 
-    <template v-else-if="dashboard">
+    <template v-else>
       <section class="grid4">
         <div class="statCard cardSurface">
           <div class="label">활성 SSE 연결</div>
-          <div class="value">{{ dashboard.overview.activeSseConnections }}</div>
+          <div class="value">{{ normalizedDashboard.overview.activeSseConnections }}</div>
           <div class="hint">실시간 연결 상태</div>
         </div>
 
         <div class="statCard cardSurface">
           <div class="label">미확인 알림</div>
-          <div class="value">{{ dashboard.overview.unreadNotifications }}</div>
+          <div class="value">{{ normalizedDashboard.overview.unreadNotifications }}</div>
           <div class="hint">전체 unread 기준</div>
         </div>
 
         <div class="statCard cardSurface">
           <div class="label">활성 핀</div>
-          <div class="value">{{ dashboard.overview.activePins }}</div>
+          <div class="value">{{ normalizedDashboard.overview.activePins }}</div>
           <div class="hint">현재 진행 중 액션</div>
         </div>
 
         <div class="statCard cardSurface">
           <div class="label">오늘 생성 알림</div>
-          <div class="value">{{ dashboard.overview.todayCreatedNotifications }}</div>
+          <div class="value">{{ normalizedDashboard.overview.todayCreatedNotifications }}</div>
           <div class="hint">최근 24시간 기준</div>
         </div>
       </section>
@@ -67,7 +67,7 @@
         <div class="panel cardSurface">
           <div class="panelTitle">운영 Health</div>
           <div class="healthList">
-            <div class="healthRow" v-for="(value, key) in dashboard.health.checks" :key="key">
+            <div class="healthRow" v-for="(value, key) in normalizedDashboard.health.checks" :key="key">
               <span class="healthKey">{{ key }}</span>
               <span class="healthValue" :data-status="value">{{ value }}</span>
             </div>
@@ -79,23 +79,23 @@
           <div class="timingList">
             <div class="timingRow">
               <span>마지막 SSE 이벤트</span>
-              <strong>{{ fmtDateTime(dashboard.health.lastSseEventSentAt) }}</strong>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastSseEventSentAt) }}</strong>
             </div>
             <div class="timingRow">
               <span>마지막 Reminder 실행</span>
-              <strong>{{ fmtDateTime(dashboard.health.lastReminderRunAt) }}</strong>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderRunAt) }}</strong>
             </div>
             <div class="timingRow">
               <span>마지막 Reminder 성공</span>
-              <strong>{{ fmtDateTime(dashboard.health.lastReminderSuccessAt) }}</strong>
+              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderSuccessAt) }}</strong>
             </div>
             <div class="timingRow">
               <span>최근 Reminder 생성 수</span>
-              <strong>{{ dashboard.health.recentReminderCreatedCount }}</strong>
+              <strong>{{ normalizedDashboard.health.recentReminderCreatedCount }}</strong>
             </div>
             <div class="timingRow">
               <span>마지막 실행 이후 경과</span>
-              <strong>{{ dashboard.health.minutesSinceLastReminderRun }}분</strong>
+              <strong>{{ normalizedDashboard.health.minutesSinceLastReminderRun }}분</strong>
             </div>
           </div>
         </div>
@@ -104,27 +104,27 @@
       <section class="grid3">
         <div class="miniCard cardSurface">
           <div class="label">Users</div>
-          <div class="value">{{ dashboard.totals.users }}</div>
+          <div class="value">{{ normalizedDashboard.totals.users }}</div>
         </div>
         <div class="miniCard cardSurface">
           <div class="label">Posts</div>
-          <div class="value">{{ dashboard.totals.posts }}</div>
+          <div class="value">{{ normalizedDashboard.totals.posts }}</div>
         </div>
         <div class="miniCard cardSurface">
           <div class="label">Comments</div>
-          <div class="value">{{ dashboard.totals.comments }}</div>
+          <div class="value">{{ normalizedDashboard.totals.comments }}</div>
         </div>
         <div class="miniCard cardSurface">
           <div class="label">Conversations</div>
-          <div class="value">{{ dashboard.totals.conversations }}</div>
+          <div class="value">{{ normalizedDashboard.totals.conversations }}</div>
         </div>
         <div class="miniCard cardSurface">
           <div class="label">Messages</div>
-          <div class="value">{{ dashboard.totals.messages }}</div>
+          <div class="value">{{ normalizedDashboard.totals.messages }}</div>
         </div>
         <div class="miniCard cardSurface">
           <div class="label">Notifications</div>
-          <div class="value">{{ dashboard.totals.notifications }}</div>
+          <div class="value">{{ normalizedDashboard.totals.notifications }}</div>
         </div>
       </section>
 
@@ -134,11 +134,11 @@
             <div class="panelTitle">최근 알림</div>
             <div class="panelSub">운영자가 최근 흐름을 빠르게 볼 수 있는 요약이에요.</div>
           </div>
-          <div class="generatedAt">생성 시각 {{ fmtDateTime(dashboard.generatedAt) }}</div>
+          <div class="generatedAt">생성 시각 {{ fmtDateTime(normalizedDashboard.generatedAt) }}</div>
         </div>
 
-        <div v-if="dashboard.recent.notifications?.length" class="recentList">
-          <div v-for="item in dashboard.recent.notifications" :key="item.id" class="recentItem">
+        <div v-if="normalizedDashboard.recent.notifications.length" class="recentList">
+          <div v-for="item in normalizedDashboard.recent.notifications" :key="item.id" class="recentItem">
             <div class="recentTop">
               <span class="recentType">{{ item.type }}</span>
               <span class="recentTime">{{ fmtDateTime(item.createdAt) }}</span>
@@ -156,7 +156,7 @@
       <section class="panel cardSurface">
         <div class="panelTitle">운영 메모</div>
         <ul class="notes">
-          <li v-for="note in dashboard.notes" :key="note">{{ note }}</li>
+          <li v-for="note in normalizedDashboard.notes" :key="note">{{ note }}</li>
         </ul>
       </section>
     </template>
@@ -164,7 +164,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 import { fetchAdminDashboard } from "@/api/admin";
@@ -176,11 +176,58 @@ const loading = ref(false);
 const error = ref("");
 const dashboard = ref(null);
 
+const normalizedDashboard = computed(() => {
+  const raw = dashboard.value || {};
+
+  return {
+    status: raw?.status || "UNKNOWN",
+    service: raw?.service || "reallife-backend",
+    version: raw?.version || "unknown",
+    activeProfiles: Array.isArray(raw?.activeProfiles) ? raw.activeProfiles : [],
+    generatedAt: raw?.generatedAt || null,
+
+    overview: {
+      activeSseConnections: Number(raw?.overview?.activeSseConnections || 0),
+      unreadNotifications: Number(raw?.overview?.unreadNotifications || 0),
+      activePins: Number(raw?.overview?.activePins || 0),
+      todayCreatedNotifications: Number(raw?.overview?.todayCreatedNotifications || 0),
+      todayCreatedMessages: Number(raw?.overview?.todayCreatedMessages || 0),
+      todayCreatedPosts: Number(raw?.overview?.todayCreatedPosts || 0),
+    },
+
+    health: {
+      checks: raw?.health?.checks || {},
+      lastSseEventSentAt: raw?.health?.lastSseEventSentAt || null,
+      lastReminderRunAt: raw?.health?.lastReminderRunAt || null,
+      lastReminderSuccessAt: raw?.health?.lastReminderSuccessAt || null,
+      recentReminderCreatedCount: Number(raw?.health?.recentReminderCreatedCount || 0),
+      minutesSinceLastReminderRun: Number(raw?.health?.minutesSinceLastReminderRun || 0),
+    },
+
+    totals: {
+      users: Number(raw?.totals?.users || 0),
+      posts: Number(raw?.totals?.posts || 0),
+      comments: Number(raw?.totals?.comments || 0),
+      conversations: Number(raw?.totals?.conversations || 0),
+      messages: Number(raw?.totals?.messages || 0),
+      activePins: Number(raw?.totals?.activePins || 0),
+      notifications: Number(raw?.totals?.notifications || 0),
+    },
+
+    recent: {
+      notifications: Array.isArray(raw?.recent?.notifications) ? raw.recent.notifications : [],
+    },
+
+    notes: Array.isArray(raw?.notes) ? raw.notes : [],
+  };
+});
+
 async function load() {
   loading.value = true;
   error.value = "";
   try {
-    dashboard.value = await fetchAdminDashboard();
+    const res = await fetchAdminDashboard();
+    dashboard.value = res || {};
   } catch (e) {
     error.value = e?.response?.data?.message || "운영 대시보드를 불러오지 못했어요.";
     toast.error?.("대시보드 로드 실패", error.value);
