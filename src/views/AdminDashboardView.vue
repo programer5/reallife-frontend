@@ -93,11 +93,11 @@
           <div class="focusList">
             <div class="focusRow">
               <span>지금 가장 먼저 볼 것</span>
-              <strong>{{ opsFocusTitle }}</strong>
+              <strong>{{ normalizedDashboard.insights.opsFocusTitle }}</strong>
             </div>
             <div class="focusRow">
               <span>우선 이유</span>
-              <strong>{{ opsFocusReason }}</strong>
+              <strong>{{ normalizedDashboard.insights.opsFocusReason }}</strong>
             </div>
             <div class="focusRow">
               <span>서비스 상태</span>
@@ -178,6 +178,58 @@
         </div>
       </section>
 
+      <section class="summaryNotesGrid">
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">Health Summary</div>
+              <div class="panelSub">백엔드가 정리한 운영 health 요약 메모예요.</div>
+            </div>
+          </div>
+
+          <ul v-if="normalizedDashboard.health.summaryNotes.length" class="summaryNotes">
+            <li v-for="note in normalizedDashboard.health.summaryNotes" :key="note">
+              {{ note }}
+            </li>
+          </ul>
+          <div v-else class="empty">health summary note가 아직 없어요.</div>
+        </div>
+
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">운영 신호 요약</div>
+              <div class="panelSub">백엔드 insights 기준으로 현재 운영 신호를 정리해요.</div>
+            </div>
+          </div>
+
+          <div class="signalList">
+            <div class="signalItem">
+              <span class="signalLabel">Unread Pressure</span>
+              <strong :data-status="signalStatus(normalizedDashboard.insights.unreadPressure)">
+                {{ normalizedDashboard.insights.unreadPressure }}
+              </strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Realtime Health</span>
+              <strong :data-status="signalStatus(normalizedDashboard.insights.realtimeHealth)">
+                {{ normalizedDashboard.insights.realtimeHealth }}
+              </strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Reminder Health</span>
+              <strong :data-status="signalStatus(normalizedDashboard.insights.reminderHealth)">
+                {{ normalizedDashboard.insights.reminderHealth }}
+              </strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Top Notification Type</span>
+              <strong>{{ normalizedDashboard.insights.topNotificationType }}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="grid3">
         <div class="miniCard cardSurface">
           <div class="label">Users</div>
@@ -215,12 +267,16 @@
           <div class="panelHead">
             <div>
               <div class="panelTitle">최근 알림 타입 통계</div>
-              <div class="panelSub">최근 알림 목록 기준으로 어떤 이벤트가 많이 발생하는지 보여줘요.</div>
+              <div class="panelSub">백엔드 insights 기준으로 집계한 최근 알림 타입 통계예요.</div>
             </div>
           </div>
 
-          <div v-if="notificationTypeStats.length" class="typeStatsList">
-            <div v-for="item in notificationTypeStats" :key="item.type" class="typeStatsItem">
+          <div v-if="normalizedDashboard.insights.notificationTypeCounts.length" class="typeStatsList">
+            <div
+                v-for="item in normalizedDashboard.insights.notificationTypeCounts"
+                :key="item.type"
+                class="typeStatsItem"
+            >
               <div class="typeStatsTop">
                 <span class="typeName">{{ item.type }}</span>
                 <strong class="typeCount">{{ item.count }}</strong>
@@ -232,35 +288,21 @@
             </div>
           </div>
 
-          <div v-else class="empty">최근 알림 통계가 아직 없어요.</div>
+          <div v-else class="empty">최근 알림 타입 통계가 아직 없어요.</div>
         </div>
 
         <div class="panel cardSurface">
           <div class="panelHead">
             <div>
-              <div class="panelTitle">운영 신호 요약</div>
-              <div class="panelSub">지금 운영자가 빠르게 판단할 수 있는 핵심 신호예요.</div>
+              <div class="panelTitle">운영 메모</div>
+              <div class="panelSub">백엔드가 만든 운영 메모를 그대로 보여줘요.</div>
             </div>
           </div>
 
-          <div class="signalList">
-            <div class="signalItem">
-              <span class="signalLabel">Unread Pressure</span>
-              <strong>{{ unreadPressure }}</strong>
-            </div>
-            <div class="signalItem">
-              <span class="signalLabel">Realtime Health</span>
-              <strong :data-status="realtimeHealthLevel">{{ realtimeHealthLevel }}</strong>
-            </div>
-            <div class="signalItem">
-              <span class="signalLabel">Reminder Health</span>
-              <strong :data-status="reminderHealthLevel">{{ reminderHealthLevel }}</strong>
-            </div>
-            <div class="signalItem">
-              <span class="signalLabel">Recent Notification Flow</span>
-              <strong>{{ recentFlowTitle }}</strong>
-            </div>
-          </div>
+          <ul v-if="normalizedDashboard.notes.length" class="notes">
+            <li v-for="note in normalizedDashboard.notes" :key="note">{{ note }}</li>
+          </ul>
+          <div v-else class="empty">운영 메모가 아직 없어요.</div>
         </div>
       </section>
 
@@ -291,13 +333,6 @@
           </div>
         </div>
         <div v-else class="empty">아직 최근 알림이 없어요.</div>
-      </section>
-
-      <section class="panel cardSurface">
-        <div class="panelTitle">운영 메모</div>
-        <ul class="notes">
-          <li v-for="note in normalizedDashboard.notes" :key="note">{{ note }}</li>
-        </ul>
       </section>
     </template>
   </div>
@@ -342,6 +377,7 @@ const normalizedDashboard = computed(() => {
       lastReminderSuccessAt: raw?.health?.lastReminderSuccessAt || null,
       recentReminderCreatedCount: Number(raw?.health?.recentReminderCreatedCount || 0),
       minutesSinceLastReminderRun: Number(raw?.health?.minutesSinceLastReminderRun || 0),
+      summaryNotes: Array.isArray(raw?.health?.summaryNotes) ? raw.health.summaryNotes : [],
     },
 
     totals: {
@@ -358,29 +394,20 @@ const normalizedDashboard = computed(() => {
       notifications: Array.isArray(raw?.recent?.notifications) ? raw.recent.notifications : [],
     },
 
+    insights: {
+      notificationTypeCounts: Array.isArray(raw?.insights?.notificationTypeCounts)
+          ? raw.insights.notificationTypeCounts
+          : [],
+      topNotificationType: raw?.insights?.topNotificationType || "NO_DATA",
+      unreadPressure: raw?.insights?.unreadPressure || "LOW",
+      realtimeHealth: raw?.insights?.realtimeHealth || "GOOD",
+      reminderHealth: raw?.insights?.reminderHealth || "GOOD",
+      opsFocusTitle: raw?.insights?.opsFocusTitle || "정상 운영 중",
+      opsFocusReason: raw?.insights?.opsFocusReason || "이상 징후 없이 안정적으로 동작하고 있습니다.",
+    },
+
     notes: Array.isArray(raw?.notes) ? raw.notes : [],
   };
-});
-
-const notificationTypeStats = computed(() => {
-  const list = normalizedDashboard.value.recent.notifications;
-  if (!list.length) return [];
-
-  const map = new Map();
-  for (const item of list) {
-    const key = item?.type || "UNKNOWN";
-    map.set(key, (map.get(key) || 0) + 1);
-  }
-
-  const total = list.length || 1;
-
-  return [...map.entries()]
-      .map(([type, count]) => ({
-        type,
-        count,
-        ratio: Math.round((count / total) * 100),
-      }))
-      .sort((a, b) => b.count - a.count);
 });
 
 const anomalyList = computed(() => {
@@ -414,47 +441,6 @@ const anomalyList = computed(() => {
   }
 
   return list;
-});
-
-const unreadPressure = computed(() => {
-  const n = normalizedDashboard.value.overview.unreadNotifications;
-  if (n >= 50) return "HIGH";
-  if (n >= 10) return "MEDIUM";
-  return "LOW";
-});
-
-const realtimeHealthLevel = computed(() => {
-  if (normalizedDashboard.value.overview.activeSseConnections === 0) return "WATCH";
-  return "GOOD";
-});
-
-const reminderHealthLevel = computed(() => {
-  const mins = normalizedDashboard.value.health.minutesSinceLastReminderRun;
-  if (mins > 15) return "DELAYED";
-  if (mins > 5) return "WATCH";
-  return "GOOD";
-});
-
-const recentFlowTitle = computed(() => {
-  const top = notificationTypeStats.value[0];
-  if (!top) return "NO DATA";
-  return `${top.type} 우세`;
-});
-
-const opsFocusTitle = computed(() => {
-  if (normalizedDashboard.value.status !== "UP") return "서비스 상태 확인";
-  if (normalizedDashboard.value.overview.activeSseConnections === 0) return "SSE 연결 확인";
-  if (normalizedDashboard.value.health.minutesSinceLastReminderRun > 15) return "Reminder Scheduler 확인";
-  if (normalizedDashboard.value.overview.unreadNotifications >= 10) return "미읽음 알림 흐름 확인";
-  return "정상 운영 중";
-});
-
-const opsFocusReason = computed(() => {
-  if (normalizedDashboard.value.status !== "UP") return "health 상태가 UP이 아닙니다.";
-  if (normalizedDashboard.value.overview.activeSseConnections === 0) return "실시간 수신 연결이 없습니다.";
-  if (normalizedDashboard.value.health.minutesSinceLastReminderRun > 15) return "scheduler 지연이 감지됐습니다.";
-  if (normalizedDashboard.value.overview.unreadNotifications >= 10) return "미읽음 알림이 누적되고 있습니다.";
-  return "이상 징후 없이 안정적으로 동작하고 있습니다.";
 });
 
 const delayLevel = computed(() => {
@@ -510,6 +496,12 @@ function fmtDateTime(v) {
 function shortId(v) {
   const s = String(v || "");
   return s ? s.slice(0, 8) : "-";
+}
+
+function signalStatus(v) {
+  if (v === "HIGH" || v === "DELAYED") return "danger";
+  if (v === "MEDIUM" || v === "WATCH") return "warning";
+  return "good";
 }
 
 onMounted(async () => {
@@ -660,7 +652,8 @@ onBeforeUnmount(() => {
 
 .focusGrid,
 .healthGrid,
-.insightGrid{
+.insightGrid,
+.summaryNotesGrid{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:12px;
@@ -745,19 +738,18 @@ onBeforeUnmount(() => {
 }
 
 .healthValue[data-status="UP"],
-strong[data-status="GOOD"]{
+strong[data-status="good"]{
   border-color:color-mix(in oklab,var(--success) 44%,var(--border));
   color:color-mix(in oklab,var(--success) 90%,white);
 }
 
 .healthValue[data-status="DEGRADED"],
-strong[data-status="WATCH"]{
+strong[data-status="warning"]{
   border-color:color-mix(in oklab,var(--warning) 44%,var(--border));
   color:color-mix(in oklab,var(--warning) 88%,white);
 }
 
 .healthValue[data-status="DOWN"],
-strong[data-status="DELAYED"],
 strong[data-status="danger"]{
   border-color:color-mix(in oklab,var(--danger) 44%,var(--border));
   color:color-mix(in oklab,var(--danger) 88%,white);
@@ -782,6 +774,14 @@ strong[data-delay="danger"]{
 .generatedAt{
   font-size:12px;
   color:var(--muted);
+}
+
+.summaryNotes,
+.notes{
+  margin:12px 0 0;
+  padding-left:18px;
+  color:var(--muted);
+  line-height:1.65;
 }
 
 .typeStatsList{
@@ -881,13 +881,6 @@ strong[data-delay="danger"]{
   color:color-mix(in oklab,var(--warning) 80%,white);
 }
 
-.notes{
-  margin:10px 0 0;
-  padding-left:18px;
-  color:var(--muted);
-  line-height:1.6;
-}
-
 .empty{
   margin-top:12px;
   color:var(--muted);
@@ -896,7 +889,7 @@ strong[data-delay="danger"]{
 @media (max-width:1024px){
   .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}
   .grid3{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .focusGrid,.healthGrid,.insightGrid{grid-template-columns:1fr}
+  .focusGrid,.healthGrid,.insightGrid,.summaryNotesGrid{grid-template-columns:1fr}
 }
 
 @media (max-width:680px){
