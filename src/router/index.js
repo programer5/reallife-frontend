@@ -1,4 +1,3 @@
-// src/router/index.js
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
@@ -10,6 +9,7 @@ import OnboardingProfileSetupView from "../views/OnboardingProfileSetupView.vue"
 import HomeView from "../views/HomeView.vue";
 import InboxView from "../views/InboxView.vue";
 import MeView from "../views/MeView.vue";
+import AdminDashboardView from "../views/AdminDashboardView.vue";
 
 const routes = [
   { path: "/login", name: "login", component: LoginView, meta: { guestOnly: true } },
@@ -37,6 +37,7 @@ const routes = [
         ],
       },
       { path: "me", name: "me", component: MeView },
+      { path: "ops/dashboard", name: "admin-dashboard", component: AdminDashboardView },
     ],
   },
 
