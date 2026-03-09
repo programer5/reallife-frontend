@@ -19,7 +19,7 @@
           <span>마지막 {{ lastLoadedText }}</span>
         </div>
 
-        <RlButton size="sm" variant="soft" @click="load" :loading="loading">
+        <RlButton size="sm" variant="soft" @click="reloadAll" :loading="loading">
           새로고침
         </RlButton>
       </div>
@@ -41,7 +41,7 @@
         :description="error"
         tone="danger"
         primary-label="다시 시도"
-        @primary="load"
+        @primary="reloadAll"
     />
 
     <template v-else>
@@ -309,6 +309,33 @@
       <section class="panel cardSurface">
         <div class="panelHead">
           <div>
+            <div class="panelTitle">최근 서버 에러</div>
+            <div class="panelSub">최근 발생한 서버 에러 로그예요.</div>
+          </div>
+        </div>
+
+        <div v-if="errors.length" class="errorList">
+          <div
+              v-for="err in errors"
+              :key="err.id"
+              class="errorItem"
+          >
+            <div class="errorTop">
+              <span class="errorType">{{ err.type }}</span>
+              <span class="errorTime">{{ fmtDateTime(err.createdAt) }}</span>
+            </div>
+
+            <div class="errorMessage">{{ err.message }}</div>
+            <div class="errorPath">{{ err.path }}</div>
+          </div>
+        </div>
+
+        <div v-else class="empty">최근 서버 에러가 없습니다.</div>
+      </section>
+
+      <section class="panel cardSurface">
+        <div class="panelHead">
+          <div>
             <div class="panelTitle">최근 알림</div>
             <div class="panelSub">운영자가 최근 흐름을 빠르게 볼 수 있는 요약이에요.</div>
           </div>
@@ -342,12 +369,13 @@
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
-import { fetchAdminDashboard } from "@/api/admin";
+import { fetchAdminDashboard, fetchAdminErrors } from "@/api/admin";
 import { useToastStore } from "@/stores/toast";
 
 const toast = useToastStore();
 
 const dashboard = ref(null);
+const errors = ref([]);
 const loading = ref(false);
 const error = ref("");
 const lastLoadedAt = ref(null);
@@ -472,11 +500,24 @@ async function load({ silent = false } = {}) {
   }
 }
 
+async function loadErrors() {
+  try {
+    errors.value = await fetchAdminErrors();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function reloadAll(opts = {}) {
+  await load(opts);
+  await loadErrors();
+}
+
 function startAutoRefresh() {
   stopAutoRefresh();
   refreshTimer = window.setInterval(() => {
     if (document.visibilityState === "visible") {
-      load({ silent: true });
+      reloadAll({ silent: true });
     }
   }, 30000);
 }
@@ -505,7 +546,7 @@ function signalStatus(v) {
 }
 
 onMounted(async () => {
-  await load();
+  await reloadAll();
   startAutoRefresh();
 });
 
@@ -832,6 +873,49 @@ strong[data-delay="danger"]{
   margin-top:6px;
   font-size:12px;
   color:var(--muted);
+}
+
+.errorList{
+  margin-top:12px;
+  display:grid;
+  gap:10px;
+}
+
+.errorItem{
+  padding:12px;
+  border-radius:14px;
+  border:1px solid rgba(255,80,80,.25);
+  background:rgba(255,80,80,.08);
+}
+
+.errorTop{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  font-size:12px;
+  font-weight:900;
+}
+
+.errorType{
+  color:color-mix(in oklab,var(--danger) 88%,white);
+}
+
+.errorTime{
+  color:var(--muted);
+}
+
+.errorMessage{
+  margin-top:6px;
+  font-size:13px;
+  line-height:1.5;
+}
+
+.errorPath{
+  margin-top:6px;
+  font-size:12px;
+  opacity:.7;
+  word-break:break-all;
 }
 
 .recentList{
