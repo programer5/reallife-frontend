@@ -186,7 +186,16 @@
                 <strong>{{ action.title }}</strong>
                 <span class="recommendedActionBadge">{{ action.tag }}</span>
               </div>
+
               <div class="recommendedActionText">{{ action.description }}</div>
+
+              <button
+                  type="button"
+                  class="opsActionBtn recommendedActionBtn"
+                  @click="runRecommendedAction(action.action)"
+              >
+                {{ action.buttonLabel }}
+              </button>
             </article>
           </div>
         </div>
@@ -928,16 +937,22 @@ const recommendedNextActions = computed(() => {
         title: "최근 서버 에러부터 확인",
         tag: "ERROR FIRST",
         description: "관련 에러가 잡혔으니 errorCode, path, traceId를 먼저 보고 실패 알림 시각과 맞춰보세요.",
+        buttonLabel: "에러 섹션으로 이동",
+        action: "errors",
       },
       {
         title: "운영 알림 이력과 시각 비교",
         tag: "TIMELINE",
         description: "FAILED alert가 발생한 시점과 에러 발생 시점을 비교하면 원인 흐름이 더 빨리 보여요.",
+        buttonLabel: "알림 이력으로 이동",
+        action: "alerts",
       },
       {
         title: "Slack 재테스트로 재현 확인",
         tag: "RETEST",
         description: "원인 확인 후 Slack 테스트를 다시 보내서 같은 실패가 재현되는지 바로 점검하세요.",
+        buttonLabel: "Slack 재테스트",
+        action: "retest",
       },
     ];
   }
@@ -948,16 +963,22 @@ const recommendedNextActions = computed(() => {
         title: "운영 알림과 notification 흐름 비교",
         tag: "FLOW CHECK",
         description: "실패 알림은 떴지만 사용자 알림 흐름도 같이 움직였는지 확인해 이벤트 경로를 좁혀보세요.",
+        buttonLabel: "notification 섹션으로 이동",
+        action: "notifications",
       },
       {
         title: "notification 타입 집중 확인",
         tag: "TYPE",
         description: "관련 notification 타입이 반복되면 특정 이벤트 타입 처리 문제일 가능성이 높아요.",
+        buttonLabel: "notification 섹션으로 이동",
+        action: "notifications",
       },
       {
         title: "alertKey / payload 재검토",
         tag: "PAYLOAD",
         description: "백엔드 에러가 약하면 alertKey와 body 내용이 실제 운영 상황을 제대로 반영하는지 점검하세요.",
+        buttonLabel: "알림 이력으로 이동",
+        action: "alerts",
       },
     ];
   }
@@ -968,16 +989,22 @@ const recommendedNextActions = computed(() => {
         title: "Slack webhook 설정 확인",
         tag: "WEBHOOK",
         description: "직접 연관 신호가 약하니 webhook 연결 상태와 환경 변수 구성이 먼저예요.",
+        buttonLabel: "Slack 재테스트",
+        action: "retest",
       },
       {
         title: "alertKey / body 점검",
         tag: "ALERT KEY",
         description: "alertKey나 body가 너무 추상적이면 관련 데이터 매칭도 약해질 수 있어요.",
+        buttonLabel: "알림 이력으로 이동",
+        action: "alerts",
       },
       {
         title: "Slack 재테스트 실행",
         tag: "RETEST",
         description: "같은 실패가 다시 나는지 확인해서 일시 오류인지 구조적 문제인지 구분하세요.",
+        buttonLabel: "Slack 재테스트",
+        action: "retest",
       },
     ];
   }
@@ -987,16 +1014,22 @@ const recommendedNextActions = computed(() => {
       title: "운영 알림 이력 먼저 확인",
       tag: "ALERT FIRST",
       description: "관련 알림이 잡혔으니 같은 alertKey 또는 유사 title이 반복되는지 먼저 보세요.",
+      buttonLabel: "알림 이력으로 이동",
+      action: "alerts",
     },
     {
       title: "health 상태와 함께 비교",
       tag: "HEALTH",
       description: "에러 신호가 약하면 health / realtime / reminder 상태와 실패 시점을 같이 보는 게 좋아요.",
+      buttonLabel: "에러 섹션으로 이동",
+      action: "errors",
     },
     {
       title: "Slack 재테스트 후 변화 확인",
       tag: "RETEST",
       description: "재테스트 직후 관련 alert / notification 변화가 생기는지 보면 조사 속도가 빨라져요.",
+      buttonLabel: "Slack 재테스트",
+      action: "retest",
     },
   ];
 });
@@ -1259,6 +1292,25 @@ async function inspectFailedAlert(item) {
 
 function clearFailedContext() {
   selectedFailedContext.value = null;
+}
+
+async function runRecommendedAction(action) {
+  switch (action) {
+    case "errors":
+      await goToErrors();
+      return;
+    case "alerts":
+      await goToAlertHistory();
+      return;
+    case "notifications":
+      await goToNotifications();
+      return;
+    case "retest":
+      await runAlertTest();
+      return;
+    default:
+      return;
+  }
 }
 
 async function reloadAll() {
@@ -1559,6 +1611,10 @@ strong[data-status="DOWN"]{
   padding:14px 15px;
   display:grid;
   gap:10px;
+}
+.recommendedActionBtn{
+  width:100%;
+  justify-content:center;
 }
 .failedPinnedHead{
   align-items:flex-start;
