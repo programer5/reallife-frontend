@@ -63,7 +63,7 @@
           <div>
             <div class="panelTitle">현재 조사 중인 FAILED alert</div>
             <div class="panelSub">
-              아래 운영 알림/서버 에러 중 관련 항목을 하이라이트해서 보여주고 있어요.
+              아래 운영 알림 / 서버 에러 / 최근 notification 중 관련 항목을 하이라이트해서 보여주고 있어요.
             </div>
           </div>
 
@@ -73,6 +73,9 @@
             </button>
             <button type="button" class="opsActionBtn" @click="goToErrors">
               관련 에러 보기
+            </button>
+            <button type="button" class="opsActionBtn" @click="goToNotifications">
+              관련 notification 보기
             </button>
             <button type="button" class="opsActionBtn opsActionBtn--danger" @click="clearFailedContext">
               조사 해제
@@ -115,6 +118,60 @@
               </span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section v-if="selectedFailedContext" class="grid3">
+        <article class="summaryInvestigationCard cardSurface">
+          <div class="summaryInvestigationLabel">관련 운영 알림</div>
+          <div class="summaryInvestigationValue">{{ relatedAlertCount }}</div>
+          <div class="summaryInvestigationHint">
+            현재 조사 중인 FAILED alert와 키워드 또는 alertKey가 겹치는 운영 알림 수예요.
+          </div>
+        </article>
+
+        <article class="summaryInvestigationCard cardSurface">
+          <div class="summaryInvestigationLabel">관련 서버 에러</div>
+          <div class="summaryInvestigationValue">{{ relatedErrorCount }}</div>
+          <div class="summaryInvestigationHint">
+            errorCode / path / message / traceId 기준으로 연관 가능성이 있는 서버 에러 수예요.
+          </div>
+        </article>
+
+        <article class="summaryInvestigationCard cardSurface">
+          <div class="summaryInvestigationLabel">관련 notification</div>
+          <div class="summaryInvestigationValue">{{ relatedNotificationCount }}</div>
+          <div class="summaryInvestigationHint">
+            type / body / reference 계열 필드에서 키워드가 맞는 notification 수예요.
+          </div>
+        </article>
+      </section>
+
+      <section v-if="selectedFailedContext" class="panel investigationSummaryPanel cardSurface">
+        <div class="panelHead">
+          <div>
+            <div class="panelTitle">조사 결과 요약</div>
+            <div class="panelSub">운영자가 지금 무엇부터 보면 되는지 한 줄로 정리해 줘요.</div>
+          </div>
+          <span class="investigationStatusBadge" :data-mode="investigationSummary.mode">
+            {{ investigationSummary.label }}
+          </span>
+        </div>
+
+        <div class="investigationSummaryText">
+          {{ investigationSummary.text }}
+        </div>
+
+        <div class="investigationSummaryActions">
+          <button type="button" class="opsActionBtn" @click="goToAlertHistory">
+            관련 알림으로 이동
+          </button>
+          <button type="button" class="opsActionBtn" @click="goToErrors">
+            관련 에러로 이동
+          </button>
+          <button type="button" class="opsActionBtn" @click="goToNotifications">
+            관련 notification으로 이동
+          </button>
         </div>
       </section>
 
@@ -259,10 +316,13 @@
       </section>
 
       <section class="grid2">
-        <article class="panel recentNotificationsPanel cardSurface">
+        <article ref="notificationsSection" class="panel recentNotificationsPanel cardSurface">
           <div class="panelHead">
             <div>
-              <div class="panelTitle">최근 notification 5개</div>
+              <div class="panelTitle">
+                최근 notification 5개
+                <span v-if="selectedFailedContext" class="sectionFocusLabel">관련 항목 하이라이트 중</span>
+              </div>
               <div class="panelSub">운영자가 지금 실제 사용자 알림 흐름을 카드로 바로 볼 수 있게 정리했어요.</div>
             </div>
             <span class="anomalyCount">{{ recentNotificationCards.length }}건</span>
@@ -274,12 +334,19 @@
                 :key="item.id"
                 class="recentNotificationCard"
                 :data-read="item.read"
+                :data-related="isRelatedNotification(item)"
             >
               <div class="recentNotificationTop">
                 <div class="recentNotificationTypeWrap">
                   <strong class="recentNotificationType">{{ item.type || "UNKNOWN" }}</strong>
                   <span class="recentNotificationReadChip" :data-read="item.read">
                     {{ item.read ? "READ" : "UNREAD" }}
+                  </span>
+                  <span
+                      v-if="selectedFailedContext && isRelatedNotification(item)"
+                      class="recentNotificationMetaChip recentNotificationMetaChip--related"
+                  >
+                    RELATED
                   </span>
                 </div>
                 <span class="recentNotificationTime">{{ fmtDateTime(item.createdAt) }}</span>
@@ -292,6 +359,13 @@
               <div class="recentNotificationMeta">
                 <span class="recentNotificationMetaChip">user {{ shortUserId(item.userId) }}</span>
                 <span class="recentNotificationMetaChip">{{ item.type }}</span>
+              </div>
+
+              <div
+                  v-if="selectedFailedContext && isRelatedNotification(item)"
+                  class="relatedHint"
+              >
+                현재 조사 중인 FAILED alert와 관련 가능성이 높은 notification 이에요.
               </div>
             </article>
           </div>
@@ -667,6 +741,7 @@ const selectedAlertFilter = ref("all");
 const selectedFailedContext = ref(null);
 const errorsSection = ref(null);
 const alertHistorySection = ref(null);
+const notificationsSection = ref(null);
 
 let timerId = null;
 
@@ -765,6 +840,66 @@ const focusKeywords = computed(() => {
       .filter((v) => !["failed", "warning", "danger", "slack", "alert", "ops", "the", "and"].includes(v));
 
   return [...new Set(tokens)].slice(0, 8);
+});
+
+const relatedAlertCount = computed(() => {
+  if (!selectedFailedContext.value) return 0;
+  return alertHistory.value.filter((item) => isRelatedAlert(item)).length;
+});
+
+const relatedErrorCount = computed(() => {
+  if (!selectedFailedContext.value) return 0;
+  return recentErrors.value.filter((item) => isRelatedError(item)).length;
+});
+
+const relatedNotificationCount = computed(() => {
+  if (!selectedFailedContext.value) return 0;
+  return recentNotificationCards.value.filter((item) => isRelatedNotification(item)).length;
+});
+
+const investigationSummary = computed(() => {
+  if (!selectedFailedContext.value) {
+    return {
+      mode: "idle",
+      label: "IDLE",
+      text: "",
+    };
+  }
+
+  const alerts = relatedAlertCount.value;
+  const errors = relatedErrorCount.value;
+  const notifications = relatedNotificationCount.value;
+  const total = alerts + errors + notifications;
+
+  if (total === 0) {
+    return {
+      mode: "weak",
+      label: "매칭 약함",
+      text: "현재 조사 중인 FAILED alert와 직접적으로 겹치는 최근 알림, 에러, notification이 뚜렷하지 않아요. alertKey, payload, Slack webhook 설정을 먼저 보는 편이 좋아요.",
+    };
+  }
+
+  if (errors > 0) {
+    return {
+      mode: "strong",
+      label: "에러 우선",
+      text: `관련 알림 ${alerts}건, 관련 에러 ${errors}건, 관련 notification ${notifications}건이 보여요. 지금은 최근 서버 에러를 먼저 보고, 그 다음 운영 알림 이력을 같이 비교하는 순서가 가장 좋아요.`,
+    };
+  }
+
+  if (alerts > 0 && notifications > 0) {
+    return {
+      mode: "medium",
+      label: "연관 신호 있음",
+      text: `관련 알림 ${alerts}건과 관련 notification ${notifications}건이 잡혀 있어요. 백엔드 에러보다 이벤트/알림 흐름 문제일 가능성이 있으니 운영 알림 이력과 notification 타입을 먼저 확인해 보세요.`,
+    };
+  }
+
+  return {
+    mode: "light",
+    label: "추가 확인 필요",
+    text: `관련 알림 ${alerts}건, 관련 에러 ${errors}건, 관련 notification ${notifications}건이 보여요. 연관 신호는 있지만 강하지 않으니 payload, alertKey, 최근 health 상태를 함께 확인하는 게 좋아요.`,
+  };
 });
 
 const lastLoadedText = computed(() => {
@@ -978,6 +1113,19 @@ function isRelatedError(item) {
   ].join(" "));
 }
 
+function isRelatedNotification(item) {
+  if (!selectedFailedContext.value) return false;
+
+  return isRelatedByKeywords([
+    item.type,
+    item.body,
+    item.title,
+    item.userId,
+    item.targetId,
+    item.referenceId,
+  ].join(" "));
+}
+
 async function scrollToRef(targetRef) {
   await nextTick();
   targetRef?.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -991,6 +1139,10 @@ async function goToAlertHistory() {
   await scrollToRef(alertHistorySection);
 }
 
+async function goToNotifications() {
+  await scrollToRef(notificationsSection);
+}
+
 async function filterFailedAlerts() {
   selectedAlertFilter.value = "failed";
   await goToAlertHistory();
@@ -1001,7 +1153,7 @@ async function inspectFailedAlert(item) {
   selectedAlertFilter.value = "failed";
   toast.info(
       "실패 알림 조사 시작",
-      item?.title || item?.alertKey || "관련 알림과 에러를 하이라이트해서 보여줘요."
+      item?.title || item?.alertKey || "관련 알림, 에러, notification을 하이라이트해서 보여줘요."
   );
   await goToErrors();
 }
@@ -1120,7 +1272,9 @@ onBeforeUnmount(() => {
 .errorMessage,
 .summaryNotes,
 .alertTestMeta,
-.investigationText{
+.investigationText,
+.investigationSummaryText,
+.summaryInvestigationHint{
   color:var(--muted);
   line-height:1.6;
 }
@@ -1140,7 +1294,8 @@ onBeforeUnmount(() => {
 .recentNotificationReadChip,
 .recentNotificationMetaChip,
 .investigationKeywordChip,
-.sectionFocusLabel{
+.sectionFocusLabel,
+.investigationStatusBadge{
   border-radius:999px;
   border:1px solid var(--border);
   padding:7px 11px;
@@ -1193,11 +1348,13 @@ strong[data-status="DOWN"]{
 .grid2{ grid-template-columns:repeat(2, minmax(0,1fr)); }
 .priorityCard,
 .panel,
-.statCard{
+.statCard,
+.summaryInvestigationCard{
   padding:18px;
 }
 .priorityCard,
-.panel{
+.panel,
+.summaryInvestigationCard{
   display:grid;
   gap:14px;
 }
@@ -1238,7 +1395,23 @@ strong[data-status="DOWN"]{
       linear-gradient(180deg, rgba(124,156,255,.08), rgba(124,156,255,.03)),
       var(--surface);
 }
-.investigationActions{
+.investigationSummaryPanel{
+  border-color:color-mix(in oklab, var(--accent) 28%, var(--border));
+}
+.investigationStatusBadge[data-mode="strong"]{
+  color:var(--danger);
+}
+.investigationStatusBadge[data-mode="medium"]{
+  color:var(--warning);
+}
+.investigationStatusBadge[data-mode="light"]{
+  color:var(--accent);
+}
+.investigationStatusBadge[data-mode="weak"]{
+  color:var(--muted);
+}
+.investigationActions,
+.investigationSummaryActions{
   display:flex;
   gap:8px;
   flex-wrap:wrap;
@@ -1260,7 +1433,8 @@ strong[data-status="DOWN"]{
   display:grid;
   gap:8px;
 }
-.investigationKeywordsLabel{
+.investigationKeywordsLabel,
+.summaryInvestigationLabel{
   font-size:12px;
   color:var(--muted);
   font-weight:800;
@@ -1269,6 +1443,10 @@ strong[data-status="DOWN"]{
   display:flex;
   gap:8px;
   flex-wrap:wrap;
+}
+.summaryInvestigationValue{
+  font-size:28px;
+  font-weight:950;
 }
 .failedPinnedHead{
   align-items:flex-start;
@@ -1424,6 +1602,10 @@ strong[data-status="DOWN"]{
   border-color:color-mix(in oklab, var(--accent) 34%, var(--border));
   background:color-mix(in oklab, var(--accent) 8%, transparent);
 }
+.recentNotificationCard[data-related="true"]{
+  border-color:color-mix(in oklab, var(--accent) 44%, var(--border));
+  box-shadow:0 0 0 2px color-mix(in oklab, var(--accent) 28%, transparent);
+}
 .recentNotificationTypeWrap{
   display:flex;
   gap:8px;
@@ -1443,6 +1625,11 @@ strong[data-status="DOWN"]{
   border-color:color-mix(in oklab, var(--success) 34%, var(--border));
   background:color-mix(in oklab, var(--success) 10%, transparent);
   color:var(--success);
+}
+.recentNotificationMetaChip--related{
+  border-color:color-mix(in oklab, var(--accent) 36%, var(--border));
+  background:color-mix(in oklab, var(--accent) 10%, transparent);
+  color:var(--accent);
 }
 .recentNotificationBody{
   margin-top:10px;
@@ -1599,7 +1786,8 @@ strong[data-status="DOWN"]{
     justify-items:start;
   }
   .failedActionBar,
-  .investigationActions{
+  .investigationActions,
+  .investigationSummaryActions{
     justify-content:flex-start;
   }
   .priorityStats,
