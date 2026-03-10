@@ -173,6 +173,23 @@
             관련 notification으로 이동
           </button>
         </div>
+
+        <div class="recommendedActions">
+          <div class="recommendedActionsTitle">권장 다음 액션</div>
+          <div class="recommendedActionList">
+            <article
+                v-for="action in recommendedNextActions"
+                :key="action.title"
+                class="recommendedActionCard"
+            >
+              <div class="recommendedActionTop">
+                <strong>{{ action.title }}</strong>
+                <span class="recommendedActionBadge">{{ action.tag }}</span>
+              </div>
+              <div class="recommendedActionText">{{ action.description }}</div>
+            </article>
+          </div>
+        </div>
       </section>
 
       <section v-if="failedAlertHistory.length" class="panel failedPinnedPanel cardSurface">
@@ -859,11 +876,7 @@ const relatedNotificationCount = computed(() => {
 
 const investigationSummary = computed(() => {
   if (!selectedFailedContext.value) {
-    return {
-      mode: "idle",
-      label: "IDLE",
-      text: "",
-    };
+    return { mode: "idle", label: "IDLE", text: "" };
   }
 
   const alerts = relatedAlertCount.value;
@@ -900,6 +913,92 @@ const investigationSummary = computed(() => {
     label: "추가 확인 필요",
     text: `관련 알림 ${alerts}건, 관련 에러 ${errors}건, 관련 notification ${notifications}건이 보여요. 연관 신호는 있지만 강하지 않으니 payload, alertKey, 최근 health 상태를 함께 확인하는 게 좋아요.`,
   };
+});
+
+const recommendedNextActions = computed(() => {
+  if (!selectedFailedContext.value) return [];
+
+  const alerts = relatedAlertCount.value;
+  const errors = relatedErrorCount.value;
+  const notifications = relatedNotificationCount.value;
+
+  if (errors > 0) {
+    return [
+      {
+        title: "최근 서버 에러부터 확인",
+        tag: "ERROR FIRST",
+        description: "관련 에러가 잡혔으니 errorCode, path, traceId를 먼저 보고 실패 알림 시각과 맞춰보세요.",
+      },
+      {
+        title: "운영 알림 이력과 시각 비교",
+        tag: "TIMELINE",
+        description: "FAILED alert가 발생한 시점과 에러 발생 시점을 비교하면 원인 흐름이 더 빨리 보여요.",
+      },
+      {
+        title: "Slack 재테스트로 재현 확인",
+        tag: "RETEST",
+        description: "원인 확인 후 Slack 테스트를 다시 보내서 같은 실패가 재현되는지 바로 점검하세요.",
+      },
+    ];
+  }
+
+  if (alerts > 0 && notifications > 0) {
+    return [
+      {
+        title: "운영 알림과 notification 흐름 비교",
+        tag: "FLOW CHECK",
+        description: "실패 알림은 떴지만 사용자 알림 흐름도 같이 움직였는지 확인해 이벤트 경로를 좁혀보세요.",
+      },
+      {
+        title: "notification 타입 집중 확인",
+        tag: "TYPE",
+        description: "관련 notification 타입이 반복되면 특정 이벤트 타입 처리 문제일 가능성이 높아요.",
+      },
+      {
+        title: "alertKey / payload 재검토",
+        tag: "PAYLOAD",
+        description: "백엔드 에러가 약하면 alertKey와 body 내용이 실제 운영 상황을 제대로 반영하는지 점검하세요.",
+      },
+    ];
+  }
+
+  if (alerts === 0 && errors === 0 && notifications === 0) {
+    return [
+      {
+        title: "Slack webhook 설정 확인",
+        tag: "WEBHOOK",
+        description: "직접 연관 신호가 약하니 webhook 연결 상태와 환경 변수 구성이 먼저예요.",
+      },
+      {
+        title: "alertKey / body 점검",
+        tag: "ALERT KEY",
+        description: "alertKey나 body가 너무 추상적이면 관련 데이터 매칭도 약해질 수 있어요.",
+      },
+      {
+        title: "Slack 재테스트 실행",
+        tag: "RETEST",
+        description: "같은 실패가 다시 나는지 확인해서 일시 오류인지 구조적 문제인지 구분하세요.",
+      },
+    ];
+  }
+
+  return [
+    {
+      title: "운영 알림 이력 먼저 확인",
+      tag: "ALERT FIRST",
+      description: "관련 알림이 잡혔으니 같은 alertKey 또는 유사 title이 반복되는지 먼저 보세요.",
+    },
+    {
+      title: "health 상태와 함께 비교",
+      tag: "HEALTH",
+      description: "에러 신호가 약하면 health / realtime / reminder 상태와 실패 시점을 같이 보는 게 좋아요.",
+    },
+    {
+      title: "Slack 재테스트 후 변화 확인",
+      tag: "RETEST",
+      description: "재테스트 직후 관련 alert / notification 변화가 생기는지 보면 조사 속도가 빨라져요.",
+    },
+  ];
 });
 
 const lastLoadedText = computed(() => {
@@ -1274,7 +1373,8 @@ onBeforeUnmount(() => {
 .alertTestMeta,
 .investigationText,
 .investigationSummaryText,
-.summaryInvestigationHint{
+.summaryInvestigationHint,
+.recommendedActionText{
   color:var(--muted);
   line-height:1.6;
 }
@@ -1295,7 +1395,8 @@ onBeforeUnmount(() => {
 .recentNotificationMetaChip,
 .investigationKeywordChip,
 .sectionFocusLabel,
-.investigationStatusBadge{
+.investigationStatusBadge,
+.recommendedActionBadge{
   border-radius:999px;
   border:1px solid var(--border);
   padding:7px 11px;
@@ -1373,7 +1474,8 @@ strong[data-status="DOWN"]{
 .anomalyTitleRow,
 .failedPinnedTop,
 .recentNotificationTop,
-.investigationHead{
+.investigationHead,
+.recommendedActionTop{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
@@ -1398,18 +1500,10 @@ strong[data-status="DOWN"]{
 .investigationSummaryPanel{
   border-color:color-mix(in oklab, var(--accent) 28%, var(--border));
 }
-.investigationStatusBadge[data-mode="strong"]{
-  color:var(--danger);
-}
-.investigationStatusBadge[data-mode="medium"]{
-  color:var(--warning);
-}
-.investigationStatusBadge[data-mode="light"]{
-  color:var(--accent);
-}
-.investigationStatusBadge[data-mode="weak"]{
-  color:var(--muted);
-}
+.investigationStatusBadge[data-mode="strong"]{ color:var(--danger); }
+.investigationStatusBadge[data-mode="medium"]{ color:var(--warning); }
+.investigationStatusBadge[data-mode="light"]{ color:var(--accent); }
+.investigationStatusBadge[data-mode="weak"]{ color:var(--muted); }
 .investigationActions,
 .investigationSummaryActions{
   display:flex;
@@ -1434,7 +1528,8 @@ strong[data-status="DOWN"]{
   gap:8px;
 }
 .investigationKeywordsLabel,
-.summaryInvestigationLabel{
+.summaryInvestigationLabel,
+.recommendedActionsTitle{
   font-size:12px;
   color:var(--muted);
   font-weight:800;
@@ -1447,6 +1542,23 @@ strong[data-status="DOWN"]{
 .summaryInvestigationValue{
   font-size:28px;
   font-weight:950;
+}
+.recommendedActions{
+  display:grid;
+  gap:12px;
+}
+.recommendedActionList{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:12px;
+}
+.recommendedActionCard{
+  border:1px solid var(--border);
+  border-radius:18px;
+  background:rgba(255,255,255,.035);
+  padding:14px 15px;
+  display:grid;
+  gap:10px;
 }
 .failedPinnedHead{
   align-items:flex-start;
@@ -1758,7 +1870,8 @@ strong[data-status="DOWN"]{
   .grid4,
   .grid3,
   .opsSummaryGrid,
-  .totalsGrid{
+  .totalsGrid,
+  .recommendedActionList{
     grid-template-columns:repeat(2, minmax(0,1fr));
   }
   .priorityGrid,
@@ -1777,7 +1890,8 @@ strong[data-status="DOWN"]{
   .failedPinnedTop,
   .recentNotificationTop,
   .investigationHead,
-  .failedPinnedHead{
+  .failedPinnedHead,
+  .recommendedActionTop{
     flex-direction:column;
   }
   .heroRight,
@@ -1796,7 +1910,8 @@ strong[data-status="DOWN"]{
   .grid3,
   .grid2,
   .opsSummaryGrid,
-  .totalsGrid{
+  .totalsGrid,
+  .recommendedActionList{
     grid-template-columns:1fr;
   }
   .typeCountRow{
