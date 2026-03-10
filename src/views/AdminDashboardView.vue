@@ -38,6 +38,39 @@
       </div>
     </section>
 
+    <section v-if="!loading && !error" class="statusStrip">
+      <article class="statusStripCard cardSurface">
+        <div class="statusStripLabel">Overall</div>
+        <div class="statusStripValue" :data-status="normalizedDashboard.status">
+          {{ normalizedDashboard.status }}
+        </div>
+      </article>
+
+      <article class="statusStripCard cardSurface">
+        <div class="statusStripLabel">Realtime</div>
+        <div class="statusStripValue" :data-status="normalizedDashboard.realtime.status">
+          {{ normalizedDashboard.realtime.status }}
+        </div>
+      </article>
+
+      <article class="statusStripCard cardSurface">
+        <div class="statusStripLabel">Reminder</div>
+        <div class="statusStripValue" :data-status="normalizedDashboard.reminder.status">
+          {{ normalizedDashboard.reminder.status }}
+        </div>
+      </article>
+
+      <article class="statusStripCard cardSurface">
+        <div class="statusStripLabel">Failed Alerts</div>
+        <div class="statusStripMetric">{{ failedCount }}</div>
+      </article>
+
+      <article class="statusStripCard cardSurface">
+        <div class="statusStripLabel">Recent Errors</div>
+        <div class="statusStripMetric">{{ recentErrors.length }}</div>
+      </article>
+    </section>
+
     <AsyncStatePanel
         v-if="loading && !dashboard"
         icon="⏳"
@@ -61,6 +94,7 @@
       <section v-if="!selectedFailedContext" class="panel todayActionsPanel cardSurface">
         <div class="panelHead">
           <div>
+            <div class="panelKicker">TODAY PRIORITY</div>
             <div class="panelTitle">오늘의 우선 액션</div>
             <div class="panelSub">
               조사 중인 FAILED alert가 없을 때도 운영자가 바로 들어가야 할 핵심 작업을 먼저 보여줘요.
@@ -95,6 +129,7 @@
       <section v-if="selectedFailedContext" class="panel investigationPanel cardSurface">
         <div class="panelHead investigationHead">
           <div>
+            <div class="panelKicker">INVESTIGATION</div>
             <div class="panelTitle">현재 조사 중인 FAILED alert</div>
             <div class="panelSub">
               아래 운영 알림 / 서버 에러 / 최근 notification 중 관련 항목을 하이라이트해서 보여주고 있어요.
@@ -184,6 +219,7 @@
       <section v-if="selectedFailedContext" class="panel investigationSummaryPanel cardSurface">
         <div class="panelHead">
           <div>
+            <div class="panelKicker">SUMMARY</div>
             <div class="panelTitle">조사 결과 요약</div>
             <div class="panelSub">운영자가 지금 무엇부터 보면 되는지 한 줄로 정리해 줘요.</div>
           </div>
@@ -238,6 +274,7 @@
       <section v-if="failedAlertHistory.length" class="panel failedPinnedPanel cardSurface">
         <div class="panelHead failedPinnedHead">
           <div>
+            <div class="panelKicker">FAILED PINNED</div>
             <div class="panelTitle">FAILED alert 고정 섹션</div>
             <div class="panelSub">
               가장 먼저 봐야 하는 실패 알림만 위에 고정해서 보여주고, 바로 대응할 수 있게 했어요.
@@ -379,6 +416,7 @@
         <article ref="notificationsSection" class="panel recentNotificationsPanel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">RECENT NOTIFICATIONS</div>
               <div class="panelTitle">
                 최근 notification 5개
                 <span v-if="selectedFailedContext" class="sectionFocusLabel">관련 항목 하이라이트 중</span>
@@ -435,6 +473,7 @@
         <article v-if="anomalyList.length" class="panel anomalyPanel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">ANOMALIES</div>
               <div class="panelTitle">우선 대응이 필요한 이상 징후</div>
               <div class="panelSub">가장 위험하거나 운영자가 바로 확인해야 하는 이슈만 위로 올렸어요.</div>
             </div>
@@ -460,6 +499,7 @@
         <article v-else class="panel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">ANOMALIES</div>
               <div class="panelTitle">이상 징후</div>
               <div class="panelSub">현재 감지된 이상 징후가 없어요.</div>
             </div>
@@ -498,6 +538,7 @@
         <article ref="healthSection" class="panel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">HEALTH</div>
               <div class="panelTitle">Health Summary</div>
               <div class="panelSub">핵심 health 체크와 요약 메모를 함께 봐요.</div>
             </div>
@@ -528,6 +569,7 @@
         <article class="panel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">REALTIME</div>
               <div class="panelTitle">Realtime 흐름</div>
               <div class="panelSub">SSE 연결과 마지막 이벤트 시각을 확인해요.</div>
             </div>
@@ -559,6 +601,7 @@
         <article class="panel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">REMINDER</div>
               <div class="panelTitle">Reminder 흐름</div>
               <div class="panelSub">스케줄러 지연 여부를 빠르게 확인해요.</div>
             </div>
@@ -592,6 +635,7 @@
         <article ref="alertHistorySection" class="panel cardSurface">
           <div class="panelHead panelHead--stackOnMobile">
             <div>
+              <div class="panelKicker">OPS ALERT HISTORY</div>
               <div class="panelTitle">
                 최근 운영 알림 이력
                 <span v-if="selectedFailedContext" class="sectionFocusLabel">관련 항목 하이라이트 중</span>
@@ -672,6 +716,7 @@
         <article ref="errorsSection" class="panel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">SERVER ERRORS</div>
               <div class="panelTitle">
                 최근 서버 에러
                 <span v-if="selectedFailedContext" class="sectionFocusLabel">관련 항목 하이라이트 중</span>
@@ -709,6 +754,7 @@
         <article class="panel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">TOTALS</div>
               <div class="panelTitle">전체 규모</div>
               <div class="panelSub">사용량과 데이터 규모를 운영 시점에서 간단히 봐요.</div>
             </div>
@@ -745,6 +791,7 @@
         <article class="panel cardSurface">
           <div class="panelHead">
             <div>
+              <div class="panelKicker">NOTIFICATION TYPES</div>
               <div class="panelTitle">알림 타입 분포</div>
               <div class="panelSub">최근 알림 중 어떤 유형이 많은지 비율로 확인해요.</div>
             </div>
@@ -1488,7 +1535,7 @@ onBeforeUnmount(() => {
 .page{
   display:grid;
   gap:18px;
-  padding:20px 16px 40px;
+  padding:20px 16px 44px;
 }
 .cardSurface{
   border:1px solid var(--border);
@@ -1500,19 +1547,21 @@ onBeforeUnmount(() => {
   box-shadow:0 14px 34px rgba(0,0,0,.14);
 }
 .hero{
-  padding:24px;
+  padding:26px;
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
-  gap:18px;
+  gap:20px;
 }
 .heroLeft{ display:grid; gap:10px; }
 .eyebrow,
-.sectionEyebrow{
+.sectionEyebrow,
+.panelKicker{
   font-size:12px;
   font-weight:900;
   letter-spacing:.12em;
   color:var(--muted);
+  text-transform:uppercase;
 }
 .title{
   margin:0;
@@ -1572,18 +1621,21 @@ onBeforeUnmount(() => {
 .statusBadge[data-status="UP"],
 .panelPill[data-status="UP"],
 .priorityPill[data-status="UP"],
+.statusStripValue[data-status="UP"],
 strong[data-status="UP"]{
   color:var(--success);
 }
 .statusBadge[data-status="DEGRADED"],
 .panelPill[data-status="DEGRADED"],
 .priorityPill[data-status="DEGRADED"],
+.statusStripValue[data-status="DEGRADED"],
 strong[data-status="DEGRADED"]{
   color:var(--warning);
 }
 .statusBadge[data-status="DOWN"],
 .panelPill[data-status="DOWN"],
 .priorityPill[data-status="DOWN"],
+.statusStripValue[data-status="DOWN"],
 strong[data-status="DOWN"]{
   color:var(--danger);
 }
@@ -1595,6 +1647,30 @@ strong[data-status="DOWN"]{
   color:var(--muted);
 }
 .heroButtons{ display:flex; gap:8px; flex-wrap:wrap; }
+
+.statusStrip{
+  display:grid;
+  grid-template-columns:repeat(5, minmax(0,1fr));
+  gap:12px;
+}
+.statusStripCard{
+  padding:14px 16px;
+  display:grid;
+  gap:6px;
+}
+.statusStripLabel{
+  font-size:12px;
+  font-weight:800;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.statusStripValue,
+.statusStripMetric{
+  font-size:24px;
+  font-weight:950;
+}
+
 .priorityGrid,
 .grid4,
 .grid3,
@@ -1606,6 +1682,7 @@ strong[data-status="DOWN"]{
 .grid4{ grid-template-columns:repeat(4, minmax(0,1fr)); }
 .grid3{ grid-template-columns:repeat(3, minmax(0,1fr)); }
 .grid2{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+
 .priorityCard,
 .panel,
 .statCard,
@@ -1650,8 +1727,13 @@ strong[data-status="DOWN"]{
   margin-left:8px;
   color:var(--accent);
 }
+
 .todayActionsPanel{
   border-color:color-mix(in oklab, var(--accent) 24%, var(--border));
+  background:
+      radial-gradient(circle at top right, color-mix(in oklab, var(--accent) 12%, transparent), transparent 35%),
+      linear-gradient(180deg, rgba(124,156,255,.05), rgba(124,156,255,.02)),
+      var(--surface);
 }
 .todayActionsGrid{
   display:grid;
@@ -1660,11 +1742,12 @@ strong[data-status="DOWN"]{
 }
 .todayActionCard{
   border:1px solid var(--border);
-  border-radius:18px;
+  border-radius:20px;
   background:rgba(255,255,255,.035);
-  padding:14px 15px;
+  padding:15px 16px;
   display:grid;
   gap:10px;
+  box-shadow:0 6px 18px rgba(0,0,0,.08);
 }
 .todayActionCard[data-tone="danger"]{
   border-color:color-mix(in oklab, var(--danger) 34%, var(--border));
@@ -1734,10 +1817,15 @@ strong[data-status="DOWN"]{
   gap:8px;
   flex-wrap:wrap;
 }
+
+.summaryInvestigationCard{
+  border-color:color-mix(in oklab, var(--accent) 18%, var(--border));
+}
 .summaryInvestigationValue{
-  font-size:28px;
+  font-size:30px;
   font-weight:950;
 }
+
 .recommendedActions{
   display:grid;
   gap:12px;
@@ -1749,15 +1837,24 @@ strong[data-status="DOWN"]{
 }
 .recommendedActionCard{
   border:1px solid var(--border);
-  border-radius:18px;
+  border-radius:20px;
   background:rgba(255,255,255,.035);
-  padding:14px 15px;
+  padding:15px 16px;
   display:grid;
   gap:10px;
+  box-shadow:0 6px 18px rgba(0,0,0,.08);
 }
 .recommendedActionBtn{
   width:100%;
   justify-content:center;
+}
+
+.failedPinnedPanel{
+  border-color:rgba(255,93,93,.34);
+  background:
+      radial-gradient(circle at top right, rgba(255,93,93,.12), transparent 34%),
+      linear-gradient(180deg, rgba(255,93,93,.08), rgba(255,93,93,.03)),
+      var(--surface);
 }
 .failedPinnedHead{
   align-items:flex-start;
@@ -1773,6 +1870,30 @@ strong[data-status="DOWN"]{
   flex-wrap:wrap;
   justify-content:flex-end;
 }
+.failedPinnedList{
+  display:grid;
+  gap:12px;
+}
+.failedPinnedCard{
+  padding:15px 16px;
+  border:1px solid color-mix(in oklab, var(--danger) 34%, var(--border));
+  border-radius:20px;
+  background:color-mix(in oklab, var(--danger) 8%, transparent);
+}
+.failedPinnedCard[data-active="true"]{
+  box-shadow:0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
+}
+.failedPinnedTitle{
+  font-size:16px;
+  font-weight:950;
+}
+.failedCardActions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:12px;
+}
+
 .opsActionBtn{
   border:1px solid var(--border);
   background:rgba(255,255,255,.05);
@@ -1782,12 +1903,23 @@ strong[data-status="DOWN"]{
   font-weight:800;
   font-size:13px;
   cursor:pointer;
+  transition:transform .14s ease, border-color .14s ease, background .14s ease;
+}
+.opsActionBtn:hover{
+  transform:translateY(-1px);
+  border-color:color-mix(in oklab, var(--accent) 26%, var(--border));
+  background:color-mix(in oklab, var(--accent) 8%, transparent);
 }
 .opsActionBtn--danger{
   border-color:color-mix(in oklab, var(--danger) 36%, var(--border));
   background:color-mix(in oklab, var(--danger) 10%, transparent);
   color:var(--danger);
 }
+.opsActionBtn--danger:hover{
+  border-color:color-mix(in oklab, var(--danger) 46%, var(--border));
+  background:color-mix(in oklab, var(--danger) 14%, transparent);
+}
+
 .priorityMainText{
   font-size:24px;
   font-weight:950;
@@ -1808,6 +1940,7 @@ strong[data-status="DOWN"]{
 .signalGrid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
 .opsSummaryGrid{ grid-template-columns:repeat(4, minmax(0,1fr)); }
 .totalsGrid{ grid-template-columns:repeat(3, minmax(0,1fr)); }
+
 .priorityStat,
 .signalItem,
 .focusRow,
@@ -1817,7 +1950,6 @@ strong[data-status="DOWN"]{
 .errorItem,
 .opsAlertItem,
 .alertTestBox,
-.failedPinnedCard,
 .recentNotificationCard{
   border:1px solid var(--border);
   border-radius:18px;
@@ -1848,12 +1980,12 @@ strong[data-status="DOWN"]{
   font-weight:950;
 }
 .statCard{ display:grid; gap:8px; }
+
 .focusList,
 .opsAlertList,
 .errorList,
 .typeCountList,
 .anomalyList,
-.failedPinnedList,
 .recentNotificationList{
   display:grid;
   gap:12px;
@@ -1871,6 +2003,7 @@ strong[data-status="DOWN"]{
   margin:0;
   padding-left:18px;
 }
+
 .anomalyPanel{
   border-color:rgba(255,120,0,.34);
   background:
@@ -1878,36 +2011,27 @@ strong[data-status="DOWN"]{
       linear-gradient(180deg, rgba(255,120,0,.08), rgba(255,120,0,.03)),
       var(--surface);
 }
-.failedPinnedPanel{
-  border-color:rgba(255,93,93,.34);
-  background:
-      radial-gradient(circle at top right, rgba(255,93,93,.12), transparent 34%),
-      linear-gradient(180deg, rgba(255,93,93,.08), rgba(255,93,93,.03)),
-      var(--surface);
+.anomalyCard{
+  padding:14px 15px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.10);
 }
-.failedPinnedCard{
-  padding:14px 16px;
-  border-color:color-mix(in oklab, var(--danger) 34%, var(--border));
-  background:color-mix(in oklab, var(--danger) 8%, transparent);
+.anomalyCard[data-level="warning"]{
+  border-color:#f6c344;
+  background:rgba(246,195,68,.12);
 }
-.failedPinnedCard[data-active="true"]{
-  box-shadow:0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
+.anomalyCard[data-level="danger"]{
+  border-color:#ff5d5d;
+  background:rgba(255,93,93,.14);
 }
-.failedPinnedTitle{
-  font-size:16px;
-  font-weight:950;
-}
-.failedCardActions{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  margin-top:12px;
-}
+.anomalyLevel[data-level="warning"]{ color:var(--warning); }
+.anomalyLevel[data-level="danger"]{ color:var(--danger); }
+
 .recentNotificationsPanel{
   min-height:100%;
 }
 .recentNotificationCard{
-  padding:14px 16px;
+  padding:15px 16px;
 }
 .recentNotificationCard[data-read="false"]{
   border-color:color-mix(in oklab, var(--accent) 34%, var(--border));
@@ -1959,27 +2083,20 @@ strong[data-status="DOWN"]{
   color:var(--muted);
   font-size:12px;
 }
-.anomalyCard{
-  padding:14px 15px;
-  border-radius:18px;
-  border:1px solid rgba(255,255,255,.10);
+
+.filterChips{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
 }
-.anomalyCard[data-level="warning"]{
-  border-color:#f6c344;
-  background:rgba(246,195,68,.12);
+.filterChip{
+  cursor:pointer;
 }
-.anomalyCard[data-level="danger"]{
-  border-color:#ff5d5d;
-  background:rgba(255,93,93,.14);
-}
-.anomalyLevel[data-level="warning"]{ color:var(--warning); }
-.anomalyLevel[data-level="danger"]{ color:var(--danger); }
-.filterChips{ display:flex; gap:8px; flex-wrap:wrap; }
-.filterChip{ cursor:pointer; }
 .filterChip[data-active="true"]{
   background:color-mix(in oklab, var(--accent) 18%, transparent);
   border-color:color-mix(in oklab, var(--accent) 34%, var(--border));
 }
+
 .opsAlertItem,
 .errorItem{
   padding:14px 16px;
@@ -2037,10 +2154,12 @@ strong[data-status="DOWN"]{
   background:color-mix(in oklab, var(--accent) 10%, transparent);
   color:var(--accent);
 }
+
 .alertTestBox[data-sent="true"]{
   border-color:color-mix(in oklab, var(--success) 36%, var(--border));
   background:color-mix(in oklab, var(--success) 8%, transparent);
 }
+
 .typeCountRow{
   grid-template-columns:minmax(0, 1fr) minmax(140px, 1.2fr) auto;
 }
@@ -2065,7 +2184,9 @@ strong[data-status="DOWN"]{
   border-radius:999px;
   background:linear-gradient(90deg, rgba(124,156,255,.85), rgba(124,156,255,.38));
 }
+
 @media (max-width: 1180px){
+  .statusStrip,
   .grid4,
   .grid3,
   .opsSummaryGrid,
@@ -2079,7 +2200,11 @@ strong[data-status="DOWN"]{
     grid-template-columns:1fr;
   }
 }
+
 @media (max-width: 780px){
+  .page{
+    padding:16px 12px 36px;
+  }
   .hero,
   .priorityHead,
   .panelHead,
@@ -2105,6 +2230,7 @@ strong[data-status="DOWN"]{
   .investigationSummaryActions{
     justify-content:flex-start;
   }
+  .statusStrip,
   .priorityStats,
   .signalGrid,
   .grid4,
