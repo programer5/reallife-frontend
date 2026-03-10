@@ -58,6 +58,40 @@
     />
 
     <template v-else>
+      <section v-if="!selectedFailedContext" class="panel todayActionsPanel cardSurface">
+        <div class="panelHead">
+          <div>
+            <div class="panelTitle">오늘의 우선 액션</div>
+            <div class="panelSub">
+              조사 중인 FAILED alert가 없을 때도 운영자가 바로 들어가야 할 핵심 작업을 먼저 보여줘요.
+            </div>
+          </div>
+          <span class="anomalyCount">{{ todayPriorityActions.length }}개</span>
+        </div>
+
+        <div class="todayActionsGrid">
+          <article
+              v-for="action in todayPriorityActions"
+              :key="action.title"
+              class="todayActionCard"
+              :data-tone="action.tone"
+          >
+            <div class="todayActionTop">
+              <strong class="todayActionTitle">{{ action.title }}</strong>
+              <span class="todayActionBadge" :data-tone="action.tone">{{ action.tag }}</span>
+            </div>
+            <div class="todayActionText">{{ action.description }}</div>
+            <button
+                type="button"
+                class="opsActionBtn todayActionBtn"
+                @click="runRecommendedAction(action.action)"
+            >
+              {{ action.buttonLabel }}
+            </button>
+          </article>
+        </div>
+      </section>
+
       <section v-if="selectedFailedContext" class="panel investigationPanel cardSurface">
         <div class="panelHead investigationHead">
           <div>
@@ -461,7 +495,7 @@
       </section>
 
       <section class="grid3">
-        <article class="panel cardSurface">
+        <article ref="healthSection" class="panel cardSurface">
           <div class="panelHead">
             <div>
               <div class="panelTitle">Health Summary</div>
@@ -768,6 +802,7 @@ const selectedFailedContext = ref(null);
 const errorsSection = ref(null);
 const alertHistorySection = ref(null);
 const notificationsSection = ref(null);
+const healthSection = ref(null);
 
 let timerId = null;
 
@@ -1021,8 +1056,8 @@ const recommendedNextActions = computed(() => {
       title: "health 상태와 함께 비교",
       tag: "HEALTH",
       description: "에러 신호가 약하면 health / realtime / reminder 상태와 실패 시점을 같이 보는 게 좋아요.",
-      buttonLabel: "에러 섹션으로 이동",
-      action: "errors",
+      buttonLabel: "Health Summary로 이동",
+      action: "health",
     },
     {
       title: "Slack 재테스트 후 변화 확인",
@@ -1032,6 +1067,65 @@ const recommendedNextActions = computed(() => {
       action: "retest",
     },
   ];
+});
+
+const todayPriorityActions = computed(() => {
+  const actions = [];
+
+  if (failedCount.value > 0) {
+    actions.push({
+      title: "FAILED alert 먼저 확인",
+      tag: "FAILED",
+      tone: "danger",
+      description: `현재 FAILED alert가 ${failedCount.value}건 있어요. 실패 알림부터 확인하고 조사 컨텍스트를 시작하는 게 가장 우선이에요.`,
+      buttonLabel: "실패 알림 보기",
+      action: "failed-alerts",
+    });
+  }
+
+  if (recentErrors.value.length > 0) {
+    actions.push({
+      title: "최근 서버 에러 확인",
+      tag: "ERROR",
+      tone: "danger",
+      description: `최근 서버 에러가 ${recentErrors.value.length}건 있어요. path / errorCode / traceId를 먼저 보는 게 좋아요.`,
+      buttonLabel: "에러 섹션으로 이동",
+      action: "errors",
+    });
+  }
+
+  if (normalizedDashboard.value.realtime.status !== "UP") {
+    actions.push({
+      title: "실시간 상태 점검",
+      tag: "REALTIME",
+      tone: "warning",
+      description: `현재 realtime 상태가 ${normalizedDashboard.value.realtime.status} 예요. SSE 연결과 마지막 이벤트 시각을 확인하세요.`,
+      buttonLabel: "Health Summary로 이동",
+      action: "health",
+    });
+  }
+
+  if (normalizedDashboard.value.reminder.status !== "UP") {
+    actions.push({
+      title: "Reminder 지연 여부 확인",
+      tag: "REMINDER",
+      tone: "warning",
+      description: `현재 reminder 상태가 ${normalizedDashboard.value.reminder.status} 예요. 마지막 실행/성공 시각 확인이 필요해요.`,
+      buttonLabel: "Health Summary로 이동",
+      action: "health",
+    });
+  }
+
+  actions.push({
+    title: "Slack 연결 재검증",
+    tag: "SLACK",
+    tone: "neutral",
+    description: "운영 알림 연결 상태를 빠르게 재검증해서 webhook / 전송 상태 이상 여부를 확인하세요.",
+    buttonLabel: "Slack 재테스트",
+    action: "retest",
+  });
+
+  return actions.slice(0, 4);
 });
 
 const lastLoadedText = computed(() => {
@@ -1275,6 +1369,10 @@ async function goToNotifications() {
   await scrollToRef(notificationsSection);
 }
 
+async function goToHealth() {
+  await scrollToRef(healthSection);
+}
+
 async function filterFailedAlerts() {
   selectedAlertFilter.value = "failed";
   await goToAlertHistory();
@@ -1305,8 +1403,15 @@ async function runRecommendedAction(action) {
     case "notifications":
       await goToNotifications();
       return;
+    case "health":
+      await goToHealth();
+      return;
     case "retest":
       await runAlertTest();
+      return;
+    case "failed-alerts":
+      selectedAlertFilter.value = "failed";
+      await goToAlertHistory();
       return;
     default:
       return;
@@ -1426,7 +1531,8 @@ onBeforeUnmount(() => {
 .investigationText,
 .investigationSummaryText,
 .summaryInvestigationHint,
-.recommendedActionText{
+.recommendedActionText,
+.todayActionText{
   color:var(--muted);
   line-height:1.6;
 }
@@ -1448,7 +1554,8 @@ onBeforeUnmount(() => {
 .investigationKeywordChip,
 .sectionFocusLabel,
 .investigationStatusBadge,
-.recommendedActionBadge{
+.recommendedActionBadge,
+.todayActionBadge{
   border-radius:999px;
   border:1px solid var(--border);
   padding:7px 11px;
@@ -1527,7 +1634,8 @@ strong[data-status="DOWN"]{
 .failedPinnedTop,
 .recentNotificationTop,
 .investigationHead,
-.recommendedActionTop{
+.recommendedActionTop,
+.todayActionTop{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
@@ -1542,6 +1650,41 @@ strong[data-status="DOWN"]{
   margin-left:8px;
   color:var(--accent);
 }
+.todayActionsPanel{
+  border-color:color-mix(in oklab, var(--accent) 24%, var(--border));
+}
+.todayActionsGrid{
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0,1fr));
+  gap:12px;
+}
+.todayActionCard{
+  border:1px solid var(--border);
+  border-radius:18px;
+  background:rgba(255,255,255,.035);
+  padding:14px 15px;
+  display:grid;
+  gap:10px;
+}
+.todayActionCard[data-tone="danger"]{
+  border-color:color-mix(in oklab, var(--danger) 34%, var(--border));
+  background:color-mix(in oklab, var(--danger) 8%, transparent);
+}
+.todayActionCard[data-tone="warning"]{
+  border-color:color-mix(in oklab, var(--warning) 34%, var(--border));
+  background:color-mix(in oklab, var(--warning) 8%, transparent);
+}
+.todayActionTitle{
+  font-size:16px;
+  font-weight:900;
+}
+.todayActionBtn{
+  width:100%;
+  justify-content:center;
+}
+.todayActionBadge[data-tone="danger"]{ color:var(--danger); }
+.todayActionBadge[data-tone="warning"]{ color:var(--warning); }
+
 .investigationPanel{
   border-color:color-mix(in oklab, var(--accent) 34%, var(--border));
   background:
@@ -1927,7 +2070,8 @@ strong[data-status="DOWN"]{
   .grid3,
   .opsSummaryGrid,
   .totalsGrid,
-  .recommendedActionList{
+  .recommendedActionList,
+  .todayActionsGrid{
     grid-template-columns:repeat(2, minmax(0,1fr));
   }
   .priorityGrid,
@@ -1947,7 +2091,8 @@ strong[data-status="DOWN"]{
   .recentNotificationTop,
   .investigationHead,
   .failedPinnedHead,
-  .recommendedActionTop{
+  .recommendedActionTop,
+  .todayActionTop{
     flex-direction:column;
   }
   .heroRight,
@@ -1967,7 +2112,8 @@ strong[data-status="DOWN"]{
   .grid2,
   .opsSummaryGrid,
   .totalsGrid,
-  .recommendedActionList{
+  .recommendedActionList,
+  .todayActionsGrid{
     grid-template-columns:1fr;
   }
   .typeCountRow{
