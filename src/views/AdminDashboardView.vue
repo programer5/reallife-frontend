@@ -58,11 +58,73 @@
     />
 
     <template v-else>
+      <section v-if="selectedFailedContext" class="panel investigationPanel cardSurface">
+        <div class="panelHead investigationHead">
+          <div>
+            <div class="panelTitle">현재 조사 중인 FAILED alert</div>
+            <div class="panelSub">
+              아래 운영 알림/서버 에러 중 관련 항목을 하이라이트해서 보여주고 있어요.
+            </div>
+          </div>
+
+          <div class="investigationActions">
+            <button type="button" class="opsActionBtn" @click="goToAlertHistory">
+              관련 알림 보기
+            </button>
+            <button type="button" class="opsActionBtn" @click="goToErrors">
+              관련 에러 보기
+            </button>
+            <button type="button" class="opsActionBtn opsActionBtn--danger" @click="clearFailedContext">
+              조사 해제
+            </button>
+          </div>
+        </div>
+
+        <div class="investigationBody">
+          <div class="investigationTitle">
+            {{ selectedFailedContext.title || selectedFailedContext.alertKey || "FAILED ALERT" }}
+          </div>
+          <div class="opsAlertMetaRow">
+            <span class="opsAlertChip">{{ selectedFailedContext.channel || "SLACK" }}</span>
+            <span class="opsAlertChip" data-status="FAILED">{{ selectedFailedContext.status || "FAILED" }}</span>
+            <span class="opsAlertChip" :data-level="selectedFailedContext.level">
+              {{ selectedFailedContext.level || "WARNING" }}
+            </span>
+            <span v-if="selectedFailedContext.requestedBy" class="opsAlertChip">
+              by {{ selectedFailedContext.requestedBy }}
+            </span>
+          </div>
+
+          <div v-if="selectedFailedContext.alertKey" class="investigationKey">
+            alertKey: {{ selectedFailedContext.alertKey }}
+          </div>
+
+          <div class="investigationText">
+            {{ selectedFailedContext.body || "본문 없음" }}
+          </div>
+
+          <div class="investigationKeywords">
+            <span class="investigationKeywordsLabel">매칭 키워드</span>
+            <div class="investigationKeywordList">
+              <span
+                  v-for="keyword in focusKeywords"
+                  :key="keyword"
+                  class="investigationKeywordChip"
+              >
+                {{ keyword }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section v-if="failedAlertHistory.length" class="panel failedPinnedPanel cardSurface">
         <div class="panelHead failedPinnedHead">
           <div>
             <div class="panelTitle">FAILED alert 고정 섹션</div>
-            <div class="panelSub">가장 먼저 봐야 하는 실패 알림만 위에 고정해서 보여주고, 바로 대응할 수 있게 했어요.</div>
+            <div class="panelSub">
+              가장 먼저 봐야 하는 실패 알림만 위에 고정해서 보여주고, 바로 대응할 수 있게 했어요.
+            </div>
           </div>
 
           <div class="failedPinnedHeadRight">
@@ -87,6 +149,7 @@
               v-for="item in failedAlertHistory"
               :key="item.id"
               class="failedPinnedCard"
+              :data-active="selectedFailedContext?.id === item.id"
           >
             <div class="failedPinnedTop">
               <div>
@@ -395,8 +458,13 @@
         <article ref="alertHistorySection" class="panel cardSurface">
           <div class="panelHead panelHead--stackOnMobile">
             <div>
-              <div class="panelTitle">최근 운영 알림 이력</div>
-              <div class="panelSub">실패 우선, 그 다음 위험 레벨 우선으로 빠르게 걸러볼 수 있게 했어요.</div>
+              <div class="panelTitle">
+                최근 운영 알림 이력
+                <span v-if="selectedFailedContext" class="sectionFocusLabel">관련 항목 하이라이트 중</span>
+              </div>
+              <div class="panelSub">
+                실패 우선, 그 다음 위험 레벨 우선으로 빠르게 걸러볼 수 있게 했어요.
+              </div>
             </div>
 
             <div class="filterChips">
@@ -439,6 +507,7 @@
                 class="opsAlertItem"
                 :data-status="item.status"
                 :data-level="item.level"
+                :data-related="isRelatedAlert(item)"
             >
               <div class="opsAlertTop">
                 <div>
@@ -448,6 +517,12 @@
                     <span class="opsAlertChip" :data-status="item.status">{{ item.status || "UNKNOWN" }}</span>
                     <span class="opsAlertChip" :data-level="item.level">{{ item.level || "INFO" }}</span>
                     <span v-if="item.requestedBy" class="opsAlertChip">by {{ item.requestedBy }}</span>
+                    <span
+                        v-if="selectedFailedContext && isRelatedAlert(item)"
+                        class="opsAlertChip opsAlertChip--related"
+                    >
+                      RELATED
+                    </span>
                   </div>
                 </div>
                 <span class="opsAlertTime">{{ fmtDateTime(item.createdAt) }}</span>
@@ -463,13 +538,23 @@
         <article ref="errorsSection" class="panel cardSurface">
           <div class="panelHead">
             <div>
-              <div class="panelTitle">최근 서버 에러</div>
-              <div class="panelSub">path / errorCode / traceId를 먼저 빠르게 확인할 수 있게 정리했어요.</div>
+              <div class="panelTitle">
+                최근 서버 에러
+                <span v-if="selectedFailedContext" class="sectionFocusLabel">관련 항목 하이라이트 중</span>
+              </div>
+              <div class="panelSub">
+                path / errorCode / traceId를 먼저 빠르게 확인할 수 있게 정리했어요.
+              </div>
             </div>
           </div>
 
-          <div v-if="recentErrors.length" class="errorList">
-            <div v-for="item in sortedRecentErrors" :key="item.id" class="errorItem">
+          <div v-if="sortedRecentErrors.length" class="errorList">
+            <div
+                v-for="item in sortedRecentErrors"
+                :key="item.id"
+                class="errorItem"
+                :data-related="isRelatedError(item)"
+            >
               <div class="errorTop">
                 <strong>{{ item.errorCode || "ERROR" }}</strong>
                 <span>{{ fmtDateTime(item.occurredAt) }}</span>
@@ -477,6 +562,9 @@
               <div class="errorPath">{{ item.method }} {{ item.path }}</div>
               <div class="errorMessage">{{ item.message }}</div>
               <div v-if="item.traceId" class="errorTrace">traceId: {{ item.traceId }}</div>
+              <div v-if="selectedFailedContext && isRelatedError(item)" class="relatedHint">
+                현재 조사 중인 FAILED alert와 관련 가능성이 높은 에러예요.
+              </div>
             </div>
           </div>
           <div v-else class="empty">최근 서버 에러가 없습니다.</div>
@@ -576,6 +664,7 @@ const alertTestLoading = ref(false);
 const alertTestResult = ref(null);
 const lastLoadedAt = ref(null);
 const selectedAlertFilter = ref("all");
+const selectedFailedContext = ref(null);
 const errorsSection = ref(null);
 const alertHistorySection = ref(null);
 
@@ -651,6 +740,31 @@ const notificationTypeCounts = computed(() => normalizedDashboard.value.insights
 
 const recentNotificationCards = computed(() => {
   return normalizedDashboard.value.recent.notifications.slice(0, 5);
+});
+
+const focusKeywords = computed(() => {
+  if (!selectedFailedContext.value) return [];
+
+  const raw = [
+    selectedFailedContext.value.alertKey,
+    selectedFailedContext.value.title,
+    selectedFailedContext.value.body,
+    selectedFailedContext.value.level,
+    selectedFailedContext.value.channel,
+  ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+  const tokens = raw
+      .replace(/[^a-z0-9가-힣/_:-]+/gi, " ")
+      .split(/\s+/)
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .filter((v) => v.length >= 3)
+      .filter((v) => !["failed", "warning", "danger", "slack", "alert", "ops", "the", "and"].includes(v));
+
+  return [...new Set(tokens)].slice(0, 8);
 });
 
 const lastLoadedText = computed(() => {
@@ -822,6 +936,48 @@ function truncateText(value, max = 120) {
   return `${text.slice(0, max)}…`;
 }
 
+function normalizeComparableText(value) {
+  return String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9가-힣/_:-]+/gi, " ");
+}
+
+function isRelatedByKeywords(targetText) {
+  if (!selectedFailedContext.value) return false;
+  const normalized = normalizeComparableText(targetText);
+  if (!normalized.trim()) return false;
+  return focusKeywords.value.some((keyword) => normalized.includes(keyword));
+}
+
+function isRelatedAlert(item) {
+  if (!selectedFailedContext.value) return false;
+  if (selectedFailedContext.value.id === item.id) return true;
+
+  const keyA = String(selectedFailedContext.value.alertKey || "").trim().toLowerCase();
+  const keyB = String(item.alertKey || "").trim().toLowerCase();
+  if (keyA && keyB && keyA === keyB) return true;
+
+  return isRelatedByKeywords([
+    item.title,
+    item.body,
+    item.alertKey,
+    item.level,
+    item.channel,
+  ].join(" "));
+}
+
+function isRelatedError(item) {
+  if (!selectedFailedContext.value) return false;
+
+  return isRelatedByKeywords([
+    item.errorCode,
+    item.message,
+    item.path,
+    item.method,
+    item.traceId,
+  ].join(" "));
+}
+
 async function scrollToRef(targetRef) {
   await nextTick();
   targetRef?.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
@@ -841,12 +997,17 @@ async function filterFailedAlerts() {
 }
 
 async function inspectFailedAlert(item) {
+  selectedFailedContext.value = item;
   selectedAlertFilter.value = "failed";
   toast.info(
-      "실패 알림 확인",
-      item?.title || item?.alertKey || "실패 알림 기준으로 최근 에러와 알림 이력을 확인해 주세요."
+      "실패 알림 조사 시작",
+      item?.title || item?.alertKey || "관련 알림과 에러를 하이라이트해서 보여줘요."
   );
   await goToErrors();
+}
+
+function clearFailedContext() {
+  selectedFailedContext.value = null;
 }
 
 async function reloadAll() {
@@ -870,6 +1031,15 @@ async function reloadAll() {
     recentErrors.value = Array.isArray(errorsRes) ? errorsRes : [];
     alertHistory.value = Array.isArray(historyRes) ? historyRes : [];
     lastLoadedAt.value = new Date().toISOString();
+
+    if (selectedFailedContext.value) {
+      const refreshed = alertHistory.value.find((item) => item.id === selectedFailedContext.value.id);
+      if (refreshed) {
+        selectedFailedContext.value = refreshed;
+      } else {
+        selectedFailedContext.value = null;
+      }
+    }
   } catch (e) {
     error.value = e?.response?.data?.message || e?.message || "운영 데이터를 불러오지 못했어요.";
   } finally {
@@ -949,7 +1119,8 @@ onBeforeUnmount(() => {
 .opsAlertBody,
 .errorMessage,
 .summaryNotes,
-.alertTestMeta{
+.alertTestMeta,
+.investigationText{
   color:var(--muted);
   line-height:1.6;
 }
@@ -967,7 +1138,9 @@ onBeforeUnmount(() => {
 .anomalyLevel,
 .anomalyCount,
 .recentNotificationReadChip,
-.recentNotificationMetaChip{
+.recentNotificationMetaChip,
+.investigationKeywordChip,
+.sectionFocusLabel{
   border-radius:999px;
   border:1px solid var(--border);
   padding:7px 11px;
@@ -1042,11 +1215,60 @@ strong[data-status="DOWN"]{
 .alertTestTop,
 .anomalyTitleRow,
 .failedPinnedTop,
-.recentNotificationTop{
+.recentNotificationTop,
+.investigationHead{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
   gap:12px;
+}
+.priorityTitle,
+.panelTitle{
+  font-size:20px;
+  font-weight:900;
+}
+.sectionFocusLabel{
+  margin-left:8px;
+  color:var(--accent);
+}
+.investigationPanel{
+  border-color:color-mix(in oklab, var(--accent) 34%, var(--border));
+  background:
+      radial-gradient(circle at top right, color-mix(in oklab, var(--accent) 14%, transparent), transparent 35%),
+      linear-gradient(180deg, rgba(124,156,255,.08), rgba(124,156,255,.03)),
+      var(--surface);
+}
+.investigationActions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.investigationBody{
+  display:grid;
+  gap:10px;
+}
+.investigationTitle{
+  font-size:18px;
+  font-weight:950;
+}
+.investigationKey{
+  font-size:12px;
+  color:var(--muted);
+  word-break:break-all;
+}
+.investigationKeywords{
+  display:grid;
+  gap:8px;
+}
+.investigationKeywordsLabel{
+  font-size:12px;
+  color:var(--muted);
+  font-weight:800;
+}
+.investigationKeywordList{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
 }
 .failedPinnedHead{
   align-items:flex-start;
@@ -1076,11 +1298,6 @@ strong[data-status="DOWN"]{
   border-color:color-mix(in oklab, var(--danger) 36%, var(--border));
   background:color-mix(in oklab, var(--danger) 10%, transparent);
   color:var(--danger);
-}
-.priorityTitle,
-.panelTitle{
-  font-size:20px;
-  font-weight:900;
 }
 .priorityMainText{
   font-size:24px;
@@ -1184,6 +1401,9 @@ strong[data-status="DOWN"]{
   border-color:color-mix(in oklab, var(--danger) 34%, var(--border));
   background:color-mix(in oklab, var(--danger) 8%, transparent);
 }
+.failedPinnedCard[data-active="true"]{
+  box-shadow:0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
+}
 .failedPinnedTitle{
   font-size:16px;
   font-weight:950;
@@ -1276,6 +1496,18 @@ strong[data-status="DOWN"]{
 .opsAlertItem[data-level="DANGER"]{
   box-shadow:inset 0 0 0 1px color-mix(in oklab, var(--danger) 24%, transparent);
 }
+.opsAlertItem[data-related="true"],
+.errorItem[data-related="true"]{
+  border-color:color-mix(in oklab, var(--accent) 44%, var(--border));
+  box-shadow:0 0 0 2px color-mix(in oklab, var(--accent) 28%, transparent);
+  background:color-mix(in oklab, var(--accent) 8%, transparent);
+}
+.relatedHint{
+  margin-top:10px;
+  font-size:12px;
+  color:var(--accent);
+  font-weight:800;
+}
 .opsAlertTitle,
 .errorPath{
   font-weight:900;
@@ -1301,6 +1533,11 @@ strong[data-status="DOWN"]{
 .opsAlertChip[data-level="DANGER"]{
   border-color:color-mix(in oklab, var(--danger) 36%, var(--border));
   background:color-mix(in oklab, var(--danger) 10%, transparent);
+}
+.opsAlertChip--related{
+  border-color:color-mix(in oklab, var(--accent) 36%, var(--border));
+  background:color-mix(in oklab, var(--accent) 10%, transparent);
+  color:var(--accent);
 }
 .alertTestBox[data-sent="true"]{
   border-color:color-mix(in oklab, var(--success) 36%, var(--border));
@@ -1352,6 +1589,7 @@ strong[data-status="DOWN"]{
   .anomalyTitleRow,
   .failedPinnedTop,
   .recentNotificationTop,
+  .investigationHead,
   .failedPinnedHead{
     flex-direction:column;
   }
@@ -1360,7 +1598,8 @@ strong[data-status="DOWN"]{
   .failedPinnedHeadRight{
     justify-items:start;
   }
-  .failedActionBar{
+  .failedActionBar,
+  .investigationActions{
     justify-content:flex-start;
   }
   .priorityStats,
