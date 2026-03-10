@@ -58,6 +58,40 @@
     />
 
     <template v-else>
+      <section v-if="failedAlertHistory.length" class="panel failedPinnedPanel cardSurface">
+        <div class="panelHead">
+          <div>
+            <div class="panelTitle">FAILED alert 고정 섹션</div>
+            <div class="panelSub">가장 먼저 봐야 하는 실패 알림만 위에 고정해서 보여줘요.</div>
+          </div>
+          <span class="anomalyCount">{{ failedAlertHistory.length }}건</span>
+        </div>
+
+        <div class="failedPinnedList">
+          <article
+              v-for="item in failedAlertHistory"
+              :key="item.id"
+              class="failedPinnedCard"
+          >
+            <div class="failedPinnedTop">
+              <div>
+                <strong class="failedPinnedTitle">{{ item.title || item.alertKey || 'FAILED ALERT' }}</strong>
+                <div class="opsAlertMetaRow">
+                  <span class="opsAlertChip">{{ item.channel || 'SLACK' }}</span>
+                  <span class="opsAlertChip" data-status="FAILED">{{ item.status || 'FAILED' }}</span>
+                  <span class="opsAlertChip" :data-level="item.level">{{ item.level || 'WARNING' }}</span>
+                  <span v-if="item.requestedBy" class="opsAlertChip">by {{ item.requestedBy }}</span>
+                </div>
+              </div>
+              <span class="opsAlertTime">{{ fmtDateTime(item.createdAt) }}</span>
+            </div>
+
+            <div v-if="item.alertKey" class="opsAlertKey">{{ item.alertKey }}</div>
+            <div class="opsAlertBody">{{ item.body || '본문 없음' }}</div>
+          </article>
+        </div>
+      </section>
+
       <section class="priorityGrid">
         <article class="priorityCard cardSurface priorityCard--focus">
           <div class="priorityHead">
@@ -137,29 +171,80 @@
         </article>
       </section>
 
-      <section v-if="anomalyList.length" class="panel anomalyPanel cardSurface">
-        <div class="panelHead">
-          <div>
-            <div class="panelTitle">우선 대응이 필요한 이상 징후</div>
-            <div class="panelSub">가장 위험하거나 운영자가 바로 확인해야 하는 이슈만 위로 올렸어요.</div>
-          </div>
-          <span class="anomalyCount">{{ anomalyList.length }}건</span>
-        </div>
-
-        <div class="anomalyList">
-          <div
-              v-for="item in anomalyList"
-              :key="item.type"
-              class="anomalyCard"
-              :data-level="item.level"
-          >
-            <div class="anomalyTitleRow">
-              <strong class="anomalyTitle">{{ item.title }}</strong>
-              <span class="anomalyLevel" :data-level="item.level">{{ item.level.toUpperCase() }}</span>
+      <section class="grid2">
+        <article class="panel recentNotificationsPanel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">최근 notification 5개</div>
+              <div class="panelSub">운영자가 지금 실제 사용자 알림 흐름을 카드로 바로 볼 수 있게 정리했어요.</div>
             </div>
-            <div class="anomalyDesc">{{ item.desc }}</div>
+            <span class="anomalyCount">{{ recentNotificationCards.length }}건</span>
           </div>
-        </div>
+
+          <div v-if="recentNotificationCards.length" class="recentNotificationList">
+            <article
+                v-for="item in recentNotificationCards"
+                :key="item.id"
+                class="recentNotificationCard"
+                :data-read="item.read"
+            >
+              <div class="recentNotificationTop">
+                <div class="recentNotificationTypeWrap">
+                  <strong class="recentNotificationType">{{ item.type || 'UNKNOWN' }}</strong>
+                  <span class="recentNotificationReadChip" :data-read="item.read">
+                    {{ item.read ? 'READ' : 'UNREAD' }}
+                  </span>
+                </div>
+                <span class="recentNotificationTime">{{ fmtDateTime(item.createdAt) }}</span>
+              </div>
+
+              <div class="recentNotificationBody">
+                {{ truncateText(item.body, 120) }}
+              </div>
+
+              <div class="recentNotificationMeta">
+                <span class="recentNotificationMetaChip">user {{ shortUserId(item.userId) }}</span>
+                <span class="recentNotificationMetaChip">{{ item.type }}</span>
+              </div>
+            </article>
+          </div>
+          <div v-else class="empty">최근 notification 데이터가 아직 없어요.</div>
+        </article>
+
+        <article v-if="anomalyList.length" class="panel anomalyPanel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">우선 대응이 필요한 이상 징후</div>
+              <div class="panelSub">가장 위험하거나 운영자가 바로 확인해야 하는 이슈만 위로 올렸어요.</div>
+            </div>
+            <span class="anomalyCount">{{ anomalyList.length }}건</span>
+          </div>
+
+          <div class="anomalyList">
+            <div
+                v-for="item in anomalyList"
+                :key="item.type"
+                class="anomalyCard"
+                :data-level="item.level"
+            >
+              <div class="anomalyTitleRow">
+                <strong class="anomalyTitle">{{ item.title }}</strong>
+                <span class="anomalyLevel" :data-level="item.level">{{ item.level.toUpperCase() }}</span>
+              </div>
+              <div class="anomalyDesc">{{ item.desc }}</div>
+            </div>
+          </div>
+        </article>
+
+        <article v-else class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">이상 징후</div>
+              <div class="panelSub">현재 감지된 이상 징후가 없어요.</div>
+            </div>
+          </div>
+          <div class="empty">지금은 우선 대응이 필요한 이상 징후가 없습니다.</div>
+        </article>
       </section>
 
       <section class="grid4">
@@ -492,16 +577,21 @@ const normalizedDashboard = computed(() => {
       todayCreatedMessages: source.overview?.todayCreatedMessages ?? 0,
       todayCreatedPosts: source.overview?.todayCreatedPosts ?? 0,
     },
-    insights: {
-      opsFocusTitle: source.insights?.opsFocusTitle || "현재 주목 포인트 없음",
-      opsFocusReason: source.insights?.opsFocusReason || "대시보드 데이터가 아직 충분하지 않아요.",
-      notificationTypeCounts: Array.isArray(source.insights?.notificationTypeCounts)
-          ? source.insights.notificationTypeCounts
-          : [],
-    },
     health: {
       summaryNotes: Array.isArray(source.health?.summaryNotes) ? source.health.summaryNotes : [],
       recentReminderCreatedCount: source.health?.recentReminderCreatedCount ?? 0,
+    },
+    recent: {
+      notifications: Array.isArray(source.recent?.notifications) ? source.recent.notifications : [],
+    },
+    insights: {
+      notificationTypeCounts: Array.isArray(source.insights?.notificationTypeCounts)
+          ? source.insights.notificationTypeCounts
+          : [],
+      opsFocusTitle: source.insights?.opsFocusTitle || "현재 주목 포인트 없음",
+      opsFocusReason: source.insights?.opsFocusReason || "대시보드 데이터가 아직 충분하지 않아요.",
+      realtimeHealth: source.insights?.realtimeHealth || "UNKNOWN",
+      reminderHealth: source.insights?.reminderHealth || "UNKNOWN",
     },
     realtime: {
       status: source.insights?.realtimeHealth || realtimeHealth.value?.status || "UNKNOWN",
@@ -532,6 +622,10 @@ const normalizedHealth = computed(() => ({
 }));
 
 const notificationTypeCounts = computed(() => normalizedDashboard.value.insights.notificationTypeCounts || []);
+
+const recentNotificationCards = computed(() => {
+  return normalizedDashboard.value.recent.notifications.slice(0, 5);
+});
 
 const lastLoadedText = computed(() => {
   if (!lastLoadedAt.value) return "불러오기 전";
@@ -565,6 +659,13 @@ const highLevelCount = computed(() =>
       return level === "WARNING" || level === "DANGER";
     }).length
 );
+
+const failedAlertHistory = computed(() => {
+  return [...alertHistory.value]
+      .filter((item) => String(item.status || "").toUpperCase() === "FAILED")
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, 5);
+});
 
 const filteredAlertHistory = computed(() => {
   const sorted = [...alertHistory.value].sort((a, b) => {
@@ -679,6 +780,20 @@ function boolText(value) {
 function boolStatus(value) {
   if (value === undefined || value === null) return "UNKNOWN";
   return value ? "UP" : "DOWN";
+}
+
+function shortUserId(value) {
+  const text = String(value || "");
+  if (!text) return "-";
+  if (text.length <= 8) return text;
+  return `${text.slice(0, 8)}…`;
+}
+
+function truncateText(value, max = 120) {
+  const text = String(value || "").trim();
+  if (!text) return "본문 없음";
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}…`;
 }
 
 async function reloadAll() {
@@ -797,7 +912,9 @@ onBeforeUnmount(() => {
 .panelPill,
 .statusBadge,
 .anomalyLevel,
-.anomalyCount{
+.anomalyCount,
+.recentNotificationReadChip,
+.recentNotificationMetaChip{
   border-radius:999px;
   border:1px solid var(--border);
   padding:7px 11px;
@@ -870,7 +987,9 @@ strong[data-status="DOWN"]{
 .opsAlertTop,
 .errorTop,
 .alertTestTop,
-.anomalyTitleRow{
+.anomalyTitleRow,
+.failedPinnedTop,
+.recentNotificationTop{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
@@ -909,7 +1028,9 @@ strong[data-status="DOWN"]{
 .typeCountRow,
 .errorItem,
 .opsAlertItem,
-.alertTestBox{
+.alertTestBox,
+.failedPinnedCard,
+.recentNotificationCard{
   border:1px solid var(--border);
   border-radius:18px;
   background:rgba(255,255,255,.035);
@@ -943,7 +1064,9 @@ strong[data-status="DOWN"]{
 .opsAlertList,
 .errorList,
 .typeCountList,
-.anomalyList{
+.anomalyList,
+.failedPinnedList,
+.recentNotificationList{
   display:grid;
   gap:12px;
 }
@@ -966,6 +1089,69 @@ strong[data-status="DOWN"]{
       radial-gradient(circle at top right, rgba(255,140,0,.10), transparent 30%),
       linear-gradient(180deg, rgba(255,120,0,.08), rgba(255,120,0,.03)),
       var(--surface);
+}
+.failedPinnedPanel{
+  border-color:rgba(255,93,93,.34);
+  background:
+      radial-gradient(circle at top right, rgba(255,93,93,.12), transparent 34%),
+      linear-gradient(180deg, rgba(255,93,93,.08), rgba(255,93,93,.03)),
+      var(--surface);
+}
+.failedPinnedCard{
+  padding:14px 16px;
+  border-color:color-mix(in oklab, var(--danger) 34%, var(--border));
+  background:color-mix(in oklab, var(--danger) 8%, transparent);
+}
+.failedPinnedTitle{
+  font-size:16px;
+  font-weight:950;
+}
+.recentNotificationsPanel{
+  min-height:100%;
+}
+.recentNotificationCard{
+  padding:14px 16px;
+}
+.recentNotificationCard[data-read="false"]{
+  border-color:color-mix(in oklab, var(--accent) 34%, var(--border));
+  background:color-mix(in oklab, var(--accent) 8%, transparent);
+}
+.recentNotificationTypeWrap{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.recentNotificationType{
+  font-size:15px;
+  font-weight:900;
+}
+.recentNotificationReadChip[data-read="false"]{
+  border-color:color-mix(in oklab, var(--warning) 34%, var(--border));
+  background:color-mix(in oklab, var(--warning) 10%, transparent);
+  color:var(--warning);
+}
+.recentNotificationReadChip[data-read="true"]{
+  border-color:color-mix(in oklab, var(--success) 34%, var(--border));
+  background:color-mix(in oklab, var(--success) 10%, transparent);
+  color:var(--success);
+}
+.recentNotificationBody{
+  margin-top:10px;
+  line-height:1.6;
+}
+.recentNotificationMeta{
+  margin-top:10px;
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.recentNotificationTime,
+.opsAlertTime,
+.errorTrace,
+.opsAlertKey{
+  color:var(--muted);
+  font-size:12px;
 }
 .anomalyCard{
   padding:14px 15px;
@@ -1011,12 +1197,6 @@ strong[data-status="DOWN"]{
   display:flex;
   gap:8px;
   flex-wrap:wrap;
-}
-.opsAlertTime,
-.errorTrace,
-.opsAlertKey{
-  color:var(--muted);
-  font-size:12px;
 }
 .opsAlertChip[data-status="SENT"]{
   border-color:color-mix(in oklab, var(--success) 36%, var(--border));
@@ -1081,7 +1261,9 @@ strong[data-status="DOWN"]{
   .opsAlertTop,
   .errorTop,
   .alertTestTop,
-  .anomalyTitleRow{
+  .anomalyTitleRow,
+  .failedPinnedTop,
+  .recentNotificationTop{
     flex-direction:column;
   }
   .heroRight,
