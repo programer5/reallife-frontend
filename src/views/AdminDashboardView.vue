@@ -45,6 +45,63 @@
     />
 
     <template v-else>
+      <section class="opsActionGrid">
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">운영 알림 연결 테스트</div>
+              <div class="panelSub">Slack webhook 연결 여부를 운영자 화면에서 바로 확인해요.</div>
+            </div>
+
+            <RlButton
+                size="sm"
+                variant="primary"
+                @click="runAlertTest"
+                :loading="alertTestLoading"
+            >
+              Slack 테스트 보내기
+            </RlButton>
+          </div>
+
+          <div class="opsActionMeta">
+            <div class="signalItem">
+              <span class="signalLabel">Channel</span>
+              <strong>{{ alertTestResult?.channel || "SLACK" }}</strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Enabled</span>
+              <strong :data-status="boolStatus(alertTestResult?.enabled)">
+                {{ boolText(alertTestResult?.enabled) }}
+              </strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Webhook Configured</span>
+              <strong :data-status="boolStatus(alertTestResult?.webhookConfigured)">
+                {{ boolText(alertTestResult?.webhookConfigured) }}
+              </strong>
+            </div>
+            <div class="signalItem">
+              <span class="signalLabel">Last Test Result</span>
+              <strong :data-status="boolStatus(alertTestResult?.sent)">
+                {{ alertTestResult ? (alertTestResult.sent ? "SENT" : "NOT_SENT") : "-" }}
+              </strong>
+            </div>
+          </div>
+
+          <div v-if="alertTestResult" class="alertTestBox" :data-sent="alertTestResult.sent">
+            <div class="alertTestTop">
+              <strong>{{ alertTestResult.message }}</strong>
+              <span>{{ fmtDateTime(alertTestResult.checkedAt) }}</span>
+            </div>
+            <div class="alertTestMeta">
+              <span>요청자 {{ alertTestResult.requestedBy }}</span>
+              <span>{{ alertTestResult.application }}</span>
+            </div>
+          </div>
+          <div v-else class="empty">아직 Slack 테스트를 실행하지 않았어요.</div>
+        </div>
+      </section>
+
       <section v-if="anomalyList.length" class="panel anomalyPanel cardSurface">
         <div class="panelTitle">⚠ 이상 징후 감지</div>
 
@@ -369,7 +426,7 @@
 import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
-import { fetchAdminDashboard, fetchAdminErrors } from "@/api/admin";
+import { fetchAdminDashboard, fetchAdminErrors, sendAdminAlertTest } from "@/api/admin";
 import { useToastStore } from "@/stores/toast";
 
 const toast = useToastStore();
@@ -379,6 +436,9 @@ const errors = ref([]);
 const loading = ref(false);
 const error = ref("");
 const lastLoadedAt = ref(null);
+
+const alertTestLoading = ref(false);
+const alertTestResult = ref(null);
 
 let refreshTimer = null;
 
@@ -513,6 +573,25 @@ async function reloadAll(opts = {}) {
   await loadErrors();
 }
 
+async function runAlertTest() {
+  alertTestLoading.value = true;
+
+  try {
+    alertTestResult.value = await sendAdminAlertTest();
+
+    if (alertTestResult.value?.sent) {
+      toast.success?.("Slack 테스트 성공", alertTestResult.value.message);
+    } else {
+      toast.info?.("Slack 테스트 확인 필요", alertTestResult.value?.message || "설정을 확인해 주세요.");
+    }
+  } catch (e) {
+    const msg = e?.response?.data?.message || "Slack 테스트 알림 전송에 실패했어요.";
+    toast.error?.("Slack 테스트 실패", msg);
+  } finally {
+    alertTestLoading.value = false;
+  }
+}
+
 function startAutoRefresh() {
   stopAutoRefresh();
   refreshTimer = window.setInterval(() => {
@@ -543,6 +622,18 @@ function signalStatus(v) {
   if (v === "HIGH" || v === "DELAYED") return "danger";
   if (v === "MEDIUM" || v === "WATCH") return "warning";
   return "good";
+}
+
+function boolText(v) {
+  if (v === true) return "YES";
+  if (v === false) return "NO";
+  return "-";
+}
+
+function boolStatus(v) {
+  if (v === true) return "good";
+  if (v === false) return "danger";
+  return "normal";
 }
 
 onMounted(async () => {
@@ -639,6 +730,54 @@ onBeforeUnmount(() => {
 .statusBadge[data-status="DOWN"]{
   border-color:color-mix(in oklab,var(--danger) 44%,var(--border));
   background:color-mix(in oklab,var(--danger) 12%,transparent);
+}
+
+.opsActionGrid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+}
+
+.opsActionMeta{
+  margin-top:12px;
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+}
+
+.alertTestBox{
+  margin-top:12px;
+  padding:14px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.04);
+}
+
+.alertTestBox[data-sent="true"]{
+  border-color:color-mix(in oklab,var(--success) 42%,var(--border));
+  background:color-mix(in oklab,var(--success) 10%,transparent);
+}
+
+.alertTestBox[data-sent="false"]{
+  border-color:color-mix(in oklab,var(--warning) 42%,var(--border));
+  background:color-mix(in oklab,var(--warning) 10%,transparent);
+}
+
+.alertTestTop{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+.alertTestMeta{
+  margin-top:8px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  color:var(--muted);
+  font-size:12px;
 }
 
 .anomalyPanel{
@@ -760,48 +899,27 @@ onBeforeUnmount(() => {
 }
 
 .healthKey{
-  font-weight:900;
   text-transform:capitalize;
-}
-
-.healthValue{
-  min-width:88px;
-  height:32px;
-  padding:0 10px;
-  border-radius:999px;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  border:1px solid var(--border);
-  font-size:12px;
-  font-weight:950;
-  background:rgba(255,255,255,.04);
+  color:var(--muted);
 }
 
 .healthValue[data-status="UP"],
 strong[data-status="good"]{
-  border-color:color-mix(in oklab,var(--success) 44%,var(--border));
-  color:color-mix(in oklab,var(--success) 90%,white);
+  color:#64d89b;
 }
 
 .healthValue[data-status="DEGRADED"],
 strong[data-status="warning"]{
-  border-color:color-mix(in oklab,var(--warning) 44%,var(--border));
-  color:color-mix(in oklab,var(--warning) 88%,white);
+  color:#f6c344;
 }
 
 .healthValue[data-status="DOWN"],
 strong[data-status="danger"]{
-  border-color:color-mix(in oklab,var(--danger) 44%,var(--border));
-  color:color-mix(in oklab,var(--danger) 88%,white);
+  color:#ff7d7d;
 }
 
-strong[data-delay="warning"]{
-  color:color-mix(in oklab,var(--warning) 88%,white);
-}
-
-strong[data-delay="danger"]{
-  color:color-mix(in oklab,var(--danger) 88%,white);
+strong[data-status="normal"]{
+  color:var(--text);
 }
 
 .panelHead{
@@ -812,23 +930,24 @@ strong[data-delay="danger"]{
   flex-wrap:wrap;
 }
 
-.generatedAt{
-  font-size:12px;
-  color:var(--muted);
-}
-
 .summaryNotes,
 .notes{
   margin:12px 0 0;
   padding-left:18px;
-  color:var(--muted);
-  line-height:1.65;
+  display:grid;
+  gap:8px;
+  color:var(--text);
+}
+
+.summaryNotes li,
+.notes li{
+  line-height:1.55;
 }
 
 .typeStatsList{
   margin-top:12px;
   display:grid;
-  gap:12px;
+  gap:10px;
 }
 
 .typeStatsItem{
@@ -841,8 +960,8 @@ strong[data-delay="danger"]{
 .typeStatsTop{
   display:flex;
   justify-content:space-between;
-  align-items:center;
   gap:10px;
+  align-items:center;
 }
 
 .typeName{
@@ -851,14 +970,13 @@ strong[data-delay="danger"]{
 
 .typeCount{
   font-size:16px;
-  font-weight:950;
 }
 
 .typeBar{
   margin-top:10px;
   height:10px;
   border-radius:999px;
-  background:rgba(255,255,255,.08);
+  background:rgba(255,255,255,.06);
   overflow:hidden;
 }
 
@@ -866,7 +984,9 @@ strong[data-delay="danger"]{
   display:block;
   height:100%;
   border-radius:inherit;
-  background:linear-gradient(90deg, color-mix(in oklab,var(--accent) 70%,white), color-mix(in oklab,var(--accent) 30%,transparent));
+  background:linear-gradient(90deg,
+  color-mix(in oklab,var(--accent) 80%,white),
+  color-mix(in oklab,var(--accent) 24%,transparent));
 }
 
 .typeRatio{
@@ -875,111 +995,104 @@ strong[data-delay="danger"]{
   color:var(--muted);
 }
 
-.errorList{
-  margin-top:12px;
-  display:grid;
-  gap:10px;
-}
-
-.errorItem{
-  padding:12px;
-  border-radius:14px;
-  border:1px solid rgba(255,80,80,.25);
-  background:rgba(255,80,80,.08);
-}
-
-.errorTop{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-  flex-wrap:wrap;
-  font-size:12px;
-  font-weight:900;
-}
-
-.errorType{
-  color:color-mix(in oklab,var(--danger) 88%,white);
-}
-
-.errorTime{
-  color:var(--muted);
-}
-
-.errorMessage{
-  margin-top:6px;
-  font-size:13px;
-  line-height:1.5;
-}
-
-.errorPath{
-  margin-top:6px;
-  font-size:12px;
-  opacity:.7;
-  word-break:break-all;
-}
-
+.errorList,
 .recentList{
   margin-top:12px;
   display:grid;
   gap:10px;
 }
 
+.errorItem,
 .recentItem{
   padding:14px;
-  border-radius:18px;
+  border-radius:16px;
   border:1px solid rgba(255,255,255,.08);
-  background:rgba(255,255,255,.035);
+  background:rgba(255,255,255,.04);
 }
 
+.errorTop,
 .recentTop,
 .recentMeta{
   display:flex;
   justify-content:space-between;
   gap:10px;
+  align-items:center;
   flex-wrap:wrap;
 }
 
+.errorType,
 .recentType{
-  font-size:12px;
-  font-weight:950;
-  color:color-mix(in oklab,var(--accent) 78%,white);
+  font-weight:900;
 }
 
-.recentTime{
+.errorTime,
+.recentTime,
+.generatedAt,
+.recentMeta{
   font-size:12px;
   color:var(--muted);
 }
 
+.errorMessage,
 .recentBody{
   margin-top:8px;
   line-height:1.55;
 }
 
-.recentMeta{
-  margin-top:8px;
+.errorPath{
+  margin-top:6px;
   font-size:12px;
   color:var(--muted);
-}
-
-.recentMeta span[data-read="false"]{
-  color:color-mix(in oklab,var(--warning) 80%,white);
+  word-break:break-all;
 }
 
 .empty{
   margin-top:12px;
   color:var(--muted);
+  font-size:13px;
 }
 
-@media (max-width:1024px){
-  .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .grid3{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .focusGrid,.healthGrid,.insightGrid,.summaryNotesGrid{grid-template-columns:1fr}
+strong[data-delay="normal"]{
+  color:#64d89b;
 }
 
-@media (max-width:680px){
-  .page{padding:14px 12px 100px}
-  .hero{flex-direction:column}
-  .grid4,.grid3{grid-template-columns:1fr}
-  .title{font-size:24px}
+strong[data-delay="warning"]{
+  color:#f6c344;
+}
+
+strong[data-delay="danger"]{
+  color:#ff7d7d;
+}
+
+@media (max-width: 1024px){
+  .grid4,
+  .grid3,
+  .focusGrid,
+  .healthGrid,
+  .insightGrid,
+  .summaryNotesGrid,
+  .opsActionMeta{
+    grid-template-columns:1fr 1fr;
+  }
+}
+
+@media (max-width: 720px){
+  .hero{
+    flex-direction:column;
+  }
+
+  .grid4,
+  .grid3,
+  .focusGrid,
+  .healthGrid,
+  .insightGrid,
+  .summaryNotesGrid,
+  .opsActionMeta{
+    grid-template-columns:1fr;
+  }
+
+  .title{
+    font-size:24px;
+  }
 }
 </style>
