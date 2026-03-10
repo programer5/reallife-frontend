@@ -111,6 +111,25 @@
             </div>
           </div>
 
+          <div class="opsSummaryGrid">
+            <div class="miniStat">
+              <span class="miniLabel">전체</span>
+              <strong class="miniValue">{{ alertHistory.length }}</strong>
+            </div>
+            <div class="miniStat">
+              <span class="miniLabel">SENT</span>
+              <strong class="miniValue">{{ sentCount }}</strong>
+            </div>
+            <div class="miniStat">
+              <span class="miniLabel">FAILED</span>
+              <strong class="miniValue">{{ failedCount }}</strong>
+            </div>
+            <div class="miniStat">
+              <span class="miniLabel">HIGH LEVEL</span>
+              <strong class="miniValue">{{ highLevelCount }}</strong>
+            </div>
+          </div>
+
           <div v-if="alertHistory.length" class="opsAlertList">
             <div
                 v-for="item in alertHistory"
@@ -126,8 +145,8 @@
 
               <div class="opsAlertMetaRow">
                 <span class="opsAlertChip">{{ item.channel }}</span>
-                <span class="opsAlertChip">{{ item.status }}</span>
-                <span class="opsAlertChip">{{ item.level }}</span>
+                <span class="opsAlertChip" :data-status="item.status">{{ item.status }}</span>
+                <span class="opsAlertChip" :data-level="item.level">{{ item.level }}</span>
                 <span v-if="item.requestedBy" class="opsAlertChip">by {{ item.requestedBy }}</span>
               </div>
 
@@ -220,239 +239,63 @@
           <div class="panelTitle">실시간 흐름 요약</div>
           <div class="focusList">
             <div class="focusRow">
-              <span>최근 SSE 이벤트</span>
-              <strong>{{ fmtDateTime(normalizedDashboard.health.lastSseEventSentAt) }}</strong>
+              <span>실시간 상태</span>
+              <strong :data-status="normalizedDashboard.realtime.status">
+                {{ normalizedDashboard.realtime.status }}
+              </strong>
             </div>
             <div class="focusRow">
-              <span>최근 Reminder 실행</span>
-              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderRunAt) }}</strong>
+              <span>활성 SSE 연결</span>
+              <strong>{{ normalizedDashboard.realtime.activeSseConnections }}</strong>
             </div>
             <div class="focusRow">
-              <span>최근 Reminder 성공</span>
-              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderSuccessAt) }}</strong>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="healthGrid">
-        <div class="panel cardSurface">
-          <div class="panelTitle">Health Status</div>
-
-          <div class="healthList">
-            <div
-                v-for="(value, key) in normalizedDashboard.health.checks"
-                :key="key"
-                class="healthRow"
-            >
-              <span class="healthKey">{{ key }}</span>
-              <span class="healthValue" :data-status="value">
-                {{ value }}
-              </span>
+              <span>마지막 SSE 이벤트</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.realtime.lastSseEventSentAt) }}</strong>
             </div>
           </div>
         </div>
 
         <div class="panel cardSurface">
-          <div class="panelTitle">Scheduler</div>
-
-          <div class="timingList">
-            <div class="timingRow">
-              <span>Last SSE Event</span>
-              <strong>{{ fmtDateTime(normalizedDashboard.health.lastSseEventSentAt) }}</strong>
-            </div>
-
-            <div class="timingRow">
-              <span>Last Reminder Run</span>
-              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderRunAt) }}</strong>
-            </div>
-
-            <div class="timingRow">
-              <span>Last Reminder Success</span>
-              <strong>{{ fmtDateTime(normalizedDashboard.health.lastReminderSuccessAt) }}</strong>
-            </div>
-
-            <div class="timingRow">
-              <span>Reminder Delay</span>
-              <strong :data-delay="delayLevel">
-                {{ normalizedDashboard.health.minutesSinceLastReminderRun }} min
+          <div class="panelTitle">Reminder 흐름 요약</div>
+          <div class="focusList">
+            <div class="focusRow">
+              <span>Reminder 상태</span>
+              <strong :data-status="normalizedDashboard.reminder.status">
+                {{ normalizedDashboard.reminder.status }}
               </strong>
             </div>
-
-            <div class="timingRow">
-              <span>Recent Reminder Created</span>
-              <strong>{{ normalizedDashboard.health.recentReminderCreatedCount }}</strong>
+            <div class="focusRow">
+              <span>마지막 실행</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.reminder.lastRunAt) }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>마지막 성공</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.reminder.lastSuccessAt) }}</strong>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section class="summaryNotesGrid">
-        <div class="panel cardSurface">
-          <div class="panelHead">
-            <div>
-              <div class="panelTitle">운영 신호 요약</div>
-              <div class="panelSub">백엔드 insights 기준으로 현재 운영 신호를 정리해요.</div>
-            </div>
-          </div>
-
-          <div class="signalList">
-            <div class="signalItem">
-              <span class="signalLabel">Unread Pressure</span>
-              <strong :data-status="signalStatus(normalizedDashboard.insights.unreadPressure)">
-                {{ normalizedDashboard.insights.unreadPressure }}
-              </strong>
-            </div>
-            <div class="signalItem">
-              <span class="signalLabel">Realtime Health</span>
-              <strong :data-status="signalStatus(normalizedDashboard.insights.realtimeHealth)">
-                {{ normalizedDashboard.insights.realtimeHealth }}
-              </strong>
-            </div>
-            <div class="signalItem">
-              <span class="signalLabel">Reminder Health</span>
-              <strong :data-status="signalStatus(normalizedDashboard.insights.reminderHealth)">
-                {{ normalizedDashboard.insights.reminderHealth }}
-              </strong>
-            </div>
-            <div class="signalItem">
-              <span class="signalLabel">Top Notification Type</span>
-              <strong>{{ normalizedDashboard.insights.topNotificationType }}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel cardSurface">
-          <div class="panelHead">
-            <div>
-              <div class="panelTitle">운영 메모</div>
-              <div class="panelSub">백엔드가 만든 운영 메모를 그대로 보여줘요.</div>
-            </div>
-          </div>
-
-          <ul v-if="normalizedDashboard.notes.length" class="notes">
-            <li v-for="note in normalizedDashboard.notes" :key="note">{{ note }}</li>
-          </ul>
-          <div v-else class="empty">운영 메모가 아직 없어요.</div>
-        </div>
-      </section>
-
-      <section class="grid3">
-        <div class="miniCard cardSurface">
-          <div class="label">Users</div>
-          <div class="value">{{ normalizedDashboard.totals.users }}</div>
-        </div>
-
-        <div class="miniCard cardSurface">
-          <div class="label">Posts</div>
-          <div class="value">{{ normalizedDashboard.totals.posts }}</div>
-        </div>
-
-        <div class="miniCard cardSurface">
-          <div class="label">Comments</div>
-          <div class="value">{{ normalizedDashboard.totals.comments }}</div>
-        </div>
-
-        <div class="miniCard cardSurface">
-          <div class="label">Conversations</div>
-          <div class="value">{{ normalizedDashboard.totals.conversations }}</div>
-        </div>
-
-        <div class="miniCard cardSurface">
-          <div class="label">Messages</div>
-          <div class="value">{{ normalizedDashboard.totals.messages }}</div>
-        </div>
-
-        <div class="miniCard cardSurface">
-          <div class="label">Notifications</div>
-          <div class="value">{{ normalizedDashboard.totals.notifications }}</div>
-        </div>
-      </section>
-
-      <section class="insightGrid">
-        <div class="panel cardSurface">
-          <div class="panelHead">
-            <div>
-              <div class="panelTitle">최근 알림 타입 통계</div>
-              <div class="panelSub">백엔드 insights 기준으로 집계한 최근 알림 타입 통계예요.</div>
-            </div>
-          </div>
-
-          <div v-if="normalizedDashboard.insights.notificationTypeCounts.length" class="typeStatsList">
-            <div
-                v-for="item in normalizedDashboard.insights.notificationTypeCounts"
-                :key="item.type"
-                class="typeStatsItem"
-            >
-              <div class="typeStatsTop">
-                <span class="typeName">{{ item.type }}</span>
-                <strong class="typeCount">{{ item.count }}</strong>
-              </div>
-              <div class="typeBar">
-                <span :style="{ width: item.ratio + '%' }"></span>
-              </div>
-              <div class="typeRatio">{{ item.ratio }}%</div>
-            </div>
-          </div>
-
-          <div v-else class="empty">최근 알림 타입 통계가 아직 없어요.</div>
-        </div>
-
-        <div class="panel cardSurface">
-          <div class="panelHead">
-            <div>
-              <div class="panelTitle">최근 서버 에러</div>
-              <div class="panelSub">최근 발생한 서버 에러 로그예요.</div>
-            </div>
-          </div>
-
-          <div v-if="errors.length" class="errorList">
-            <div
-                v-for="err in errors"
-                :key="err.id"
-                class="errorItem"
-            >
-              <div class="errorTop">
-                <span class="errorType">{{ err.type }}</span>
-                <span class="errorTime">{{ fmtDateTime(err.createdAt) }}</span>
-              </div>
-
-              <div class="errorMessage">{{ err.message }}</div>
-              <div class="errorPath">{{ err.path }}</div>
-            </div>
-          </div>
-
-          <div v-else class="empty">최근 서버 에러가 없습니다.</div>
         </div>
       </section>
 
       <section class="panel cardSurface">
         <div class="panelHead">
           <div>
-            <div class="panelTitle">최근 알림</div>
-            <div class="panelSub">운영자가 최근 흐름을 빠르게 볼 수 있는 요약이에요.</div>
+            <div class="panelTitle">최근 서버 에러</div>
+            <div class="panelSub">최근 서버 에러를 운영 화면에서 빠르게 확인해요.</div>
           </div>
-          <div class="generatedAt">생성 시각 {{ fmtDateTime(normalizedDashboard.generatedAt) }}</div>
         </div>
 
-        <div v-if="normalizedDashboard.recent.notifications.length" class="recentList">
-          <div
-              v-for="item in normalizedDashboard.recent.notifications"
-              :key="item.id"
-              class="recentItem"
-          >
-            <div class="recentTop">
-              <span class="recentType">{{ item.type }}</span>
-              <span class="recentTime">{{ fmtDateTime(item.createdAt) }}</span>
+        <div v-if="recentErrors.length" class="errorList">
+          <div v-for="item in recentErrors" :key="item.id" class="errorItem">
+            <div class="errorTop">
+              <strong>{{ item.errorCode || "ERROR" }}</strong>
+              <span>{{ fmtDateTime(item.occurredAt) }}</span>
             </div>
-            <div class="recentBody">{{ item.body }}</div>
-            <div class="recentMeta">
-              <span>User {{ shortId(item.userId) }}</span>
-              <span :data-read="item.read">{{ item.read ? "읽음" : "미읽음" }}</span>
-            </div>
+            <div class="errorPath">{{ item.method }} {{ item.path }}</div>
+            <div class="errorMessage">{{ item.message }}</div>
+            <div v-if="item.traceId" class="errorTrace">traceId: {{ item.traceId }}</div>
           </div>
         </div>
-        <div v-else class="empty">아직 최근 알림이 없어요.</div>
+        <div v-else class="empty">최근 서버 에러가 없습니다.</div>
       </section>
     </template>
   </div>
@@ -463,388 +306,453 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 import {
-  fetchAdminAlertHistory,
   fetchAdminDashboard,
   fetchAdminErrors,
-  sendAdminAlertTest,
+  fetchAdminHealth,
+  fetchAdminRealtimeHealth,
+  fetchAdminReminderHealth,
+  fetchOpsAlertHistory,
+  sendOpsAlertTest,
 } from "@/api/admin";
 import { useToastStore } from "@/stores/toast";
 
 const toast = useToastStore();
 
-const dashboard = ref(null);
-const errors = ref([]);
 const loading = ref(false);
 const error = ref("");
-const lastLoadedAt = ref(null);
-
+const dashboard = ref(null);
+const health = ref(null);
+const realtimeHealth = ref(null);
+const reminderHealth = ref(null);
+const recentErrors = ref([]);
+const alertHistory = ref([]);
 const alertTestLoading = ref(false);
 const alertTestResult = ref(null);
-const alertHistory = ref([]);
+const lastLoadedAt = ref(null);
 
-let refreshTimer = null;
+let timerId = null;
 
 const normalizedDashboard = computed(() => {
-  const raw = dashboard.value || {};
-
+  const source = dashboard.value || {};
   return {
-    status: raw.status || "UNKNOWN",
-    generatedAt: raw.generatedAt || null,
-
+    status: source.status || "UNKNOWN",
     overview: {
-      activeSseConnections: Number(raw?.overview?.activeSseConnections || 0),
-      unreadNotifications: Number(raw?.overview?.unreadNotifications || 0),
-      activePins: Number(raw?.overview?.activePins || 0),
-      todayCreatedNotifications: Number(raw?.overview?.todayCreatedNotifications || 0),
-      todayCreatedMessages: Number(raw?.overview?.todayCreatedMessages || 0),
-      todayCreatedPosts: Number(raw?.overview?.todayCreatedPosts || 0),
+      activeSseConnections: source.overview?.activeSseConnections ?? 0,
+      unreadNotifications: source.overview?.unreadNotifications ?? 0,
+      activePins: source.overview?.activePins ?? 0,
+      todayCreatedNotifications: source.overview?.todayCreatedNotifications ?? 0,
     },
-
-    health: {
-      checks: raw?.health?.checks || {},
-      lastSseEventSentAt: raw?.health?.lastSseEventSentAt || null,
-      lastReminderRunAt: raw?.health?.lastReminderRunAt || null,
-      lastReminderSuccessAt: raw?.health?.lastReminderSuccessAt || null,
-      recentReminderCreatedCount: Number(raw?.health?.recentReminderCreatedCount || 0),
-      minutesSinceLastReminderRun: Number(raw?.health?.minutesSinceLastReminderRun || 0),
-      summaryNotes: Array.isArray(raw?.health?.summaryNotes) ? raw.health.summaryNotes : [],
-    },
-
-    totals: {
-      users: Number(raw?.totals?.users || 0),
-      posts: Number(raw?.totals?.posts || 0),
-      comments: Number(raw?.totals?.comments || 0),
-      conversations: Number(raw?.totals?.conversations || 0),
-      messages: Number(raw?.totals?.messages || 0),
-      activePins: Number(raw?.totals?.activePins || 0),
-      notifications: Number(raw?.totals?.notifications || 0),
-    },
-
-    recent: {
-      notifications: Array.isArray(raw?.recent?.notifications) ? raw.recent.notifications : [],
-    },
-
     insights: {
-      notificationTypeCounts: Array.isArray(raw?.insights?.notificationTypeCounts)
-          ? raw.insights.notificationTypeCounts
-          : [],
-      topNotificationType: raw?.insights?.topNotificationType || "NO_DATA",
-      unreadPressure: raw?.insights?.unreadPressure || "LOW",
-      realtimeHealth: raw?.insights?.realtimeHealth || "GOOD",
-      reminderHealth: raw?.insights?.reminderHealth || "GOOD",
-      opsFocusTitle: raw?.insights?.opsFocusTitle || "정상 운영 중",
-      opsFocusReason: raw?.insights?.opsFocusReason || "이상 징후 없이 안정적으로 동작하고 있습니다.",
+      opsFocusTitle: source.insights?.opsFocusTitle || "-",
+      opsFocusReason: source.insights?.opsFocusReason || "-",
     },
-
-    notes: Array.isArray(raw?.notes) ? raw.notes : [],
+    health: {
+      summaryNotes: Array.isArray(source.health?.summaryNotes) ? source.health.summaryNotes : [],
+    },
+    realtime: {
+      status: source.realtime?.status || realtimeHealth.value?.status || "UNKNOWN",
+      activeSseConnections:
+          source.realtime?.activeSseConnections ?? realtimeHealth.value?.activeSseConnections ?? 0,
+      lastSseEventSentAt:
+          source.realtime?.lastSseEventSentAt || realtimeHealth.value?.lastSseEventSentAt || null,
+    },
+    reminder: {
+      status: source.reminder?.status || reminderHealth.value?.status || "UNKNOWN",
+      lastRunAt: source.reminder?.lastRunAt || reminderHealth.value?.lastRunAt || null,
+      lastSuccessAt: source.reminder?.lastSuccessAt || reminderHealth.value?.lastSuccessAt || null,
+    },
   };
 });
 
-const anomalyList = computed(() => {
-  const list = [];
-
-  if (normalizedDashboard.value.overview.activeSseConnections === 0) {
-    list.push({
-      type: "sse",
-      level: "warning",
-      title: "SSE 연결 없음",
-      desc: "현재 활성 SSE 연결이 없습니다.",
-    });
-  }
-
-  if (normalizedDashboard.value.health.minutesSinceLastReminderRun > 15) {
-    list.push({
-      type: "reminder",
-      level: "danger",
-      title: "Reminder Scheduler 지연",
-      desc: `${normalizedDashboard.value.health.minutesSinceLastReminderRun}분 동안 실행되지 않았습니다.`,
-    });
-  }
-
-  if (normalizedDashboard.value.status !== "UP") {
-    list.push({
-      type: "health",
-      level: "danger",
-      title: "서비스 상태 비정상",
-      desc: `현재 상태 ${normalizedDashboard.value.status}`,
-    });
-  }
-
-  return list;
-});
-
-const delayLevel = computed(() => {
-  const mins = normalizedDashboard.value.health.minutesSinceLastReminderRun;
-  if (mins > 15) return "danger";
-  if (mins > 5) return "warning";
-  return "normal";
-});
-
 const lastLoadedText = computed(() => {
-  if (!lastLoadedAt.value) return "-";
-  return new Date(lastLoadedAt.value).toLocaleTimeString("ko-KR");
+  if (!lastLoadedAt.value) return "불러오기 전";
+
+  const diffMs = Date.now() - new Date(lastLoadedAt.value).getTime();
+  const diffSec = Math.max(0, Math.floor(diffMs / 1000));
+
+  if (diffSec < 10) return "방금 전";
+  if (diffSec < 60) return `${diffSec}초 전`;
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}분 전`;
+
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}시간 전`;
+
+  return fmtDateTime(lastLoadedAt.value);
 });
 
-async function load({ silent = false } = {}) {
-  if (!silent) loading.value = true;
+const sentCount = computed(() =>
+    alertHistory.value.filter((item) => String(item.status || "").toUpperCase() === "SENT").length
+);
+
+const failedCount = computed(() =>
+    alertHistory.value.filter((item) => String(item.status || "").toUpperCase() === "FAILED").length
+);
+
+const highLevelCount = computed(() =>
+    alertHistory.value.filter((item) => {
+      const level = String(item.level || "").toUpperCase();
+      return level === "WARNING" || level === "DANGER";
+    }).length
+);
+
+const anomalyList = computed(() => {
+  const items = [];
+
+  if (normalizedDashboard.value.status === "DOWN") {
+    items.push({
+      type: "overall-down",
+      level: "danger",
+      title: "전체 운영 상태가 DOWN 이에요",
+      desc: "health / realtime / reminder 중 하나 이상이 심각한 상태예요.",
+    });
+  } else if (normalizedDashboard.value.status === "DEGRADED") {
+    items.push({
+      type: "overall-degraded",
+      level: "warning",
+      title: "전체 운영 상태가 DEGRADED 예요",
+      desc: "서비스는 동작 중이지만 일부 운영 지표가 좋지 않아요.",
+    });
+  }
+
+  if (normalizedDashboard.value.realtime.status !== "UP") {
+    items.push({
+      type: "realtime",
+      level:
+          normalizedDashboard.value.realtime.status === "DOWN" ? "danger" : "warning",
+      title: "SSE 실시간 상태가 정상이 아니에요",
+      desc: `현재 realtime 상태는 ${normalizedDashboard.value.realtime.status} 이에요.`,
+    });
+  }
+
+  if (normalizedDashboard.value.reminder.status !== "UP") {
+    items.push({
+      type: "reminder",
+      level:
+          normalizedDashboard.value.reminder.status === "DOWN" ? "danger" : "warning",
+      title: "Reminder scheduler 상태가 정상이 아니에요",
+      desc: `현재 reminder 상태는 ${normalizedDashboard.value.reminder.status} 이에요.`,
+    });
+  }
+
+  if (failedCount.value > 0) {
+    items.push({
+      type: "failed-alert",
+      level: "warning",
+      title: "최근 운영 알림 실패가 있어요",
+      desc: `FAILED 이력이 ${failedCount.value}건 있어요.`,
+    });
+  }
+
+  if (recentErrors.value.length > 0) {
+    items.push({
+      type: "recent-errors",
+      level: "warning",
+      title: "최근 서버 에러가 수집됐어요",
+      desc: `최근 서버 에러가 ${recentErrors.value.length}건 있어요.`,
+    });
+  }
+
+  return items;
+});
+
+function fmtDateTime(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function boolText(value) {
+  return value ? "YES" : "NO";
+}
+
+function boolStatus(value) {
+  return value ? "UP" : "DOWN";
+}
+
+async function reloadAll() {
+  loading.value = true;
+  error.value = "";
 
   try {
-    dashboard.value = await fetchAdminDashboard();
-    lastLoadedAt.value = Date.now();
-    error.value = "";
+    const [
+      dashboardRes,
+      healthRes,
+      realtimeRes,
+      reminderRes,
+      errorsRes,
+      historyRes,
+    ] = await Promise.all([
+      fetchAdminDashboard(),
+      fetchAdminHealth(),
+      fetchAdminRealtimeHealth(),
+      fetchAdminReminderHealth(),
+      fetchAdminErrors(),
+      fetchOpsAlertHistory(),
+    ]);
+
+    dashboard.value = dashboardRes;
+    health.value = healthRes;
+    realtimeHealth.value = realtimeRes;
+    reminderHealth.value = reminderRes;
+    recentErrors.value = Array.isArray(errorsRes) ? errorsRes : [];
+    alertHistory.value = Array.isArray(historyRes) ? historyRes : [];
+    lastLoadedAt.value = new Date().toISOString();
   } catch (e) {
-    error.value = e?.response?.data?.message || "운영 대시보드를 불러오지 못했어요.";
-    if (!silent) {
-      toast.error?.("대시보드 로드 실패", error.value);
-    }
+    error.value = e?.response?.data?.message || e?.message || "운영 데이터를 불러오지 못했어요.";
   } finally {
     loading.value = false;
   }
-}
-
-async function loadErrors() {
-  try {
-    errors.value = await fetchAdminErrors();
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-async function loadAlertHistory() {
-  try {
-    const res = await fetchAdminAlertHistory();
-    alertHistory.value = Array.isArray(res?.items) ? res.items : [];
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-async function reloadAll(opts = {}) {
-  await load(opts);
-  await loadErrors();
-  await loadAlertHistory();
 }
 
 async function runAlertTest() {
   alertTestLoading.value = true;
 
   try {
-    alertTestResult.value = await sendAdminAlertTest();
-    await loadAlertHistory();
-
-    if (alertTestResult.value?.sent) {
-      toast.success?.("Slack 테스트 성공", alertTestResult.value.message);
-    } else {
-      toast.info?.("Slack 테스트 확인 필요", alertTestResult.value?.message || "설정을 확인해 주세요.");
-    }
+    const result = await sendOpsAlertTest();
+    alertTestResult.value = result;
+    toast.success("Slack 테스트 전송", result?.message || "운영 알림 테스트를 전송했어요.");
+    await reloadAll();
   } catch (e) {
-    const msg = e?.response?.data?.message || "Slack 테스트 알림 전송에 실패했어요.";
-    toast.error?.("Slack 테스트 실패", msg);
+    const message = e?.response?.data?.message || e?.message || "Slack 테스트 전송에 실패했어요.";
+    toast.error("Slack 테스트 실패", message);
   } finally {
     alertTestLoading.value = false;
   }
 }
 
-function startAutoRefresh() {
-  stopAutoRefresh();
-  refreshTimer = window.setInterval(() => {
-    if (document.visibilityState === "visible") {
-      reloadAll({ silent: true });
-    }
-  }, 30000);
-}
-
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
-}
-
-function fmtDateTime(v) {
-  if (!v) return "-";
-  return new Date(v).toLocaleString("ko-KR");
-}
-
-function shortId(v) {
-  const s = String(v || "");
-  return s ? s.slice(0, 8) : "-";
-}
-
-function signalStatus(v) {
-  if (v === "HIGH" || v === "DELAYED") return "danger";
-  if (v === "MEDIUM" || v === "WATCH") return "warning";
-  return "good";
-}
-
-function boolText(v) {
-  if (v === true) return "YES";
-  if (v === false) return "NO";
-  return "-";
-}
-
-function boolStatus(v) {
-  if (v === true) return "good";
-  if (v === false) return "danger";
-  return "normal";
-}
-
 onMounted(async () => {
   await reloadAll();
-  startAutoRefresh();
+  timerId = window.setInterval(reloadAll, 30000);
 });
 
 onBeforeUnmount(() => {
-  stopAutoRefresh();
+  if (timerId) {
+    clearInterval(timerId);
+    timerId = null;
+  }
 });
 </script>
 
 <style scoped>
 .page{
-  max-width:1200px;
-  margin:0 auto;
-  padding:18px 14px 110px;
   display:grid;
-  gap:14px;
+  gap:18px;
+  padding:20px 16px 40px;
 }
 .cardSurface{
-  border:1px solid color-mix(in oklab,var(--border) 88%,transparent);
+  border:1px solid var(--border);
   border-radius:24px;
-  background:color-mix(in oklab,var(--surface) 88%,transparent);
-  box-shadow:0 18px 60px rgba(0,0,0,.24),0 1px 0 rgba(255,255,255,.05) inset;
-  backdrop-filter:blur(14px);
+  background:var(--surface);
+  box-shadow:0 12px 28px rgba(0,0,0,.08);
 }
 .hero{
-  padding:18px;
+  padding:22px;
   display:flex;
-  justify-content:space-between;
   align-items:flex-start;
-  gap:16px;
+  justify-content:space-between;
+  gap:18px;
+}
+.heroLeft{
+  display:grid;
+  gap:8px;
 }
 .eyebrow{
-  font-size:11px;
+  font-size:12px;
   font-weight:900;
-  letter-spacing:.15em;
+  letter-spacing:.12em;
   color:var(--muted);
 }
 .title{
-  margin:6px 0 0;
-  font-size:28px;
-  font-weight:950;
+  margin:0;
+  font-size:32px;
+  line-height:1.08;
 }
 .sub{
-  margin:8px 0 0;
+  margin:0;
   color:var(--muted);
-  line-height:1.55;
+  line-height:1.65;
 }
 .heroRight{
-  display:flex;
+  display:grid;
   gap:10px;
-  align-items:center;
-  flex-wrap:wrap;
+  justify-items:end;
+}
+.statusBadge{
+  border-radius:999px;
+  padding:10px 14px;
+  border:1px solid var(--border);
+  font-weight:900;
+  font-size:12px;
+}
+.statusBadge[data-status="UP"]{
+  border-color:color-mix(in oklab,var(--success) 36%,var(--border));
+  background:color-mix(in oklab,var(--success) 12%,transparent);
+  color:var(--success);
+}
+.statusBadge[data-status="DEGRADED"]{
+  border-color:color-mix(in oklab,var(--warning) 36%,var(--border));
+  background:color-mix(in oklab,var(--warning) 12%,transparent);
+  color:var(--warning);
+}
+.statusBadge[data-status="DOWN"]{
+  border-color:color-mix(in oklab,var(--danger) 36%,var(--border));
+  background:color-mix(in oklab,var(--danger) 12%,transparent);
+  color:var(--danger);
 }
 .refreshMeta{
   display:grid;
   gap:2px;
+  text-align:right;
   font-size:12px;
   color:var(--muted);
 }
-.statusBadge{
-  min-width:88px;
-  height:38px;
-  padding:0 14px;
-  border-radius:999px;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  border:1px solid var(--border);
-  font-weight:950;
-  background:rgba(255,255,255,.04);
-}
-.statusBadge[data-status="UP"]{
-  border-color:color-mix(in oklab,var(--success) 44%,var(--border));
-  background:color-mix(in oklab,var(--success) 12%,transparent);
-}
-.statusBadge[data-status="DEGRADED"]{
-  border-color:color-mix(in oklab,var(--warning) 44%,var(--border));
-  background:color-mix(in oklab,var(--warning) 12%,transparent);
-}
-.statusBadge[data-status="DOWN"]{
-  border-color:color-mix(in oklab,var(--danger) 44%,var(--border));
-  background:color-mix(in oklab,var(--danger) 12%,transparent);
-}
-.opsActionGrid{
+.opsActionGrid,
+.summaryNotesGrid,
+.focusGrid{
   display:grid;
-  grid-template-columns:1fr;
+  grid-template-columns:repeat(2, minmax(0,1fr));
   gap:12px;
 }
-.opsActionMeta{
-  margin-top:12px;
+.grid4{
   display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(4, minmax(0,1fr));
+  gap:12px;
+}
+.panel,
+.statCard{
+  padding:18px;
+}
+.panel{
+  display:grid;
+  gap:14px;
+}
+.panelHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+.panelTitle{
+  font-size:19px;
+  font-weight:900;
+}
+.panelSub{
+  margin-top:4px;
+  color:var(--muted);
+  line-height:1.55;
+}
+.opsActionMeta{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
   gap:10px;
 }
-.alertTestBox{
-  margin-top:12px;
-  padding:14px;
+.signalItem,
+.focusRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
   border-radius:16px;
-  border:1px solid rgba(255,255,255,.10);
-  background:rgba(255,255,255,.04);
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.03);
+}
+.signalLabel,
+.label,
+.miniLabel{
+  color:var(--muted);
+  font-size:12px;
+  font-weight:800;
+}
+.alertTestBox{
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:14px 16px;
+  background:rgba(255,255,255,.03);
+  display:grid;
+  gap:8px;
 }
 .alertTestBox[data-sent="true"]{
-  border-color:color-mix(in oklab,var(--success) 42%,var(--border));
-  background:color-mix(in oklab,var(--success) 10%,transparent);
-}
-.alertTestBox[data-sent="false"]{
-  border-color:color-mix(in oklab,var(--warning) 42%,var(--border));
-  background:color-mix(in oklab,var(--warning) 10%,transparent);
+  border-color:color-mix(in oklab,var(--success) 36%,var(--border));
+  background:color-mix(in oklab,var(--success) 8%,transparent);
 }
 .alertTestTop{
   display:flex;
+  align-items:flex-start;
   justify-content:space-between;
   gap:12px;
-  align-items:center;
-  flex-wrap:wrap;
 }
 .alertTestMeta{
-  margin-top:8px;
   display:flex;
-  gap:10px;
+  gap:8px;
   flex-wrap:wrap;
-  color:var(--muted);
   font-size:12px;
+  color:var(--muted);
 }
-.opsAlertList{
-  margin-top:12px;
+.opsSummaryGrid{
   display:grid;
+  grid-template-columns:repeat(4, minmax(0,1fr));
   gap:10px;
 }
-.opsAlertItem{
-  padding:14px;
+.miniStat{
+  border:1px solid var(--border);
   border-radius:16px;
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(255,255,255,.04);
+  padding:12px 14px;
+  background:rgba(255,255,255,.03);
+  display:grid;
+  gap:6px;
 }
-.opsAlertItem[data-status="SENT"]{
-  border-color:color-mix(in oklab,var(--success) 36%,var(--border));
+.miniValue{
+  font-size:24px;
+  font-weight:900;
+}
+.opsAlertList,
+.errorList,
+.anomalyList,
+.focusList,
+.summaryNotes{
+  display:grid;
+  gap:12px;
+}
+.opsAlertItem,
+.errorItem{
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:14px 16px;
+  background:rgba(255,255,255,.03);
 }
 .opsAlertItem[data-status="FAILED"]{
-  border-color:color-mix(in oklab,var(--danger) 36%,var(--border));
+  border-color:color-mix(in oklab,var(--danger) 30%,var(--border));
+  background:color-mix(in oklab,var(--danger) 8%,transparent);
 }
-.opsAlertTop{
+.opsAlertItem[data-level="WARNING"]{
+  box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--warning) 30%,transparent);
+}
+.opsAlertItem[data-level="DANGER"]{
+  box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--danger) 30%,transparent);
+}
+.opsAlertTop,
+.errorTop{
   display:flex;
+  align-items:flex-start;
   justify-content:space-between;
-  gap:10px;
-  align-items:center;
-  flex-wrap:wrap;
+  gap:12px;
 }
 .opsAlertTitle{
-  font-size:14px;
-  font-weight:950;
+  font-size:15px;
+  line-height:1.5;
 }
 .opsAlertTime{
-  font-size:12px;
   color:var(--muted);
+  font-size:12px;
 }
 .opsAlertMetaRow{
   margin-top:8px;
@@ -853,41 +761,57 @@ onBeforeUnmount(() => {
   flex-wrap:wrap;
 }
 .opsAlertChip{
-  display:inline-flex;
-  align-items:center;
-  height:28px;
-  padding:0 10px;
   border-radius:999px;
+  padding:6px 10px;
   font-size:12px;
-  font-weight:900;
-  border:1px solid rgba(255,255,255,.08);
+  font-weight:800;
+  border:1px solid var(--border);
   background:rgba(255,255,255,.04);
 }
-.opsAlertKey{
+.opsAlertChip[data-status="SENT"]{
+  border-color:color-mix(in oklab,var(--success) 36%,var(--border));
+  background:color-mix(in oklab,var(--success) 10%,transparent);
+}
+.opsAlertChip[data-status="FAILED"]{
+  border-color:color-mix(in oklab,var(--danger) 36%,var(--border));
+  background:color-mix(in oklab,var(--danger) 10%,transparent);
+}
+.opsAlertChip[data-level="WARNING"]{
+  border-color:color-mix(in oklab,var(--warning) 36%,var(--border));
+  background:color-mix(in oklab,var(--warning) 10%,transparent);
+}
+.opsAlertChip[data-level="DANGER"]{
+  border-color:color-mix(in oklab,var(--danger) 36%,var(--border));
+  background:color-mix(in oklab,var(--danger) 10%,transparent);
+}
+.opsAlertKey,
+.errorTrace{
   margin-top:8px;
   font-size:12px;
   color:var(--muted);
   word-break:break-all;
 }
-.opsAlertBody{
-  margin-top:10px;
-  white-space:pre-wrap;
-  line-height:1.5;
-  font-size:13px;
-  color:var(--text);
+.opsAlertBody,
+.errorMessage,
+.anomalyDesc{
+  margin-top:8px;
+  line-height:1.55;
+}
+.errorPath{
+  margin-top:8px;
+  font-weight:800;
+}
+.summaryNotes{
+  margin:0;
+  padding-left:18px;
+  line-height:1.6;
 }
 .anomalyPanel{
   border-color:rgba(255,120,0,.36);
   background:linear-gradient(180deg, rgba(255,120,0,.10), rgba(255,120,0,.04));
-  padding:16px;
-}
-.anomalyList{
-  display:grid;
-  gap:10px;
-  margin-top:12px;
 }
 .anomalyCard{
-  padding:12px;
+  padding:12px 14px;
   border-radius:16px;
   border:1px solid rgba(255,255,255,.10);
 }
@@ -902,245 +826,42 @@ onBeforeUnmount(() => {
 .anomalyTitle{
   font-weight:900;
 }
-.anomalyDesc{
-  margin-top:4px;
-  font-size:13px;
-  opacity:.84;
-}
-.grid4{
-  display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:12px;
-}
-.grid3{
-  display:grid;
-  grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:12px;
-}
-.focusGrid,
-.healthGrid,
-.insightGrid,
-.summaryNotesGrid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
-}
-.statCard,
-.miniCard,
-.panel{
-  padding:16px;
-}
-.label{
-  font-size:12px;
-  color:var(--muted);
-  font-weight:900;
-}
-.value{
-  margin-top:8px;
-  font-size:28px;
-  font-weight:950;
-  letter-spacing:-.03em;
-}
-.hint{
-  margin-top:6px;
-  font-size:12px;
-  color:var(--muted);
-}
-.panelTitle{
-  font-size:18px;
-  font-weight:950;
-}
-.panelSub{
-  margin-top:4px;
-  font-size:13px;
-  color:var(--muted);
-}
-.focusList,
-.healthList,
-.timingList,
-.signalList{
-  margin-top:12px;
-  display:grid;
-  gap:10px;
-}
-.focusRow,
-.healthRow,
-.timingRow,
-.signalItem{
-  display:flex;
-  justify-content:space-between;
-  gap:12px;
-  align-items:center;
-  padding:12px;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(255,255,255,.04);
-}
-.healthKey{
-  text-transform:capitalize;
-  color:var(--muted);
-}
-.healthValue[data-status="UP"],
-strong[data-status="good"]{
-  color:#64d89b;
-}
-.healthValue[data-status="DEGRADED"],
-strong[data-status="warning"]{
-  color:#f6c344;
-}
-.healthValue[data-status="DOWN"],
-strong[data-status="danger"]{
-  color:#ff7d7d;
-}
-strong[data-status="normal"]{
-  color:var(--text);
-}
-.panelHead{
-  display:flex;
-  justify-content:space-between;
-  gap:12px;
-  align-items:flex-start;
-  flex-wrap:wrap;
-}
-.summaryNotes,
-.notes{
-  margin:12px 0 0;
-  padding-left:18px;
+.statCard{
   display:grid;
   gap:8px;
-  color:var(--text);
 }
-.summaryNotes li,
-.notes li{
-  line-height:1.55;
-}
-.typeStatsList{
-  margin-top:12px;
-  display:grid;
-  gap:10px;
-}
-.typeStatsItem{
-  padding:12px;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(255,255,255,.04);
-}
-.typeStatsTop{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-  align-items:center;
-}
-.typeName{
+.value{
+  font-size:30px;
   font-weight:900;
 }
-.typeCount{
-  font-size:16px;
-}
-.typeBar{
-  margin-top:10px;
-  height:10px;
-  border-radius:999px;
-  background:rgba(255,255,255,.06);
-  overflow:hidden;
-}
-.typeBar span{
-  display:block;
-  height:100%;
-  border-radius:inherit;
-  background:linear-gradient(90deg,
-  color-mix(in oklab,var(--accent) 80%,white),
-  color-mix(in oklab,var(--accent) 24%,transparent));
-}
-.typeRatio{
-  margin-top:6px;
-  font-size:12px;
-  color:var(--muted);
-}
-.errorList,
-.recentList{
-  margin-top:12px;
-  display:grid;
-  gap:10px;
-}
-.errorItem,
-.recentItem{
-  padding:14px;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(255,255,255,.04);
-}
-.errorTop,
-.recentTop,
-.recentMeta{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-  align-items:center;
-  flex-wrap:wrap;
-}
-.errorType,
-.recentType{
-  font-weight:900;
-}
-.errorTime,
-.recentTime,
-.generatedAt,
-.recentMeta{
-  font-size:12px;
-  color:var(--muted);
-}
-.errorMessage,
-.recentBody{
-  margin-top:8px;
-  line-height:1.55;
-}
-.errorPath{
-  margin-top:6px;
-  font-size:12px;
-  color:var(--muted);
-  word-break:break-all;
-}
+.hint,
 .empty{
-  margin-top:12px;
   color:var(--muted);
-  font-size:13px;
+  line-height:1.55;
 }
-strong[data-delay="normal"]{
-  color:#64d89b;
-}
-strong[data-delay="warning"]{
-  color:#f6c344;
-}
-strong[data-delay="danger"]{
-  color:#ff7d7d;
-}
-@media (max-width: 1024px){
+@media (max-width: 1080px){
   .grid4,
-  .grid3,
-  .focusGrid,
-  .healthGrid,
-  .insightGrid,
-  .summaryNotesGrid,
-  .opsActionMeta{
-    grid-template-columns:1fr 1fr;
+  .opsSummaryGrid{
+    grid-template-columns:repeat(2, minmax(0,1fr));
   }
 }
 @media (max-width: 720px){
-  .hero{
+  .hero,
+  .panelHead,
+  .opsAlertTop,
+  .alertTestTop{
     flex-direction:column;
   }
-  .grid4,
-  .grid3,
-  .focusGrid,
-  .healthGrid,
-  .insightGrid,
+  .heroRight{
+    justify-items:start;
+  }
+  .opsActionGrid,
   .summaryNotesGrid,
+  .focusGrid,
+  .grid4,
+  .opsSummaryGrid,
   .opsActionMeta{
     grid-template-columns:1fr;
-  }
-  .title{
-    font-size:24px;
   }
 }
 </style>
