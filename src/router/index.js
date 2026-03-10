@@ -11,6 +11,33 @@ import InboxView from "../views/InboxView.vue";
 import MeView from "../views/MeView.vue";
 import AdminDashboardView from "../views/AdminDashboardView.vue";
 
+function parseCsv(value) {
+  return String(value || "")
+      .split(",")
+      .map((v) => v.trim().toLowerCase())
+      .filter(Boolean);
+}
+
+function isOpsAllowedUser(me) {
+  if (!me) return false;
+
+  const allowedEmails = parseCsv(import.meta.env.VITE_OPS_ALLOWED_EMAILS);
+  const allowedHandles = parseCsv(import.meta.env.VITE_OPS_ALLOWED_HANDLES);
+
+  const email = String(me.email || "").trim().toLowerCase();
+  const handle = String(me.handle || "").trim().toLowerCase();
+
+  if (allowedEmails.length && email && allowedEmails.includes(email)) {
+    return true;
+  }
+
+  if (allowedHandles.length && handle && allowedHandles.includes(handle)) {
+    return true;
+  }
+
+  return false;
+}
+
 const routes = [
   { path: "/login", name: "login", component: LoginView, meta: { guestOnly: true } },
   { path: "/signup", name: "signup", component: SignupView, meta: { guestOnly: true } },
@@ -37,7 +64,12 @@ const routes = [
         ],
       },
       { path: "me", name: "me", component: MeView },
-      { path: "ops/dashboard", name: "admin-dashboard", component: AdminDashboardView },
+      {
+        path: "ops/dashboard",
+        name: "admin-dashboard",
+        component: AdminDashboardView,
+        meta: { requiresOps: true },
+      },
     ],
   },
 
@@ -54,14 +86,22 @@ router.beforeEach(async (to) => {
     return true;
   }
 
-  if (auth.isAuthed) return true;
-
-  try {
-    await auth.ensureSession();
-    return true;
-  } catch {
-    return { path: "/login" };
+  if (!auth.isAuthed) {
+    try {
+      await auth.ensureSession();
+    } catch {
+      return { path: "/login" };
+    }
   }
+
+  if (to.meta?.requiresOps) {
+    const me = auth.me;
+    if (!isOpsAllowedUser(me)) {
+      return { path: "/me", query: { denied: "ops" } };
+    }
+  }
+
+  return true;
 });
 
 export default router;

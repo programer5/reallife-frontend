@@ -46,6 +46,48 @@
       </div>
     </section>
 
+    <section v-if="showOpsAccessDenied" class="noticeCard">
+      <div class="noticeTitle">운영 도구 접근이 제한돼 있어요</div>
+      <div class="noticeBody">
+        현재 계정은 프론트 운영자 허용 목록에 포함되지 않았어요.
+        <code>VITE_OPS_ALLOWED_EMAILS</code> 또는 <code>VITE_OPS_ALLOWED_HANDLES</code> 설정을 확인해 주세요.
+      </div>
+    </section>
+
+    <section v-if="isOpsUser" class="opsCard">
+      <div class="opsHead">
+        <div>
+          <div class="title">운영 도구</div>
+          <div class="sub">
+            운영 대시보드, Slack 알림 테스트, 최근 운영 알림 이력까지 바로 확인할 수 있어요.
+          </div>
+        </div>
+        <span class="opsBadge">OPS</span>
+      </div>
+
+      <div class="opsGrid">
+        <button class="opsItem" type="button" @click="goOpsDashboard">
+          <strong>운영 대시보드 열기</strong>
+          <span>Health, Errors, Slack test, Alert history를 한 화면에서 확인해요.</span>
+        </button>
+
+        <button class="opsItem" type="button" @click="goOpsDashboard">
+          <strong>Slack 연결 확인</strong>
+          <span>운영 알림 테스트를 보내고 최근 운영 알림 이력까지 바로 검증할 수 있어요.</span>
+        </button>
+
+        <div class="opsInfo">
+          <div class="opsInfoLabel">운영자 식별 기준</div>
+          <div class="opsInfoValue">
+            {{ me?.email || "-" }} / @{{ me?.handle || "-" }}
+          </div>
+          <div class="opsInfoHint">
+            프론트 env의 <b>VITE_OPS_ALLOWED_EMAILS</b> 또는 <b>VITE_OPS_ALLOWED_HANDLES</b> 기준으로 노출돼요.
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="statusCard">
       <div class="statusHead">
         <div>
@@ -284,7 +326,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useToastStore } from "@/stores/toast";
 import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
@@ -292,6 +334,7 @@ import { uploadImages } from "@/api/files";
 import { fetchMe, updateProfile } from "@/api/me";
 import { fetchUserProfileByHandle } from "@/api/users";
 
+const route = useRoute();
 const router = useRouter();
 const toast = useToastStore();
 const auth = useAuthStore();
@@ -310,6 +353,33 @@ const form = reactive({
   bio: "",
   website: "",
 });
+
+function parseCsv(value) {
+  return String(value || "")
+      .split(",")
+      .map((v) => v.trim().toLowerCase())
+      .filter(Boolean);
+}
+
+const opsAllowedEmails = parseCsv(import.meta.env.VITE_OPS_ALLOWED_EMAILS);
+const opsAllowedHandles = parseCsv(import.meta.env.VITE_OPS_ALLOWED_HANDLES);
+
+const isOpsUser = computed(() => {
+  const email = String(me.value?.email || "").trim().toLowerCase();
+  const handle = String(me.value?.handle || "").trim().toLowerCase();
+
+  if (opsAllowedEmails.length && email && opsAllowedEmails.includes(email)) {
+    return true;
+  }
+
+  if (opsAllowedHandles.length && handle && opsAllowedHandles.includes(handle)) {
+    return true;
+  }
+
+  return false;
+});
+
+const showOpsAccessDenied = computed(() => route.query.denied === "ops");
 
 const initials = computed(() => {
   const raw = String(form.name || me.value?.name || me.value?.handle || "R").trim();
@@ -494,6 +564,10 @@ function goMyPublicProfile() {
   }
 }
 
+function goOpsDashboard() {
+  router.push("/ops/dashboard");
+}
+
 async function onLogout() {
   loading.value = true;
   try {
@@ -520,7 +594,7 @@ onMounted(async () => {
 
 <style scoped>
 .page{max-width:960px;margin:0 auto;padding:18px 14px 100px;display:grid;gap:14px}
-.heroCard,.card,.progressCard,.statusCard{
+.heroCard,.card,.progressCard,.statusCard,.opsCard,.noticeCard{
   border:1px solid var(--border);
   border-radius:24px;
   background:color-mix(in oklab,var(--surface) 92%,transparent);
@@ -560,6 +634,42 @@ onMounted(async () => {
 }
 .heroStat strong{font-size:18px}
 .heroStat span{font-size:12px;color:var(--muted)}
+
+.noticeCard{
+  border-color:color-mix(in oklab,var(--warning) 40%,var(--border));
+  background:color-mix(in oklab,var(--warning) 10%,transparent);
+}
+.noticeTitle{font-size:16px;font-weight:950}
+.noticeBody{margin-top:8px;color:var(--muted);line-height:1.6}
+.noticeBody code{font-size:12px}
+
+.opsCard{
+  border-color:color-mix(in oklab,var(--accent) 38%,var(--border));
+  background:
+      linear-gradient(180deg,color-mix(in oklab,var(--accent) 10%,transparent),transparent 70%),
+      color-mix(in oklab,var(--surface) 92%,transparent);
+}
+.opsHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.opsBadge{
+  min-width:58px;height:34px;padding:0 12px;border-radius:999px;
+  display:grid;place-items:center;font-weight:950;
+  border:1px solid color-mix(in oklab,var(--accent) 38%,var(--border));
+  background:color-mix(in oklab,var(--accent) 16%,transparent);
+}
+.opsGrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:14px}
+.opsItem,.opsInfo{
+  text-align:left;
+  padding:14px;
+  border-radius:18px;
+  border:1px solid var(--border);
+  background:color-mix(in oklab,var(--surface-2) 78%,transparent);
+}
+.opsItem{display:grid;gap:6px;color:var(--text)}
+.opsItem strong{font-size:15px}
+.opsItem span{font-size:13px;line-height:1.55;color:var(--muted)}
+.opsInfoLabel{font-size:12px;font-weight:900;color:var(--muted)}
+.opsInfoValue{margin-top:6px;font-size:14px;font-weight:900;word-break:break-all}
+.opsInfoHint{margin-top:8px;font-size:12px;line-height:1.5;color:var(--muted)}
 
 .statusHead{margin-bottom:12px}
 .statusGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
@@ -687,7 +797,7 @@ onMounted(async () => {
 @media (max-width:820px){
   .heroTop{flex-direction:column}
   .heroActions{justify-content:flex-start}
-  .heroStats,.statusGrid,.formGrid,.twoCol,.checkGrid,.settingGrid{grid-template-columns:1fr}
+  .heroStats,.statusGrid,.opsGrid,.formGrid,.twoCol,.checkGrid,.settingGrid{grid-template-columns:1fr}
   .avatarLg{width:96px;height:96px;border-radius:22px}
 }
 </style>
