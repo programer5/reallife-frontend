@@ -59,12 +59,27 @@
 
     <template v-else>
       <section v-if="failedAlertHistory.length" class="panel failedPinnedPanel cardSurface">
-        <div class="panelHead">
+        <div class="panelHead failedPinnedHead">
           <div>
             <div class="panelTitle">FAILED alert 고정 섹션</div>
-            <div class="panelSub">가장 먼저 봐야 하는 실패 알림만 위에 고정해서 보여줘요.</div>
+            <div class="panelSub">가장 먼저 봐야 하는 실패 알림만 위에 고정해서 보여주고, 바로 대응할 수 있게 했어요.</div>
           </div>
-          <span class="anomalyCount">{{ failedAlertHistory.length }}건</span>
+
+          <div class="failedPinnedHeadRight">
+            <span class="anomalyCount">{{ failedAlertHistory.length }}건</span>
+
+            <div class="failedActionBar">
+              <button type="button" class="opsActionBtn" @click="runAlertTest">
+                Slack 재테스트
+              </button>
+              <button type="button" class="opsActionBtn" @click="goToErrors">
+                최근 에러 보기
+              </button>
+              <button type="button" class="opsActionBtn" @click="filterFailedAlerts">
+                실패 알림만 보기
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="failedPinnedList">
@@ -75,11 +90,11 @@
           >
             <div class="failedPinnedTop">
               <div>
-                <strong class="failedPinnedTitle">{{ item.title || item.alertKey || 'FAILED ALERT' }}</strong>
+                <strong class="failedPinnedTitle">{{ item.title || item.alertKey || "FAILED ALERT" }}</strong>
                 <div class="opsAlertMetaRow">
-                  <span class="opsAlertChip">{{ item.channel || 'SLACK' }}</span>
-                  <span class="opsAlertChip" data-status="FAILED">{{ item.status || 'FAILED' }}</span>
-                  <span class="opsAlertChip" :data-level="item.level">{{ item.level || 'WARNING' }}</span>
+                  <span class="opsAlertChip">{{ item.channel || "SLACK" }}</span>
+                  <span class="opsAlertChip" data-status="FAILED">{{ item.status || "FAILED" }}</span>
+                  <span class="opsAlertChip" :data-level="item.level">{{ item.level || "WARNING" }}</span>
                   <span v-if="item.requestedBy" class="opsAlertChip">by {{ item.requestedBy }}</span>
                 </div>
               </div>
@@ -87,7 +102,16 @@
             </div>
 
             <div v-if="item.alertKey" class="opsAlertKey">{{ item.alertKey }}</div>
-            <div class="opsAlertBody">{{ item.body || '본문 없음' }}</div>
+            <div class="opsAlertBody">{{ item.body || "본문 없음" }}</div>
+
+            <div class="failedCardActions">
+              <button type="button" class="opsActionBtn opsActionBtn--danger" @click="inspectFailedAlert(item)">
+                원인 확인
+              </button>
+              <button type="button" class="opsActionBtn" @click="runAlertTest">
+                Slack 재테스트
+              </button>
+            </div>
           </article>
         </div>
       </section>
@@ -190,9 +214,9 @@
             >
               <div class="recentNotificationTop">
                 <div class="recentNotificationTypeWrap">
-                  <strong class="recentNotificationType">{{ item.type || 'UNKNOWN' }}</strong>
+                  <strong class="recentNotificationType">{{ item.type || "UNKNOWN" }}</strong>
                   <span class="recentNotificationReadChip" :data-read="item.read">
-                    {{ item.read ? 'READ' : 'UNREAD' }}
+                    {{ item.read ? "READ" : "UNREAD" }}
                   </span>
                 </div>
                 <span class="recentNotificationTime">{{ fmtDateTime(item.createdAt) }}</span>
@@ -368,7 +392,7 @@
       </section>
 
       <section class="grid2">
-        <article class="panel cardSurface">
+        <article ref="alertHistorySection" class="panel cardSurface">
           <div class="panelHead panelHead--stackOnMobile">
             <div>
               <div class="panelTitle">최근 운영 알림 이력</div>
@@ -436,7 +460,7 @@
           <div v-else class="empty">선택한 필터에 해당하는 운영 알림 이력이 없어요.</div>
         </article>
 
-        <article class="panel cardSurface">
+        <article ref="errorsSection" class="panel cardSurface">
           <div class="panelHead">
             <div>
               <div class="panelTitle">최근 서버 에러</div>
@@ -524,7 +548,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, nextTick } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 import {
@@ -552,6 +576,8 @@ const alertTestLoading = ref(false);
 const alertTestResult = ref(null);
 const lastLoadedAt = ref(null);
 const selectedAlertFilter = ref("all");
+const errorsSection = ref(null);
+const alertHistorySection = ref(null);
 
 let timerId = null;
 
@@ -796,6 +822,33 @@ function truncateText(value, max = 120) {
   return `${text.slice(0, max)}…`;
 }
 
+async function scrollToRef(targetRef) {
+  await nextTick();
+  targetRef?.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+}
+
+async function goToErrors() {
+  await scrollToRef(errorsSection);
+}
+
+async function goToAlertHistory() {
+  await scrollToRef(alertHistorySection);
+}
+
+async function filterFailedAlerts() {
+  selectedAlertFilter.value = "failed";
+  await goToAlertHistory();
+}
+
+async function inspectFailedAlert(item) {
+  selectedAlertFilter.value = "failed";
+  toast.info(
+      "실패 알림 확인",
+      item?.title || item?.alertKey || "실패 알림 기준으로 최근 에러와 알림 이력을 확인해 주세요."
+  );
+  await goToErrors();
+}
+
 async function reloadAll() {
   loading.value = true;
   error.value = "";
@@ -995,6 +1048,35 @@ strong[data-status="DOWN"]{
   justify-content:space-between;
   gap:12px;
 }
+.failedPinnedHead{
+  align-items:flex-start;
+}
+.failedPinnedHeadRight{
+  display:grid;
+  gap:10px;
+  justify-items:end;
+}
+.failedActionBar{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.opsActionBtn{
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.05);
+  color:var(--text);
+  border-radius:12px;
+  padding:10px 12px;
+  font-weight:800;
+  font-size:13px;
+  cursor:pointer;
+}
+.opsActionBtn--danger{
+  border-color:color-mix(in oklab, var(--danger) 36%, var(--border));
+  background:color-mix(in oklab, var(--danger) 10%, transparent);
+  color:var(--danger);
+}
 .priorityTitle,
 .panelTitle{
   font-size:20px;
@@ -1105,6 +1187,12 @@ strong[data-status="DOWN"]{
 .failedPinnedTitle{
   font-size:16px;
   font-weight:950;
+}
+.failedCardActions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:12px;
 }
 .recentNotificationsPanel{
   min-height:100%;
@@ -1263,12 +1351,17 @@ strong[data-status="DOWN"]{
   .alertTestTop,
   .anomalyTitleRow,
   .failedPinnedTop,
-  .recentNotificationTop{
+  .recentNotificationTop,
+  .failedPinnedHead{
     flex-direction:column;
   }
   .heroRight,
-  .heroStatusWrap{
+  .heroStatusWrap,
+  .failedPinnedHeadRight{
     justify-items:start;
+  }
+  .failedActionBar{
+    justify-content:flex-start;
   }
   .priorityStats,
   .signalGrid,
