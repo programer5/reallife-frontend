@@ -102,6 +102,59 @@
         </div>
       </section>
 
+      <section class="summaryNotesGrid">
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">최근 운영 알림 이력</div>
+              <div class="panelSub">Slack으로 전송된 운영 알림과 실패 이력을 최근순으로 보여줘요.</div>
+            </div>
+          </div>
+
+          <div v-if="alertHistory.length" class="opsAlertList">
+            <div
+                v-for="item in alertHistory"
+                :key="item.id"
+                class="opsAlertItem"
+                :data-status="item.status"
+                :data-level="item.level"
+            >
+              <div class="opsAlertTop">
+                <strong class="opsAlertTitle">{{ item.title }}</strong>
+                <span class="opsAlertTime">{{ fmtDateTime(item.createdAt) }}</span>
+              </div>
+
+              <div class="opsAlertMetaRow">
+                <span class="opsAlertChip">{{ item.channel }}</span>
+                <span class="opsAlertChip">{{ item.status }}</span>
+                <span class="opsAlertChip">{{ item.level }}</span>
+                <span v-if="item.requestedBy" class="opsAlertChip">by {{ item.requestedBy }}</span>
+              </div>
+
+              <div v-if="item.alertKey" class="opsAlertKey">{{ item.alertKey }}</div>
+              <div class="opsAlertBody">{{ item.body }}</div>
+            </div>
+          </div>
+          <div v-else class="empty">최근 운영 알림 이력이 없습니다.</div>
+        </div>
+
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">Health Summary</div>
+              <div class="panelSub">백엔드가 정리한 운영 health 요약 메모예요.</div>
+            </div>
+          </div>
+
+          <ul v-if="normalizedDashboard.health.summaryNotes.length" class="summaryNotes">
+            <li v-for="note in normalizedDashboard.health.summaryNotes" :key="note">
+              {{ note }}
+            </li>
+          </ul>
+          <div v-else class="empty">health summary note가 아직 없어요.</div>
+        </div>
+      </section>
+
       <section v-if="anomalyList.length" class="panel anomalyPanel cardSurface">
         <div class="panelTitle">⚠ 이상 징후 감지</div>
 
@@ -193,7 +246,6 @@
                 class="healthRow"
             >
               <span class="healthKey">{{ key }}</span>
-
               <span class="healthValue" :data-status="value">
                 {{ value }}
               </span>
@@ -239,22 +291,6 @@
         <div class="panel cardSurface">
           <div class="panelHead">
             <div>
-              <div class="panelTitle">Health Summary</div>
-              <div class="panelSub">백엔드가 정리한 운영 health 요약 메모예요.</div>
-            </div>
-          </div>
-
-          <ul v-if="normalizedDashboard.health.summaryNotes.length" class="summaryNotes">
-            <li v-for="note in normalizedDashboard.health.summaryNotes" :key="note">
-              {{ note }}
-            </li>
-          </ul>
-          <div v-else class="empty">health summary note가 아직 없어요.</div>
-        </div>
-
-        <div class="panel cardSurface">
-          <div class="panelHead">
-            <div>
               <div class="panelTitle">운영 신호 요약</div>
               <div class="panelSub">백엔드 insights 기준으로 현재 운영 신호를 정리해요.</div>
             </div>
@@ -284,6 +320,20 @@
               <strong>{{ normalizedDashboard.insights.topNotificationType }}</strong>
             </div>
           </div>
+        </div>
+
+        <div class="panel cardSurface">
+          <div class="panelHead">
+            <div>
+              <div class="panelTitle">운영 메모</div>
+              <div class="panelSub">백엔드가 만든 운영 메모를 그대로 보여줘요.</div>
+            </div>
+          </div>
+
+          <ul v-if="normalizedDashboard.notes.length" class="notes">
+            <li v-for="note in normalizedDashboard.notes" :key="note">{{ note }}</li>
+          </ul>
+          <div v-else class="empty">운영 메모가 아직 없어요.</div>
         </div>
       </section>
 
@@ -351,43 +401,29 @@
         <div class="panel cardSurface">
           <div class="panelHead">
             <div>
-              <div class="panelTitle">운영 메모</div>
-              <div class="panelSub">백엔드가 만든 운영 메모를 그대로 보여줘요.</div>
+              <div class="panelTitle">최근 서버 에러</div>
+              <div class="panelSub">최근 발생한 서버 에러 로그예요.</div>
             </div>
           </div>
 
-          <ul v-if="normalizedDashboard.notes.length" class="notes">
-            <li v-for="note in normalizedDashboard.notes" :key="note">{{ note }}</li>
-          </ul>
-          <div v-else class="empty">운영 메모가 아직 없어요.</div>
-        </div>
-      </section>
+          <div v-if="errors.length" class="errorList">
+            <div
+                v-for="err in errors"
+                :key="err.id"
+                class="errorItem"
+            >
+              <div class="errorTop">
+                <span class="errorType">{{ err.type }}</span>
+                <span class="errorTime">{{ fmtDateTime(err.createdAt) }}</span>
+              </div>
 
-      <section class="panel cardSurface">
-        <div class="panelHead">
-          <div>
-            <div class="panelTitle">최근 서버 에러</div>
-            <div class="panelSub">최근 발생한 서버 에러 로그예요.</div>
-          </div>
-        </div>
-
-        <div v-if="errors.length" class="errorList">
-          <div
-              v-for="err in errors"
-              :key="err.id"
-              class="errorItem"
-          >
-            <div class="errorTop">
-              <span class="errorType">{{ err.type }}</span>
-              <span class="errorTime">{{ fmtDateTime(err.createdAt) }}</span>
+              <div class="errorMessage">{{ err.message }}</div>
+              <div class="errorPath">{{ err.path }}</div>
             </div>
-
-            <div class="errorMessage">{{ err.message }}</div>
-            <div class="errorPath">{{ err.path }}</div>
           </div>
-        </div>
 
-        <div v-else class="empty">최근 서버 에러가 없습니다.</div>
+          <div v-else class="empty">최근 서버 에러가 없습니다.</div>
+        </div>
       </section>
 
       <section class="panel cardSurface">
@@ -423,10 +459,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
-import { fetchAdminDashboard, fetchAdminErrors, sendAdminAlertTest } from "@/api/admin";
+import {
+  fetchAdminAlertHistory,
+  fetchAdminDashboard,
+  fetchAdminErrors,
+  sendAdminAlertTest,
+} from "@/api/admin";
 import { useToastStore } from "@/stores/toast";
 
 const toast = useToastStore();
@@ -439,6 +480,7 @@ const lastLoadedAt = ref(null);
 
 const alertTestLoading = ref(false);
 const alertTestResult = ref(null);
+const alertHistory = ref([]);
 
 let refreshTimer = null;
 
@@ -568,9 +610,19 @@ async function loadErrors() {
   }
 }
 
+async function loadAlertHistory() {
+  try {
+    const res = await fetchAdminAlertHistory();
+    alertHistory.value = Array.isArray(res?.items) ? res.items : [];
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 async function reloadAll(opts = {}) {
   await load(opts);
   await loadErrors();
+  await loadAlertHistory();
 }
 
 async function runAlertTest() {
@@ -578,6 +630,7 @@ async function runAlertTest() {
 
   try {
     alertTestResult.value = await sendAdminAlertTest();
+    await loadAlertHistory();
 
     if (alertTestResult.value?.sent) {
       toast.success?.("Slack 테스트 성공", alertTestResult.value.message);
@@ -654,7 +707,6 @@ onBeforeUnmount(() => {
   display:grid;
   gap:14px;
 }
-
 .cardSurface{
   border:1px solid color-mix(in oklab,var(--border) 88%,transparent);
   border-radius:24px;
@@ -662,7 +714,6 @@ onBeforeUnmount(() => {
   box-shadow:0 18px 60px rgba(0,0,0,.24),0 1px 0 rgba(255,255,255,.05) inset;
   backdrop-filter:blur(14px);
 }
-
 .hero{
   padding:18px;
   display:flex;
@@ -670,40 +721,34 @@ onBeforeUnmount(() => {
   align-items:flex-start;
   gap:16px;
 }
-
 .eyebrow{
   font-size:11px;
   font-weight:900;
   letter-spacing:.15em;
   color:var(--muted);
 }
-
 .title{
   margin:6px 0 0;
   font-size:28px;
   font-weight:950;
 }
-
 .sub{
   margin:8px 0 0;
   color:var(--muted);
   line-height:1.55;
 }
-
 .heroRight{
   display:flex;
   gap:10px;
   align-items:center;
   flex-wrap:wrap;
 }
-
 .refreshMeta{
   display:grid;
   gap:2px;
   font-size:12px;
   color:var(--muted);
 }
-
 .statusBadge{
   min-width:88px;
   height:38px;
@@ -716,35 +761,29 @@ onBeforeUnmount(() => {
   font-weight:950;
   background:rgba(255,255,255,.04);
 }
-
 .statusBadge[data-status="UP"]{
   border-color:color-mix(in oklab,var(--success) 44%,var(--border));
   background:color-mix(in oklab,var(--success) 12%,transparent);
 }
-
 .statusBadge[data-status="DEGRADED"]{
   border-color:color-mix(in oklab,var(--warning) 44%,var(--border));
   background:color-mix(in oklab,var(--warning) 12%,transparent);
 }
-
 .statusBadge[data-status="DOWN"]{
   border-color:color-mix(in oklab,var(--danger) 44%,var(--border));
   background:color-mix(in oklab,var(--danger) 12%,transparent);
 }
-
 .opsActionGrid{
   display:grid;
   grid-template-columns:1fr;
   gap:12px;
 }
-
 .opsActionMeta{
   margin-top:12px;
   display:grid;
   grid-template-columns:repeat(4,minmax(0,1fr));
   gap:10px;
 }
-
 .alertTestBox{
   margin-top:12px;
   padding:14px;
@@ -752,17 +791,14 @@ onBeforeUnmount(() => {
   border:1px solid rgba(255,255,255,.10);
   background:rgba(255,255,255,.04);
 }
-
 .alertTestBox[data-sent="true"]{
   border-color:color-mix(in oklab,var(--success) 42%,var(--border));
   background:color-mix(in oklab,var(--success) 10%,transparent);
 }
-
 .alertTestBox[data-sent="false"]{
   border-color:color-mix(in oklab,var(--warning) 42%,var(--border));
   background:color-mix(in oklab,var(--warning) 10%,transparent);
 }
-
 .alertTestTop{
   display:flex;
   justify-content:space-between;
@@ -770,7 +806,6 @@ onBeforeUnmount(() => {
   align-items:center;
   flex-wrap:wrap;
 }
-
 .alertTestMeta{
   margin-top:8px;
   display:flex;
@@ -779,57 +814,109 @@ onBeforeUnmount(() => {
   color:var(--muted);
   font-size:12px;
 }
-
+.opsAlertList{
+  margin-top:12px;
+  display:grid;
+  gap:10px;
+}
+.opsAlertItem{
+  padding:14px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+}
+.opsAlertItem[data-status="SENT"]{
+  border-color:color-mix(in oklab,var(--success) 36%,var(--border));
+}
+.opsAlertItem[data-status="FAILED"]{
+  border-color:color-mix(in oklab,var(--danger) 36%,var(--border));
+}
+.opsAlertTop{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.opsAlertTitle{
+  font-size:14px;
+  font-weight:950;
+}
+.opsAlertTime{
+  font-size:12px;
+  color:var(--muted);
+}
+.opsAlertMetaRow{
+  margin-top:8px;
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.opsAlertChip{
+  display:inline-flex;
+  align-items:center;
+  height:28px;
+  padding:0 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+}
+.opsAlertKey{
+  margin-top:8px;
+  font-size:12px;
+  color:var(--muted);
+  word-break:break-all;
+}
+.opsAlertBody{
+  margin-top:10px;
+  white-space:pre-wrap;
+  line-height:1.5;
+  font-size:13px;
+  color:var(--text);
+}
 .anomalyPanel{
   border-color:rgba(255,120,0,.36);
   background:linear-gradient(180deg, rgba(255,120,0,.10), rgba(255,120,0,.04));
   padding:16px;
 }
-
 .anomalyList{
   display:grid;
   gap:10px;
   margin-top:12px;
 }
-
 .anomalyCard{
   padding:12px;
   border-radius:16px;
   border:1px solid rgba(255,255,255,.10);
 }
-
 .anomalyCard[data-level="warning"]{
   border-color:#f6c344;
   background:rgba(246,195,68,.12);
 }
-
 .anomalyCard[data-level="danger"]{
   border-color:#ff5d5d;
   background:rgba(255,93,93,.12);
 }
-
 .anomalyTitle{
   font-weight:900;
 }
-
 .anomalyDesc{
   margin-top:4px;
   font-size:13px;
   opacity:.84;
 }
-
 .grid4{
   display:grid;
   grid-template-columns:repeat(4,minmax(0,1fr));
   gap:12px;
 }
-
 .grid3{
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
   gap:12px;
 }
-
 .focusGrid,
 .healthGrid,
 .insightGrid,
@@ -838,43 +925,36 @@ onBeforeUnmount(() => {
   grid-template-columns:1fr 1fr;
   gap:12px;
 }
-
 .statCard,
 .miniCard,
 .panel{
   padding:16px;
 }
-
 .label{
   font-size:12px;
   color:var(--muted);
   font-weight:900;
 }
-
 .value{
   margin-top:8px;
   font-size:28px;
   font-weight:950;
   letter-spacing:-.03em;
 }
-
 .hint{
   margin-top:6px;
   font-size:12px;
   color:var(--muted);
 }
-
 .panelTitle{
   font-size:18px;
   font-weight:950;
 }
-
 .panelSub{
   margin-top:4px;
   font-size:13px;
   color:var(--muted);
 }
-
 .focusList,
 .healthList,
 .timingList,
@@ -883,7 +963,6 @@ onBeforeUnmount(() => {
   display:grid;
   gap:10px;
 }
-
 .focusRow,
 .healthRow,
 .timingRow,
@@ -897,31 +976,25 @@ onBeforeUnmount(() => {
   border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.04);
 }
-
 .healthKey{
   text-transform:capitalize;
   color:var(--muted);
 }
-
 .healthValue[data-status="UP"],
 strong[data-status="good"]{
   color:#64d89b;
 }
-
 .healthValue[data-status="DEGRADED"],
 strong[data-status="warning"]{
   color:#f6c344;
 }
-
 .healthValue[data-status="DOWN"],
 strong[data-status="danger"]{
   color:#ff7d7d;
 }
-
 strong[data-status="normal"]{
   color:var(--text);
 }
-
 .panelHead{
   display:flex;
   justify-content:space-between;
@@ -929,7 +1002,6 @@ strong[data-status="normal"]{
   align-items:flex-start;
   flex-wrap:wrap;
 }
-
 .summaryNotes,
 .notes{
   margin:12px 0 0;
@@ -938,40 +1010,33 @@ strong[data-status="normal"]{
   gap:8px;
   color:var(--text);
 }
-
 .summaryNotes li,
 .notes li{
   line-height:1.55;
 }
-
 .typeStatsList{
   margin-top:12px;
   display:grid;
   gap:10px;
 }
-
 .typeStatsItem{
   padding:12px;
   border-radius:16px;
   border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.04);
 }
-
 .typeStatsTop{
   display:flex;
   justify-content:space-between;
   gap:10px;
   align-items:center;
 }
-
 .typeName{
   font-weight:900;
 }
-
 .typeCount{
   font-size:16px;
 }
-
 .typeBar{
   margin-top:10px;
   height:10px;
@@ -979,7 +1044,6 @@ strong[data-status="normal"]{
   background:rgba(255,255,255,.06);
   overflow:hidden;
 }
-
 .typeBar span{
   display:block;
   height:100%;
@@ -988,20 +1052,17 @@ strong[data-status="normal"]{
   color-mix(in oklab,var(--accent) 80%,white),
   color-mix(in oklab,var(--accent) 24%,transparent));
 }
-
 .typeRatio{
   margin-top:6px;
   font-size:12px;
   color:var(--muted);
 }
-
 .errorList,
 .recentList{
   margin-top:12px;
   display:grid;
   gap:10px;
 }
-
 .errorItem,
 .recentItem{
   padding:14px;
@@ -1009,7 +1070,6 @@ strong[data-status="normal"]{
   border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.04);
 }
-
 .errorTop,
 .recentTop,
 .recentMeta{
@@ -1019,12 +1079,10 @@ strong[data-status="normal"]{
   align-items:center;
   flex-wrap:wrap;
 }
-
 .errorType,
 .recentType{
   font-weight:900;
 }
-
 .errorTime,
 .recentTime,
 .generatedAt,
@@ -1032,38 +1090,31 @@ strong[data-status="normal"]{
   font-size:12px;
   color:var(--muted);
 }
-
 .errorMessage,
 .recentBody{
   margin-top:8px;
   line-height:1.55;
 }
-
 .errorPath{
   margin-top:6px;
   font-size:12px;
   color:var(--muted);
   word-break:break-all;
 }
-
 .empty{
   margin-top:12px;
   color:var(--muted);
   font-size:13px;
 }
-
 strong[data-delay="normal"]{
   color:#64d89b;
 }
-
 strong[data-delay="warning"]{
   color:#f6c344;
 }
-
 strong[data-delay="danger"]{
   color:#ff7d7d;
 }
-
 @media (max-width: 1024px){
   .grid4,
   .grid3,
@@ -1075,12 +1126,10 @@ strong[data-delay="danger"]{
     grid-template-columns:1fr 1fr;
   }
 }
-
 @media (max-width: 720px){
   .hero{
     flex-direction:column;
   }
-
   .grid4,
   .grid3,
   .focusGrid,
@@ -1090,7 +1139,6 @@ strong[data-delay="danger"]{
   .opsActionMeta{
     grid-template-columns:1fr;
   }
-
   .title{
     font-size:24px;
   }
