@@ -50,7 +50,7 @@
       <div class="flowHead">
         <div>
           <div class="title">오늘의 내 흐름</div>
-          <div class="sub">프로필, Reminder, 다음 이동까지 지금 어디부터 손보면 좋은지 빠르게 보여줘요.</div>
+          <div class="sub">프로필, Reminder, 다음 이동까지 어디부터 손보면 좋을지 빠르게 보여줘요.</div>
         </div>
       </div>
 
@@ -233,7 +233,7 @@
       <div class="priorityHead">
         <div>
           <div class="title">오늘의 우선 액션</div>
-          <div class="sub">내 프로필 화면에서 바로 끝내거나, 다음 화면으로 자연스럽게 이어질 한 가지를 먼저 추천해요.</div>
+          <div class="sub">지금 이 화면에서 바로 끝낼 수 있는 한 가지를 먼저 추천해요.</div>
         </div>
         <span class="priorityBadge">{{ priorityBadge }}</span>
       </div>
@@ -257,7 +257,7 @@
     <section class="progressCard">
       <div>
         <div class="title">프로필 완성도</div>
-        <div class="sub">이름, 소개, 링크, 사진까지 채우면 팔로우와 DM 전환이 훨씬 자연스러워져요.</div>
+        <div class="sub">이름, 소개, 링크, 사진을 채우면 팔로우와 DM 전환이 더 자연스러워져요.</div>
       </div>
 
       <div class="progressSide">

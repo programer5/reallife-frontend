@@ -152,13 +152,13 @@ const sectionMeta = computed(() => {
       return {
         primary: `답장·알림 ${unreadBadge.value}개`,
         reason: '놓치면 대화 흐름과 리마인더가 끊길 수 있어요',
-        next: '인박스에서 바로 열고 대화나 액션으로 이어가기',
+        next: '인박스에서 열고 대화·액션으로 이어가기',
       };
     }
     return {
       primary: '대화와 알림 흐름 점검',
       reason: '새 메시지가 없어도 다음 약속과 할일을 정리할 수 있어요',
-      next: '인박스에서 최근 흐름 다시 이어가기',
+      next: '인박스에서 최근 흐름 이어가기',
     };
   }
 
@@ -168,7 +168,7 @@ const sectionMeta = computed(() => {
       reason: profileReady.value
         ? '연결될 때 나를 더 빠르게 이해할 수 있어요'
         : '프로필이 정리되면 대화와 연결 전환이 더 자연스러워져요',
-      next: profileReady.value ? '프로필 수정 또는 공개 프로필 확인' : '프로필 편집으로 바로 이동',
+      next: profileReady.value ? '프로필 수정 또는 공개 프로필 보기' : '프로필 편집으로 이동',
     };
   }
 
@@ -183,7 +183,7 @@ const sectionMeta = computed(() => {
   return {
     primary: '오늘의 순간과 액션 흐름',
     reason: '반응이 쌓이는 글을 먼저 보면 실제 행동으로 이어지기 쉬워요',
-    next: '홈에서 댓글 → 액션 → 대화로 바로 연결하기',
+    next: '댓글 → 액션 → 대화로 이어가기',
   };
 });
 
@@ -262,6 +262,9 @@ onMounted(() => {
 .brandSub {
   font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .desktopNav {
@@ -445,6 +448,7 @@ onMounted(() => {
   font-size: 13px;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.96);
+  word-break: keep-all;
 }
 
 .mobileFocusWrap {

@@ -296,7 +296,7 @@ function activityMeta(c) {
       <div class="left">
         <div class="eyebrow">CONNECT</div>
         <h1 class="title">대화</h1>
-        <p class="sub">메시지에서 끝나지 않고 실제 행동으로 이어질 대화방을 고르세요.</p>
+        <p class="sub">메시지에서 끝나지 않고 실제 행동으로 이어질 대화를 고르세요.</p>
       </div>
 
       <div class="actions">
@@ -333,7 +333,7 @@ function activityMeta(c) {
         <div class="scanValue">{{ firstPriorityTitle }}</div>
       </article>
       <article class="scanCard rl-cardish">
-        <div class="scanLabel">왜 먼저 봐야 하나</div>
+        <div class="scanLabel">왜 중요한가</div>
         <div class="scanValue">{{ firstPriorityReason }}</div>
       </article>
       <article class="scanCard rl-cardish">
@@ -468,7 +468,7 @@ function activityMeta(c) {
                 <span class="contextTag" :class="conversationPriorityTone(c)">{{ conversationPriorityLabel(c) }}</span>
                 <span class="contextText">{{ conversationStatusLine(c) }}</span>
               </div>
-              <div class="nextLine">다음 액션: {{ conversationNextAction(c) }}</div>
+              <div class="nextLine">{{ conversationNextAction(c) }}</div>
             </div>
           </div>
 

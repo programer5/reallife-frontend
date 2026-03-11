@@ -47,9 +47,9 @@ const modeMeta = computed(() => {
 
 const heroCopy = computed(() => {
   if (viewMode.value === "FOR_YOU") {
-    return "반응이 빠른 순간부터 보고, 댓글에서 약속·할일·장소 액션으로 이어질 수 있는 흐름을 먼저 잡아보세요.";
+    return "반응이 빠른 글부터 보고, 댓글에서 약속·할일·장소 흐름으로 이어가 보세요.";
   }
-  return "오늘의 순간을 보고, 댓글에서 약속·할일·장소 액션으로 바로 이어가 보세요.";
+  return "오늘의 순간을 보고, 댓글에서 약속·할일·장소 흐름으로 이어가 보세요.";
 });
 
 const syncLabel = computed(() => {
@@ -331,7 +331,7 @@ onBeforeUnmount(() => {
     <section class="desktopHero cardSurface">
       <div class="heroCopyBlock">
         <div class="heroEyebrow">TODAY · REALIFE FLOW</div>
-        <h1 class="heroTitle">오늘의 흐름을 보고, 바로 행동으로 이어지는 홈</h1>
+        <h1 class="heroTitle">오늘의 흐름에서 바로 행동으로</h1>
         <p class="heroBody">{{ heroCopy }}</p>
 
         <div class="heroGuideChips">
@@ -365,7 +365,7 @@ onBeforeUnmount(() => {
           <RlButton class="toolbarBtn toolbarBtn--primary" size="sm" variant="primary" @click="openComposer">작성</RlButton>
           <button class="composerShortcut composerShortcut--desktop" type="button" @click="openComposer">
             <span class="composerShortcut__plus">+</span>
-            <span>오늘의 순간 공유하기</span>
+            <span>새 게시글</span>
           </button>
         </div>
       </div>
@@ -380,7 +380,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="modeMeta">{{ modeMeta }}</div>
       </div>
-      <div class="desktopToolbarHint">Home은 피드가 아니라 행동 허브처럼, 지금 바로 이어질 수 있는 흐름을 먼저 보여줘요.</div>
+      <div class="desktopToolbarHint">Home은 지금 바로 이어질 수 있는 흐름을 먼저 보여줘요.</div>
     </div>
 
     <div class="mobileToolbar">
@@ -407,7 +407,7 @@ onBeforeUnmount(() => {
 
         <button class="composerShortcut" type="button" @click="openComposer">
           <span class="composerShortcut__plus">+</span>
-          <span>오늘의 순간 공유하기</span>
+          <span>새 게시글</span>
         </button>
       </div>
     </div>

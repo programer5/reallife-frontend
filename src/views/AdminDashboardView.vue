@@ -6,7 +6,7 @@
         <h1 class="title">Admin Dashboard</h1>
         <p class="sub">
           운영자가 지금 바로 봐야 하는 신호를 먼저 올리고, health / realtime / reminder / alerts / errors를
-          한 화면에서 빠르게 스캔할 수 있게 구성했어요.
+          한 화면에서 빠르게 확인할 수 있게 구성했어요.
         </p>
 
         <div class="heroMeta">
@@ -79,7 +79,7 @@
       </article>
 
       <article class="scanFlowCard cardSurface">
-        <div class="scanFlowLabel">왜 봐야 하는지</div>
+        <div class="scanFlowLabel">왜 중요한가</div>
         <div class="scanFlowTitle">{{ scanFlow.why }}</div>
         <div class="scanFlowText">{{ scanFlow.whyReason }}</div>
       </article>
@@ -120,7 +120,7 @@
             <div class="panelKicker">TODAY PRIORITY</div>
             <div class="panelTitle">오늘의 우선 액션</div>
             <div class="panelSub">
-              조사 중인 FAILED alert가 없을 때도 운영자가 바로 들어가야 할 핵심 작업을 먼저 보여줘요.
+              조사 중인 FAILED alert가 없어도 먼저 확인할 핵심 작업을 보여줘요.
             </div>
           </div>
           <span class="anomalyCount">{{ todayPriorityActions.length }}개</span>

@@ -43,15 +43,15 @@ const profileReady = computed(() => {
 
 function tabMeta(to) {
   if (to === "/home") {
-    return isActive("/home") ? "오늘의 흐름" : "새 순간 보기";
+    return isActive("/home") ? "오늘 흐름" : "새 글 보기";
   }
   if (to === "/inbox") {
     if (totalUnread.value > 0) return `답장·알림 ${inboxBadge.value}`;
-    return isActive("/inbox") ? "대화와 알림" : "연결 이어가기";
+    return isActive("/inbox") ? "대화·알림" : "연결 이어가기";
   }
   if (to === "/me") {
     if (!profileReady.value) return "프로필 보강";
-    return isActive("/me") ? "내 흐름 정리" : "내 정보 점검";
+    return isActive("/me") ? "내 흐름" : "내 정보";
   }
   return "";
 }
@@ -208,7 +208,12 @@ onMounted(() => {
   font-size: 9px;
   line-height: 1.2;
   color: rgba(232, 232, 234, 0.5);
-  white-space: nowrap;
+  white-space: normal;
+  min-height: 18px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .active {

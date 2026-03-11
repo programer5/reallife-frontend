@@ -436,7 +436,7 @@ onBeforeUnmount(() => {
       <div>
         <div class="eyebrow">CONNECT</div>
         <h1 class="title">Inbox</h1>
-        <p class="sub">다음 행동, 리마인더, 대화 흐름을 한곳에서 이어가요.</p>
+        <p class="sub">대화, 리마인더, 다음 행동을 한곳에서 이어가요.</p>
       </div>
       <div class="actions">
         <RlButton size="sm" variant="primary" @click="goNewDm">새 DM</RlButton>
@@ -463,12 +463,12 @@ onBeforeUnmount(() => {
         <div class="heroTitle">
           {{
             pendingAction
-              ? "댓글에서 만든 액션을 대화로 가져갈 수 있어요"
+              ? "댓글에서 만든 액션을 대화로 이어갈 수 있어요"
               : latestReminder
                 ? "가장 가까운 리마인더부터 이어가 보세요"
                 : latestMessage
-                  ? "최근 메시지 흐름을 실제 행동으로 연결해 보세요"
-                  : "Connect는 행동이 시작되는 공간이에요"
+                  ? "최근 메시지 흐름을 실제 행동으로 이어가 보세요"
+                  : "Connect는 대화와 행동이 이어지는 공간이에요"
           }}
         </div>
         <div class="heroSub">{{ nextActionHint }}</div>
@@ -655,7 +655,7 @@ onBeforeUnmount(() => {
           <div class="listTitle">모든 알림</div>
           <div class="listSub">가장 최근 흐름부터 확인하고 필요한 행동으로 연결해 보세요.</div>
         </div>
-        <div class="listGuide">알림마다 현재 상태와 다음 액션을 먼저 보고 열 수 있어요.</div>
+        <div class="listGuide">상태와 다음 액션을 먼저 보고 열 수 있어요.</div>
       </div>
 
       <div class="list">
