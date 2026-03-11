@@ -76,6 +76,91 @@ const mediaLayout = computed(() => {
   return "carousel";
 });
 
+const detailShareMeta = computed(() => {
+  const meta = post.value?.sourceMeta || null;
+  if (meta) {
+    const chips = [];
+    if (Array.isArray(meta.chips) && meta.chips.length) {
+      chips.push(...meta.chips.filter(Boolean).map((v) => String(v).trim()));
+    } else {
+      if (meta.time) chips.push(`🕒 ${meta.time}`);
+      if (meta.place) chips.push(`📍 ${meta.place}`);
+      if (meta.remindAt) chips.push(`⏰ ${meta.remindAt}`);
+    }
+    return {
+      badge: meta.badge || "액션 공유",
+      title: meta.title || "",
+      subtitle: meta.subtitle || meta.description || "",
+      state: meta.status || meta.state || "",
+      chips: chips.slice(0, 3),
+    };
+  }
+  if (!isActionSharePost(post.value)) return null;
+  return buildFallbackShareMeta(post.value);
+});
+
+const detailShareComment = computed(() => {
+  if (!detailShareMeta.value) return "";
+  const lines = normalizedPostLines(post.value);
+  if (!lines.length) return "";
+
+  const cleaned = [];
+  let skippedTitle = false;
+
+  for (const line of lines) {
+    if (line === "#RealLife") continue;
+    if (/^[🕒📍⏰]/u.test(line)) continue;
+
+    const normalizedTitle = stripLeadingEmojiTitle(line);
+    const title = stripLeadingEmojiTitle(detailShareMeta.value?.title || "");
+    if (!skippedTitle && normalizedTitle && title && normalizedTitle === title) {
+      skippedTitle = true;
+      continue;
+    }
+
+    cleaned.push(line);
+  }
+
+  return cleaned.join(" ").replace(/\s+/g, " ").trim().slice(0, 220);
+});
+
+const detailBodyText = computed(() => {
+  if (detailShareMeta.value) return detailShareComment.value;
+  return String(post.value?.content || "").trim();
+});
+
+const detailBodyLabel = computed(() => {
+  if (!detailShareMeta.value) return "";
+  return detailShareComment.value ? "이 글에서 덧붙인 코멘트" : "액션 카드만 간단히 공유한 상태";
+});
+
+const detailInsightChips = computed(() => {
+  const chips = [];
+  if (detailShareMeta.value) chips.push("액션 공유");
+  if (imageCount.value > 0) chips.push(`사진 ${imageCount.value}장`);
+  const commentCount = Number(post.value?.commentCount || 0);
+  if (commentCount <= 0) chips.push("첫 댓글 대기");
+  else if (commentCount < 4) chips.push(`댓글 ${commentCount}개`);
+  else chips.push(`대화 활발 · 댓글 ${commentCount}개`);
+  const likeCount = Number(post.value?.likeCount || 0);
+  if (likeCount > 0) chips.push(`좋아요 ${likeCount}`);
+  return chips.slice(0, 4);
+});
+
+const flowHintText = computed(() => {
+  if (detailShareMeta.value) {
+    return "공유된 액션에 댓글을 남기면 약속, 할일, 장소 흐름으로 다시 이어갈 수 있어요";
+  }
+  return "댓글에서 액션을 만들고 대화방 Dock으로 이어갈 수 있어요";
+});
+
+const commentsSectionTitle = computed(() => detailShareMeta.value ? "이 액션에서 이어진 대화" : "댓글");
+const commentsSectionSub = computed(() => {
+  const total = Number(post.value?.commentCount ?? 0);
+  if (detailShareMeta.value) return `총 ${total}개 · 루트 ${rootCommentCount}개 · 공유된 액션을 중심으로 대화가 이어져요`;
+  return `총 ${total}개 · 루트 ${rootCommentCount}개`;
+});
+
 const commentTree = computed(() => {
   const list = comments.value.slice();
   if (sortMode.value === "LATEST") {
@@ -113,6 +198,61 @@ function closeActionSheet() { actionSheetFor.value = null; }
 function openActionSheet(c) { actionSheetFor.value = c; }
 function focusComposer() { document.getElementById("commentComposerInput")?.focus?.(); }
 function formatCreatedAt(v) { return v ? String(v).replace("T", " ").slice(0, 19) : ""; }
+
+function normalizedPostLines(target) {
+  return String(target?.content || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+function stripLeadingEmojiTitle(line) {
+  return String(line || "")
+    .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "")
+    .trim();
+}
+function inferActionKindLabel(title) {
+  const s = String(title || "");
+  if (!s) return "액션";
+  if (/(약속|만나|미팅|식사|데이트|모임)/.test(s)) return "약속";
+  if (/(할일|해야|작업|업무|정리|구매|체크)/.test(s)) return "할일";
+  if (/(장소|가자|방문|역|카페|공원|식당)/.test(s)) return "장소";
+  return "액션";
+}
+function isActionSharePost(target) {
+  if (target?.sourceMeta) return true;
+  return normalizedPostLines(target).includes("#RealLife");
+}
+function buildFallbackShareMeta(target) {
+  const lines = normalizedPostLines(target).filter((line) => line !== "#RealLife");
+  if (!lines.length) return null;
+
+  const title = stripLeadingEmojiTitle(lines[0] || "");
+  let time = "";
+  let place = "";
+  let remindAt = "";
+
+  for (const line of lines.slice(1)) {
+    if (line.startsWith("🕒")) time = line.replace(/^🕒\s*/, "").trim();
+    else if (line.startsWith("📍")) place = line.replace(/^📍\s*/, "").trim();
+    else if (line.startsWith("⏰")) remindAt = line.replace(/^⏰\s*/, "").trim();
+  }
+
+  const kind = inferActionKindLabel(title);
+  const subtitle = [kind, place].filter(Boolean).join(" · ");
+  const chips = [];
+  if (time) chips.push(`🕒 ${time}`);
+  if (place) chips.push(`📍 ${place}`);
+  if (remindAt && remindAt !== "리마인드 없음") chips.push(`⏰ ${remindAt}`);
+
+  return {
+    badge: "액션 공유",
+    title,
+    subtitle: subtitle || "",
+    state: remindAt ? "리마인더 설정됨" : kind,
+    chips: chips.slice(0, 3),
+  };
+}
 
 function createPendingAction(kind, c) {
   const payload = {
@@ -419,7 +559,7 @@ watch(sortMode, () => loadCommentsFirst());
       <RlButton size="sm" variant="soft" @click="router.back()">←</RlButton>
       <div class="topCenter">
         <div class="topEyebrow">Post</div>
-        <div class="topTitle">게시글</div>
+        <div class="topTitle">{{ detailShareMeta ? "액션 공유 상세" : "게시글" }}</div>
       </div>
       <div class="topRight">
         <RlButton v-if="isMinePost" size="sm" variant="soft" @click="onDeletePost">삭제</RlButton>
@@ -470,7 +610,26 @@ watch(sortMode, () => loadCommentsFirst());
           </div>
         </div>
 
-        <div v-if="post.content" class="content">{{ post.content }}</div>
+        <div class="scanRow">
+          <span v-for="chip in detailInsightChips" :key="chip" class="scanChip">{{ chip }}</span>
+        </div>
+
+        <section v-if="detailShareMeta" class="shareCard">
+          <div class="shareCard__top">
+            <div class="shareCard__eyebrow">{{ detailShareMeta.badge }}</div>
+            <div v-if="detailShareMeta.state" class="shareCard__state">{{ detailShareMeta.state }}</div>
+          </div>
+          <div v-if="detailShareMeta.title" class="shareCard__title">{{ detailShareMeta.title }}</div>
+          <div v-if="detailShareMeta.subtitle" class="shareCard__sub">{{ detailShareMeta.subtitle }}</div>
+          <div v-if="detailShareMeta.chips?.length" class="shareChipRow">
+            <span v-for="chip in detailShareMeta.chips" :key="chip" class="shareChip">{{ chip }}</span>
+          </div>
+        </section>
+
+        <div v-if="detailBodyText" class="contentWrap" :class="{ 'contentWrap--share': detailShareMeta }">
+          <div v-if="detailBodyLabel" class="contentLabel">{{ detailBodyLabel }}</div>
+          <div class="content">{{ detailBodyText }}</div>
+        </div>
 
         <div v-if="post.imageUrls?.length" class="media" :class="`media--${mediaLayout}`">
           <button
@@ -515,15 +674,15 @@ watch(sortMode, () => loadCommentsFirst());
             <span>{{ post.likeCount ?? 0 }}</span>
           </button>
           <button class="pill btn" type="button" @click="focusComposer">💬 {{ post.commentCount ?? 0 }}</button>
-          <div class="flowHint">댓글에서 액션을 만들고 대화방 Dock으로 이어갈 수 있어요</div>
+          <div class="flowHint">{{ flowHintText }}</div>
         </div>
       </section>
 
       <section class="card comments" id="commentsTop">
         <div class="cHead">
           <div>
-            <div class="cTitle">댓글</div>
-            <div class="cSub">총 {{ post?.commentCount ?? 0 }}개 · 루트 {{ rootCommentCount }}개</div>
+            <div class="cTitle">{{ commentsSectionTitle }}</div>
+            <div class="cSub">{{ commentsSectionSub }}</div>
           </div>
           <div class="cControls">
             <button class="seg" :class="{ on: sortMode==='LATEST' }" @click="sortMode='LATEST'">최신</button>
@@ -538,8 +697,8 @@ watch(sortMode, () => loadCommentsFirst());
         <AsyncStatePanel v-else-if="commentsError" icon="⚠️" title="댓글을 불러오지 못했어요" :description="commentsError" tone="danger" primary-label="다시 시도" secondary-label="본문만 보기" @primary="() => loadComments({ reset: true })" @secondary="() => {}" />
 
         <div v-else-if="comments.length === 0" class="emptyCommentCard">
-          <div class="emptyTitle">첫 댓글로 흐름을 시작해보세요 ✨</div>
-          <div class="emptySub">여기서 시작된 대화가 약속, 할일, 장소 액션으로 이어질 수 있어요.</div>
+          <div class="emptyTitle">{{ detailShareMeta ? "이 액션의 첫 반응을 남겨보세요 ✨" : "첫 댓글로 흐름을 시작해보세요 ✨" }}</div>
+          <div class="emptySub">{{ detailShareMeta ? "공유된 액션에 바로 맥락을 더하면 대화와 실제 행동으로 이어지기 더 쉬워져요." : "여기서 시작된 대화가 약속, 할일, 장소 액션으로 이어질 수 있어요." }}</div>
         </div>
 
         <TransitionGroup v-else name="c" tag="div" class="cList">
@@ -716,6 +875,104 @@ watch(sortMode, () => loadCommentsFirst());
 .shot img{width:100%;height:100%;object-fit:cover;display:block}
 .nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);backdrop-filter:blur(10px);color:rgba(255,255,255,.9);font-size:22px;cursor:pointer}
 .nav.left{left:8px}.nav.right{right:8px}
+
+.scanRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin:2px 0 14px;
+}
+.scanChip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:7px 11px;
+  border-radius:999px;
+  background:rgba(99,102,241,.08);
+  border:1px solid rgba(99,102,241,.14);
+  color:#4338ca;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:-.01em;
+}
+.shareCard{
+  display:grid;
+  gap:10px;
+  padding:16px;
+  border-radius:20px;
+  background:linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.98));
+  border:1px solid rgba(148,163,184,.18);
+  box-shadow:0 14px 32px rgba(15,23,42,.06);
+  margin-bottom:14px;
+}
+.shareCard__top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.shareCard__eyebrow{
+  font-size:12px;
+  font-weight:800;
+  color:#7c3aed;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.shareCard__state{
+  display:inline-flex;
+  align-items:center;
+  padding:7px 11px;
+  border-radius:999px;
+  background:rgba(124,58,237,.08);
+  color:#6d28d9;
+  font-size:12px;
+  font-weight:700;
+}
+.shareCard__title{
+  font-size:20px;
+  font-weight:900;
+  letter-spacing:-.03em;
+  color:#111827;
+}
+.shareCard__sub{
+  color:#475569;
+  font-size:14px;
+  line-height:1.5;
+}
+.shareChipRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.shareChip{
+  display:inline-flex;
+  align-items:center;
+  padding:7px 10px;
+  border-radius:999px;
+  background:#fff;
+  border:1px solid rgba(148,163,184,.2);
+  color:#334155;
+  font-size:12px;
+  font-weight:700;
+}
+.contentWrap{
+  display:grid;
+  gap:8px;
+}
+.contentWrap--share{
+  padding:14px 15px;
+  border-radius:18px;
+  background:#f8fafc;
+  border:1px solid rgba(148,163,184,.16);
+}
+.contentLabel{
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.02em;
+  color:#7c3aed;
+}
+
 .footer{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;padding-top:2px}
 .pill{font-size:12px;color:var(--muted);border:1px solid var(--border);padding:6px 10px;border-radius:999px;background:color-mix(in oklab,var(--surface-2) 85%,transparent)}
 .pill.btn{cursor:pointer;display:inline-flex;align-items:center;gap:6px}
@@ -795,6 +1052,9 @@ watch(sortMode, () => loadCommentsFirst());
 
 @media (max-width:520px){
   .page{padding-left:12px;padding-right:12px;padding-bottom:calc(142px + env(safe-area-inset-bottom))}
+  .shareCard{padding:14px;border-radius:18px}
+  .shareCard__title{font-size:18px}
+  .scanRow{margin-bottom:12px}
   .shot{width:88vw}
   .card{padding:13px}
   .cHead{align-items:stretch;flex-direction:column}
