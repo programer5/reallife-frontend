@@ -46,6 +46,50 @@
       </div>
     </section>
 
+    <section class="flowCard">
+      <div class="flowHead">
+        <div>
+          <div class="title">오늘의 내 흐름</div>
+          <div class="sub">프로필, Reminder, 다음 이동까지 지금 어디부터 손보면 좋은지 빠르게 보여줘요.</div>
+        </div>
+      </div>
+
+      <div class="flowGrid">
+        <div class="flowItem">
+          <div class="flowLabel">지금 먼저 볼 것</div>
+          <div class="flowValue">{{ nextMoveTitle }}</div>
+          <div class="flowHint">{{ flowPrimaryHint }}</div>
+        </div>
+
+        <div class="flowItem">
+          <div class="flowLabel">왜 지금 중요한가</div>
+          <div class="flowValue">{{ flowReasonTitle }}</div>
+          <div class="flowHint">{{ flowReasonHint }}</div>
+        </div>
+
+        <div class="flowItem">
+          <div class="flowLabel">어디로 이어갈까</div>
+          <div class="flowValue">{{ flowDestinationTitle }}</div>
+          <div class="flowHint">{{ flowDestinationHint }}</div>
+        </div>
+      </div>
+
+      <div class="flowPills">
+        <span class="flowPill" :data-tone="completionPercent >= 100 ? 'good' : completionPercent >= 50 ? 'warn' : 'soft'">
+          프로필 {{ completionPercent }}%
+        </span>
+        <span class="flowPill" :data-tone="reminderEnabledCount >= 2 ? 'good' : reminderEnabledCount === 1 ? 'warn' : 'soft'">
+          Reminder {{ reminderEnabledCount }}/3
+        </span>
+        <span class="flowPill" :data-tone="publicProfile?.followerCount ? 'good' : 'soft'">
+          팔로워 {{ publicProfile?.followerCount ?? 0 }}명
+        </span>
+        <span class="flowPill" :data-tone="me?.handle ? 'good' : 'soft'">
+          공개 프로필 {{ me?.handle ? '준비됨' : '준비 전' }}
+        </span>
+      </div>
+    </section>
+
     <section v-if="showOpsAccessDenied" class="noticeCard">
       <div class="noticeTop">
         <div>
@@ -185,6 +229,31 @@
       </div>
     </section>
 
+    <section class="priorityCard">
+      <div class="priorityHead">
+        <div>
+          <div class="title">오늘의 우선 액션</div>
+          <div class="sub">내 프로필 화면에서 바로 끝내거나, 다음 화면으로 자연스럽게 이어질 한 가지를 먼저 추천해요.</div>
+        </div>
+        <span class="priorityBadge">{{ priorityBadge }}</span>
+      </div>
+
+      <div class="priorityBody">
+        <div class="priorityMain">
+          <div class="priorityLabel">지금 추천</div>
+          <div class="priorityTitle">{{ nextMoveTitle }}</div>
+          <div class="priorityHint">{{ nextMoveDescription }}</div>
+        </div>
+
+        <div class="priorityActions">
+          <button v-if="completionPercent < 100" class="primaryBtn" type="button" @click="focusProfileEditor">프로필 바로 다듬기</button>
+          <button v-else-if="reminderEnabledCount === 0" class="primaryBtn" type="button" @click="toggleBrowserNotify">브라우저 알림 켜기</button>
+          <button v-else class="primaryBtn" type="button" @click="router.push('/inbox')">Connect로 이어가기</button>
+          <button class="ghostBtn" type="button" @click="goMyPublicProfile" :disabled="!me?.handle">공개 프로필 보기</button>
+        </div>
+      </div>
+    </section>
+
     <section class="progressCard">
       <div>
         <div class="title">프로필 완성도</div>
@@ -264,7 +333,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section ref="profileEditorSection" class="card">
       <div class="sectionHead">
         <div>
           <div class="title">프로필 편집</div>
@@ -380,7 +449,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useToastStore } from "@/stores/toast";
 import { useAuthStore } from "@/stores/auth";
@@ -400,6 +469,7 @@ const publicProfile = ref(null);
 const avatarUrl = ref("");
 const avatarFileId = ref(undefined);
 const fileInput = ref(null);
+const profileEditorSection = ref(null);
 const loading = ref(false);
 const saving = ref(false);
 
@@ -552,6 +622,42 @@ const nextMoveDescription = computed(() => {
   return "이제 Home이나 Connect에서 실제 행동 흐름을 더 자연스럽게 이어갈 수 있어요.";
 });
 
+const flowPrimaryHint = computed(() => {
+  if (completionPercent.value < 100) return "소개, 링크, 사진 중 비어 있는 항목부터 채우면 첫인상이 가장 빨리 좋아져요.";
+  if (reminderEnabledCount.value === 0) return "리마인더를 켜두면 약속과 할일 흐름을 놓칠 가능성이 크게 줄어요.";
+  return "이제 프로필 준비는 충분하니 Home이나 Connect에서 실제 상호작용으로 이어가면 좋아요.";
+});
+
+const flowReasonTitle = computed(() => {
+  if (completionPercent.value < 100) return "첫인상 보강";
+  if (reminderEnabledCount.value === 0) return "실사용 준비";
+  return "행동으로 전환";
+});
+
+const flowReasonHint = computed(() => {
+  if (completionPercent.value < 100) return "프로필이 채워질수록 팔로우와 DM 전환이 더 자연스러워져요.";
+  if (reminderEnabledCount.value === 0) return "Reminder가 꺼져 있으면 다가오는 액션을 놓치기 쉬워요.";
+  return "이제는 화면 정리보다 실제 대화와 액션을 이어가는 쪽의 체감이 더 커요.";
+});
+
+const flowDestinationTitle = computed(() => {
+  if (completionPercent.value < 100) return "프로필 편집";
+  if (reminderEnabledCount.value === 0) return "Reminder 설정";
+  return "Connect / Home";
+});
+
+const flowDestinationHint = computed(() => {
+  if (completionPercent.value < 100) return "이 화면 아래 프로필 편집 섹션에서 바로 정리할 수 있어요.";
+  if (reminderEnabledCount.value === 0) return "이 화면의 Reminder 설정에서 브라우저 알림부터 먼저 켜보세요.";
+  return "Connect에서 대화를 이어가거나 Home에서 새로운 흐름을 시작하면 좋아요.";
+});
+
+const priorityBadge = computed(() => {
+  if (completionPercent.value < 100) return "PROFILE";
+  if (reminderEnabledCount.value === 0) return "REMINDER";
+  return "READY";
+});
+
 function websiteUrl(v) {
   const s = String(v || "").trim();
   if (!s) return "";
@@ -576,6 +682,11 @@ async function toggleBrowserNotify() {
   }
 
   settings.togglePinRemindBrowserNotify();
+}
+
+async function focusProfileEditor() {
+  await nextTick();
+  profileEditorSection.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
 }
 
 async function refreshAll() {
@@ -801,6 +912,107 @@ onMounted(async () => {
 .heroStat span{
   color:var(--muted);
   font-size:13px;
+}
+.flowCard,
+.priorityCard{
+  padding:20px;
+  display:grid;
+  gap:16px;
+}
+.flowGrid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0,1fr));
+  gap:12px;
+}
+.flowItem{
+  padding:16px;
+  border-radius:18px;
+  border:1px solid var(--border);
+  background:color-mix(in oklab, var(--surface) 90%, white 10%);
+  display:grid;
+  gap:6px;
+}
+.flowLabel{
+  font-size:12px;
+  color:var(--muted);
+  font-weight:800;
+}
+.flowValue{
+  font-size:18px;
+  font-weight:900;
+}
+.flowHint{
+  color:var(--muted);
+  line-height:1.55;
+}
+.flowPills{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.flowPill{
+  padding:8px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  border:1px solid var(--border);
+  background:color-mix(in oklab, var(--surface) 90%, white 10%);
+}
+.flowPill[data-tone="good"]{
+  border-color:rgba(70,208,127,.28);
+  background:rgba(70,208,127,.12);
+  color:#46d07f;
+}
+.flowPill[data-tone="warn"]{
+  border-color:rgba(255,184,0,.28);
+  background:rgba(255,184,0,.12);
+  color:#ffb800;
+}
+.priorityHead{
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  align-items:flex-start;
+}
+.priorityBadge{
+  border-radius:999px;
+  padding:8px 12px;
+  font-size:12px;
+  font-weight:900;
+  border:1px solid rgba(125,92,255,.28);
+  background:rgba(125,92,255,.12);
+  color:#7d5cff;
+  white-space:nowrap;
+}
+.priorityBody{
+  display:flex;
+  justify-content:space-between;
+  gap:16px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.priorityMain{
+  display:grid;
+  gap:6px;
+}
+.priorityLabel{
+  font-size:12px;
+  color:var(--muted);
+  font-weight:800;
+}
+.priorityTitle{
+  font-size:22px;
+  font-weight:900;
+}
+.priorityHint{
+  color:var(--muted);
+  line-height:1.6;
+  max-width:720px;
+}
+.priorityActions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
 }
 .noticeCard{
   padding:20px;
@@ -1244,3 +1456,22 @@ onMounted(async () => {
   }
 }
 </style>
+@media (max-width: 860px){
+  .heroTop,
+  .priorityBody,
+  .noticeTop,
+  .opsHead,
+  .statusHead,
+  .sectionHead{
+    flex-direction:column;
+  }
+  .flowGrid,
+  .statusGrid,
+  .heroStats,
+  .noticeGrid,
+  .noticeGuideGrid,
+  .opsGrid,
+  .twoCol{
+    grid-template-columns:1fr;
+  }
+}
