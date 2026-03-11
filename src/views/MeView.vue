@@ -85,6 +85,25 @@
         <li>예: <code>VITE_OPS_ALLOWED_HANDLES={{ me?.handle || "seed_001" }}</code></li>
         <li>프론트를 재시작하거나 재빌드한 뒤 <code>/me</code>를 다시 열어요.</li>
       </ol>
+
+      <div class="noticeActions">
+        <button class="softBtn" type="button" @click="refreshAll" :disabled="loading">다시 확인</button>
+        <button class="ghostBtn" type="button" @click="goOpsEnvGuide">설정 위치 보기</button>
+      </div>
+
+      <div class="noticeGuideGrid">
+        <div class="noticeGuideItem">
+          <div class="noticeLabel">설정 위치</div>
+          <div class="noticeValue">{{ opsEnvFileHint }}</div>
+          <div class="noticeHint">백엔드 <code>.env</code>가 아니라 프론트 Vite env 파일이에요.</div>
+        </div>
+
+        <div class="noticeGuideItem">
+          <div class="noticeLabel">지금 추가하면 좋은 값</div>
+          <div class="noticeValue">{{ opsEnvExample }}</div>
+          <div class="noticeHint">현재 로그인 계정 기준으로 바로 복붙할 수 있게 보여줘요.</div>
+        </div>
+      </div>
     </section>
 
     <section v-if="isOpsUser" class="opsCard">
@@ -117,6 +136,7 @@
           <div class="opsInfoHint">
             프론트 env의 <b>VITE_OPS_ALLOWED_EMAILS</b> 또는 <b>VITE_OPS_ALLOWED_HANDLES</b> 기준으로 노출돼요.
             현재는 <b>{{ opsMatchBasis }}</b> 기준으로 허용된 상태예요.
+            대시보드 마감 단계에서는 health → failed alert → alert history 순으로 보는 흐름이 가장 빨라요.
           </div>
         </div>
       </div>
@@ -439,7 +459,18 @@ const opsMatchBasis = computed(() => {
   return "unknown";
 });
 
+const opsEnvFileHint = computed(() => {
+  return "vue-front/.env.local 또는 vue-front/.env.production";
+});
+
+const opsEnvExample = computed(() => {
+  const email = me.value?.email || "seed@test.com";
+  const handle = me.value?.handle || "seed_001";
+  return `VITE_OPS_ALLOWED_EMAILS=${email} / VITE_OPS_ALLOWED_HANDLES=${handle}`;
+});
+
 const initials = computed(() => {
+
   const raw = String(form.name || me.value?.name || me.value?.handle || "R").trim();
   return raw ? raw[0].toUpperCase() : "R";
 });
@@ -629,6 +660,17 @@ async function saveProfile() {
   } finally {
     saving.value = false;
   }
+}
+
+function goOpsEnvGuide() {
+  window.alert(`프론트 env 설정 위치:
+${opsEnvFileHint.value}
+
+예시:
+VITE_OPS_ALLOWED_EMAILS=${me.value?.email || "seed@test.com"}
+VITE_OPS_ALLOWED_HANDLES=${me.value?.handle || "seed_001"}
+
+변경 후 프론트 재시작 또는 재빌드가 필요해요.`);
 }
 
 function goMyPublicProfile() {
@@ -825,6 +867,24 @@ onMounted(async () => {
   display:grid;
   gap:8px;
   line-height:1.6;
+}
+.noticeActions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.noticeGuideGrid{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:12px;
+}
+.noticeGuideItem{
+  padding:14px 16px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.04);
+  display:grid;
+  gap:6px;
 }
 .opsCard{
   padding:20px;
@@ -1173,6 +1233,7 @@ onMounted(async () => {
   }
   .heroStats,
   .noticeGrid,
+  .noticeGuideGrid,
   .opsGrid,
   .statusGrid,
   .checkGrid,

@@ -71,6 +71,29 @@
       </article>
     </section>
 
+    <section v-if="!loading && !error" class="scanFlowGrid">
+      <article class="scanFlowCard cardSurface">
+        <div class="scanFlowLabel">지금 볼 것</div>
+        <div class="scanFlowTitle">{{ scanFlow.now }}</div>
+        <div class="scanFlowText">{{ scanFlow.nowReason }}</div>
+      </article>
+
+      <article class="scanFlowCard cardSurface">
+        <div class="scanFlowLabel">왜 봐야 하는지</div>
+        <div class="scanFlowTitle">{{ scanFlow.why }}</div>
+        <div class="scanFlowText">{{ scanFlow.whyReason }}</div>
+      </article>
+
+      <article class="scanFlowCard cardSurface scanFlowCard--action">
+        <div class="scanFlowLabel">어디로 갈지</div>
+        <div class="scanFlowTitle">{{ scanFlow.where }}</div>
+        <div class="scanFlowText">{{ scanFlow.whereReason }}</div>
+        <button type="button" class="opsActionBtn scanFlowBtn" @click="runRecommendedAction(scanFlow.action)">
+          {{ scanFlow.buttonLabel }}
+        </button>
+      </article>
+    </section>
+
     <AsyncStatePanel
         v-if="loading && !dashboard"
         icon="⏳"
@@ -282,7 +305,10 @@
           </div>
 
           <div class="failedPinnedHeadRight">
-            <span class="anomalyCount">{{ failedAlertHistory.length }}건</span>
+            <div class="failedPinnedMeta">
+              <span class="anomalyCount">{{ failedAlertHistory.length }}건</span>
+              <span v-if="selectedFailedContext" class="sectionFocusLabel">현재 {{ selectedFailedContext.title || selectedFailedContext.alertKey || "FAILED ALERT" }} 조사 중</span>
+            </div>
 
             <div class="failedActionBar">
               <button type="button" class="opsActionBtn" @click="runAlertTest">
@@ -660,23 +686,25 @@
           </div>
 
           <div class="opsSummaryGrid">
-            <div class="miniStat">
+            <div class="miniStat" data-tone="all">
               <span class="miniLabel">전체</span>
               <strong class="miniValue">{{ alertHistory.length }}</strong>
             </div>
-            <div class="miniStat">
+            <div class="miniStat" data-tone="sent">
               <span class="miniLabel">SENT</span>
               <strong class="miniValue">{{ sentCount }}</strong>
             </div>
-            <div class="miniStat">
+            <div class="miniStat" data-tone="failed">
               <span class="miniLabel">FAILED</span>
               <strong class="miniValue">{{ failedCount }}</strong>
             </div>
-            <div class="miniStat">
+            <div class="miniStat" data-tone="warning">
               <span class="miniLabel">HIGH LEVEL</span>
               <strong class="miniValue">{{ highLevelCount }}</strong>
             </div>
           </div>
+
+          <div class="opsHistoryGuide">FAILED 우선 → WARNING/DANGER 확인 → SENT 비교 순서로 보면 원인 파악이 빨라져요.</div>
 
           <div v-if="filteredAlertHistory.length" class="opsAlertList">
             <div
@@ -1175,7 +1203,41 @@ const todayPriorityActions = computed(() => {
   return actions.slice(0, 4);
 });
 
+const scanFlow = computed(() => {
+  if (selectedFailedContext.value) {
+    return {
+      now: selectedFailedContext.value.title || selectedFailedContext.value.alertKey || "FAILED alert 조사",
+      nowReason: "현재 조사 컨텍스트에 맞는 운영 알림, 서버 에러, notification을 바로 하이라이트하고 있어요.",
+      why: investigationSummary.value.label,
+      whyReason: investigationSummary.value.text,
+      where: recommendedNextActions.value[0]?.title || "관련 섹션 이동",
+      whereReason: recommendedNextActions.value[0]?.description || "가장 먼저 봐야 할 섹션으로 이동해 원인을 좁혀보세요.",
+      buttonLabel: recommendedNextActions.value[0]?.buttonLabel || "관련 섹션으로 이동",
+      action: recommendedNextActions.value[0]?.action || "alerts",
+    };
+  }
+
+  const firstAction = todayPriorityActions.value[0] || {
+    title: "운영 신호 스캔",
+    description: "실패 알림, 최근 에러, realtime / reminder 상태부터 순서대로 보세요.",
+    buttonLabel: "Health Summary로 이동",
+    action: "health",
+  };
+
+  return {
+    now: firstAction.title,
+    nowReason: firstAction.description,
+    why: normalizedDashboard.value.insights.opsFocusTitle,
+    whyReason: normalizedDashboard.value.insights.opsFocusReason,
+    where: firstAction.buttonLabel,
+    whereReason: "첫 화면에서 바로 다음 행동으로 이어질 수 있게 연결해 둔 CTA예요.",
+    buttonLabel: firstAction.buttonLabel,
+    action: firstAction.action,
+  };
+});
+
 const lastLoadedText = computed(() => {
+
   if (!lastLoadedAt.value) return "불러오기 전";
 
   const diffMs = Date.now() - new Date(lastLoadedAt.value).getTime();
@@ -1653,6 +1715,43 @@ strong[data-status="DOWN"]{
   grid-template-columns:repeat(5, minmax(0,1fr));
   gap:12px;
 }
+.scanFlowGrid{
+  display:grid;
+  grid-template-columns:1.05fr 1.05fr 1.2fr;
+  gap:12px;
+}
+.scanFlowCard{
+  padding:16px 18px;
+  display:grid;
+  gap:8px;
+}
+.scanFlowCard--action{
+  border-color:color-mix(in oklab, var(--accent) 28%, var(--border));
+  background:
+      radial-gradient(circle at top right, color-mix(in oklab, var(--accent) 12%, transparent), transparent 34%),
+      linear-gradient(180deg, rgba(124,156,255,.06), rgba(124,156,255,.02)),
+      var(--surface);
+}
+.scanFlowLabel{
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.08em;
+  color:var(--muted);
+  text-transform:uppercase;
+}
+.scanFlowTitle{
+  font-size:18px;
+  font-weight:950;
+  line-height:1.35;
+}
+.scanFlowText{
+  color:var(--muted);
+  line-height:1.6;
+}
+.scanFlowBtn{
+  margin-top:4px;
+  width:max-content;
+}
 .statusStripCard{
   padding:14px 16px;
   display:grid;
@@ -1864,6 +1963,12 @@ strong[data-status="DOWN"]{
   gap:10px;
   justify-items:end;
 }
+.failedPinnedMeta{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
 .failedActionBar{
   display:flex;
   gap:8px;
@@ -1962,6 +2067,22 @@ strong[data-status="DOWN"]{
   padding:14px 15px;
   display:grid;
   gap:6px;
+}
+.miniStat[data-tone="sent"]{
+  border-color:color-mix(in oklab, var(--success) 30%, var(--border));
+  background:color-mix(in oklab, var(--success) 8%, transparent);
+}
+.miniStat[data-tone="failed"]{
+  border-color:color-mix(in oklab, var(--danger) 34%, var(--border));
+  background:color-mix(in oklab, var(--danger) 10%, transparent);
+}
+.miniStat[data-tone="warning"]{
+  border-color:color-mix(in oklab, var(--warning) 34%, var(--border));
+  background:color-mix(in oklab, var(--warning) 10%, transparent);
+}
+.opsHistoryGuide{
+  font-size:13px;
+  color:var(--muted);
 }
 .priorityStat span,
 .signalLabel,
@@ -2187,6 +2308,7 @@ strong[data-status="DOWN"]{
 
 @media (max-width: 1180px){
   .statusStrip,
+  .scanFlowGrid,
   .grid4,
   .grid3,
   .opsSummaryGrid,
@@ -2230,7 +2352,12 @@ strong[data-status="DOWN"]{
   .investigationSummaryActions{
     justify-content:flex-start;
   }
+  .scanFlowBtn{
+    width:100%;
+    justify-content:center;
+  }
   .statusStrip,
+  .scanFlowGrid,
   .priorityStats,
   .signalGrid,
   .grid4,
