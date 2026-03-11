@@ -3,6 +3,13 @@
 RealLife 서비스의 프론트엔드 프로젝트입니다.  
 Vue 3 + Vite 기반 SPA이며, 로컬 개발에서는 백엔드(Nginx 게이트웨이)를 **Vite Proxy**로 연결합니다.
 
+운영 안정화 단계 기준으로 현재 프론트의 우선순위는 다음과 같습니다.
+
+1. 운영 대시보드(`AdminDashboardView.vue`) 마감
+2. 운영자 진입 UX(`MeView.vue`, `/ops/dashboard`, `/me?denied=ops`) 마감
+3. 운영 문서 정합성 마감
+4. 이후 사용자 UX polish 복귀
+
 ---
 
 ## Tech Stack
@@ -60,6 +67,81 @@ npm run dev
 
 ---
 
+## Ops Access (운영자 진입 설정)
+
+현재 프론트는 백엔드 `/api/me` 응답에 `role`, `isAdmin` 같은 운영 권한 필드가 없기 때문에,  
+운영 대시보드 노출 여부를 **프론트 Vite env allowlist** 기준으로 판단합니다.
+
+사용 환경변수:
+- `VITE_OPS_ALLOWED_EMAILS`
+- `VITE_OPS_ALLOWED_HANDLES`
+
+예시:
+```env
+VITE_OPS_ALLOWED_EMAILS=seed@test.com
+VITE_OPS_ALLOWED_HANDLES=seed_001
+```
+
+적용 위치:
+- 로컬 개발: `.env.local`
+- 배포/운영 빌드: `.env.production`
+
+중요:
+- 백엔드 `.env`에 넣어도 프론트 운영자 노출에는 반영되지 않습니다.
+- `import.meta.env`로 읽기 때문에 **프론트 재시작 또는 재빌드가 필요**합니다.
+- 쉼표(`,`) 기준으로 여러 값을 넣을 수 있고, 비교는 대소문자 구분 없이 처리합니다.
+
+관련 화면:
+- `src/views/MeView.vue`
+- `src/router/index.js`
+- `src/views/AdminDashboardView.vue`
+
+운영자 접근 흐름:
+1. 운영자 allowlist에 포함된 계정으로 로그인
+2. `/me`에서 **운영 도구** 카드 노출 확인
+3. `/ops/dashboard` 진입
+4. 비허용 계정이면 `/me?denied=ops`로 리다이렉트되고 설정 안내 문구 확인
+
+---
+
+## Admin Dashboard (운영 대시보드)
+
+운영 대시보드는 단순 조회 화면이 아니라,  
+운영자가 **지금 볼 것 → 왜 봐야 하는지 → 어디로 갈지**를 빠르게 판단할 수 있도록 만든 화면입니다.
+
+핵심 화면:
+- `src/views/AdminDashboardView.vue`
+
+핵심 데이터 소스:
+- `GET /admin/dashboard`
+- `GET /admin/errors`
+- `GET /admin/health`
+- `GET /admin/health/realtime`
+- `GET /admin/health/reminder`
+- `POST /admin/alerts/test`
+- `GET /admin/alerts/history`
+
+현재 대시보드에서 바로 확인 가능한 항목:
+- health / realtime / reminder 상태
+- 최근 notification 5개
+- 최근 서버 에러
+- FAILED alert pinned 영역
+- 조사 결과 요약
+- 권장 다음 액션
+- Slack 테스트 버튼
+- 최근 운영 알림 이력
+- 30초 자동 새로고침
+
+운영 확인 권장 순서:
+1. 상단 상태 strip에서 DOWN / DEGRADED / FAILED 존재 여부 확인
+2. FAILED alert pinned 영역 우선 확인
+3. 최근 서버 에러와 운영 알림 이력 비교
+4. realtime / reminder 이상 여부 확인
+5. 필요 시 Slack 테스트 전송
+6. 결과가 운영 알림 이력에 기록되는지 재확인
+
+---
+
 ## Authentication (Cookie 권장)
 
 이 프로젝트는 **HttpOnly 쿠키 기반 인증**을 기본 전제로 합니다.
@@ -114,6 +196,7 @@ src/
   stores/       # Pinia store
   lib/          # API client, SSE 등 공통 유틸
   components/   # 공용 컴포넌트
+  api/          # admin / posts / comments 등 API 모듈
 ```
 
 ---
@@ -134,7 +217,7 @@ dist/
 .DS_Store
 ```
 
-> 참고: 이번에 받은 zip에는 `node_modules`가 포함되어 있었는데, 실제 레포에서는 반드시 제외하는 것을 권장합니다.
+> 참고: 이번에 받은 zip에는 `node_modules`와 `dist`가 포함되어 있었는데, 실제 레포에서는 반드시 제외하는 것을 권장합니다.
 
 ---
 
@@ -142,6 +225,7 @@ dist/
 
 - 이 프로젝트는 백엔드 repo와 분리 운영될 수 있습니다.
 - API 문서는 로컬에서 http://localhost/docs 에서 확인할 수 있습니다.
+- 운영자 접근 문제를 점검할 때는 백엔드보다 먼저 **프론트 env 값과 재빌드 여부**를 확인하는 것이 가장 빠릅니다.
 
 ---
 
@@ -150,6 +234,9 @@ dist/
 ### Phase 1 — 프론트 완성도(UX) 마감
 - [ ] 프로필/DM/알림/읽음 정합성 점검 (탭 뱃지, 목록 unreadCount, 상세 read 처리)
 - [ ] 에러 UX 통일 (토스트/리트라이/빈 상태/로딩 스켈레톤)
+- [x] 운영 대시보드 최종 polish
+- [x] 운영자 진입 UX 마감
+- [ ] 운영 문서 정합성 마감
 - [ ] 접근성/키보드 UX (Enter/ESC, 포커스, aria-label)
 - [ ] 성능/체감 개선 (리스트 가상화 필요 시, 이미지 lazy-load)
 - [ ] 디자인 시스템 정리
@@ -192,7 +279,13 @@ dist/
 ---
 
 ## Release Checklist (프론트)
+
 - [ ] 모든 API 호출 `withCredentials`/401 refresh 루프 방지 확인
 - [ ] SSE 재연결/토큰 만료 시 재구독 확인
+- [ ] `/me` 운영 도구 카드 노출 확인
+- [ ] `/me?denied=ops` 안내 문구 확인
+- [ ] `/ops/dashboard` 진입 가능 여부 확인
+- [ ] `VITE_OPS_ALLOWED_EMAILS` / `VITE_OPS_ALLOWED_HANDLES` 적용 후 재빌드 확인
+- [ ] `POST /admin/alerts/test` 실행 후 운영 알림 이력 갱신 확인
 - [ ] 모바일 뷰(320px) 깨짐 점검
 - [ ] Lighthouse(성능/접근성/베스트프랙티스) 1회 점검
