@@ -979,6 +979,89 @@ function pinActivityMeta(item) {
   return `${when}${place}`;
 }
 
+const timelinePrimaryMeta = computed(() => {
+  if (dockTimelineSummary.value.nextLabel) return dockTimelineSummary.value.nextLabel;
+  if (dockStatusSummary.value.overdue) return `시간 지난 액션 ${dockStatusSummary.value.overdue}개`;
+  if (dockStatusSummary.value.todoReady) return `바로 체크 가능한 할 일 ${dockStatusSummary.value.todoReady}개`;
+  if (dockStatusSummary.value.placeSaved) return `기억해둔 장소 ${dockStatusSummary.value.placeSaved}개`;
+  return '새 액션이 생기면 여기서 바로 이어갈 수 있어요';
+});
+
+const timelinePriorityReason = computed(() => {
+  if (dockStatusSummary.value.overdue) {
+    return {
+      title: `시간 지난 액션 ${dockStatusSummary.value.overdue}개`,
+      description: '약속 시간이나 처리 시점을 다시 확인해 지금 대화를 놓치지 않게 정리하세요.',
+    };
+  }
+  if (reminderDueSoonCount.value) {
+    return {
+      title: `24시간 내 리마인드 ${reminderDueSoonCount.value}개`,
+      description: '곧 울릴 리마인드를 미리 보고, 필요하면 시간이나 내용을 바로 다듬는 흐름이 좋아요.',
+    };
+  }
+  if (dockStatusSummary.value.todoReady) {
+    return {
+      title: `바로 할 일 ${dockStatusSummary.value.todoReady}개`,
+      description: '짧게 끝낼 수 있는 할 일을 먼저 처리하면 대화 흐름이 훨씬 가벼워져요.',
+    };
+  }
+  return {
+    title: '저장된 액션 흐름 유지 중',
+    description: '약속, 할 일, 장소가 정리돼 있어서 지금은 필요한 카드만 빠르게 훑으면 돼요.',
+  };
+});
+
+const timelineActionPath = computed(() => {
+  if (dockStatusSummary.value.overdue) {
+    return {
+      title: '카드에서 시간/상태 먼저 수정',
+      description: '아래 액션 카드에서 수정이나 완료 처리를 바로 눌러 흐름을 정리할 수 있어요.',
+    };
+  }
+  if (nextReminderPin.value) {
+    return {
+      title: '리마인더 카드에서 바로 확인',
+      description: '다음 리마인더와 오늘 예정 수를 보고 필요한 액션으로 바로 이동하면 돼요.',
+    };
+  }
+  return {
+    title: '아래 액션 카드에서 바로 처리',
+    description: '수정, 완료, 취소, 피드 공유를 카드 안에서 바로 이어갈 수 있게 정리돼 있어요.',
+  };
+});
+
+function pinPrimarySummary(pin) {
+  const kind = classifyPin(pin);
+  const state = pinTimelineState(pin);
+  if (kind === 'PROMISE') {
+    if (pin?.startAt) return `${state.label} · ${pinTimeText(pin)}`;
+    return '시간을 정하면 약속 흐름이 더 선명해져요';
+  }
+  if (kind === 'TODO') {
+    return pin?.remindAt ? `리마인드 예정 · ${reminderTimeText(pin)}` : '체크 전 상태예요';
+  }
+  return pin?.placeText ? `${pin.placeText} 저장됨` : '다음에 다시 꺼낼 장소예요';
+}
+
+function pinSecondarySummary(pin) {
+  const kind = classifyPin(pin);
+  if (kind === 'PROMISE') {
+    return pin?.placeText ? '장소와 시간을 확인한 뒤 완료 또는 일정 조정' : '시간과 장소를 보강해 약속 맥락 완성';
+  }
+  if (kind === 'TODO') {
+    return pin?.startAt ? '시간에 맞춰 처리하거나 완료로 정리' : '완료 처리하거나 필요하면 리마인드 추가';
+  }
+  return pin?.remindAt ? '리마인드 시점 전에 다시 확인' : '필요하면 메모를 덧붙여 공유하기';
+}
+
+function pinCtaHint(pin) {
+  const kind = classifyPin(pin);
+  if (kind === 'PROMISE') return '시간 변경, 완료 처리, 피드 공유까지 한 카드에서 이어갈 수 있어요';
+  if (kind === 'TODO') return '할 일은 완료 처리와 리마인드 정리가 가장 빠른 다음 액션이에요';
+  return '장소는 수정 후 공유해 두면 나중에 다시 찾기 쉬워져요';
+}
+
 async function loadPins() {
   if (!conversationId.value) return;
   if (!canViewConversation.value) return;
@@ -2519,14 +2602,35 @@ onBeforeUnmount(() => {
           <div class="timelineStat">
             <span class="timelineStatK">📅 약속</span>
             <strong>{{ dockTimelineSummary.promises }}</strong>
+            <span class="timelineStatSub">시간이 있는 액션</span>
           </div>
           <div class="timelineStat">
             <span class="timelineStatK">✅ 할일</span>
             <strong>{{ dockTimelineSummary.todos }}</strong>
+            <span class="timelineStatSub">바로 체크 가능한 항목</span>
           </div>
           <div class="timelineStat">
             <span class="timelineStatK">📍 장소</span>
             <strong>{{ dockTimelineSummary.places }}</strong>
+            <span class="timelineStatSub">나중에 다시 꺼낼 위치</span>
+          </div>
+        </div>
+
+        <div class="timelineScanStrip">
+          <div class="timelineScanCard" data-tone="accent">
+            <span class="timelineScanLabel">지금 먼저 볼 것</span>
+            <strong>{{ dockTimelineSummary.nextTitle || (dockStatusSummary.overdue ? '시간 지난 액션 확인' : '바로 할 일 점검') }}</strong>
+            <span class="timelineScanMeta">{{ dockTimelineSummary.nextTitle ? dockTimelineSummary.nextLabel : timelinePrimaryMeta }}</span>
+          </div>
+          <div class="timelineScanCard" data-tone="warn">
+            <span class="timelineScanLabel">왜 지금 봐야 하나</span>
+            <strong>{{ timelinePriorityReason.title }}</strong>
+            <span class="timelineScanMeta">{{ timelinePriorityReason.description }}</span>
+          </div>
+          <div class="timelineScanCard" data-tone="soft">
+            <span class="timelineScanLabel">어디서 바로 처리하나</span>
+            <strong>{{ timelineActionPath.title }}</strong>
+            <span class="timelineScanMeta">{{ timelineActionPath.description }}</span>
           </div>
         </div>
 
@@ -2596,11 +2700,21 @@ onBeforeUnmount(() => {
             <span v-if="p.placeText" class="sep">·</span>
             <span v-if="p.placeText">📍 {{ p.placeText }}</span>
           </div>
+          <div class="dockCardSummary">
+            <div class="dockCardSummaryLine">
+              <span class="dockCardSummaryLabel">지금 상태</span>
+              <span class="dockCardSummaryText">{{ pinPrimarySummary(p) }}</span>
+            </div>
+            <div class="dockCardSummaryLine">
+              <span class="dockCardSummaryLabel">다음 액션</span>
+              <span class="dockCardSummaryText">{{ pinSecondarySummary(p) }}</span>
+            </div>
+          </div>
           <div v-if="p.remindAt" class="dockReminderRow">⏰ {{ reminderTimeText(p) }}</div>
           <div class="dockProgress">
             <div class="dockProgressFill" :style="{ width: pinTimelineState(p).progress + '%' }"></div>
           </div>
-          <div class="dockCardHint">수정·완료·취소를 빠르게 할 수 있어요</div>
+          <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
           <div v-if="!p.__placeholder" class="dockCardActions" @click.stop>
             <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
             <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
@@ -3269,6 +3383,47 @@ onBeforeUnmount(() => {
   font-size:18px;
   line-height:1;
 }
+.timelineStatSub{
+  font-size:11px;
+  color:rgba(255,255,255,.54);
+}
+.timelineScanStrip{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  margin-top:12px;
+}
+.timelineScanCard{
+  display:grid;
+  gap:6px;
+  padding:12px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.03);
+}
+.timelineScanCard[data-tone="accent"]{
+  border-color:color-mix(in oklab, var(--accent) 32%, rgba(255,255,255,.08));
+}
+.timelineScanCard[data-tone="warn"]{
+  border-color:color-mix(in oklab, var(--warning) 36%, rgba(255,255,255,.08));
+}
+.timelineScanCard[data-tone="soft"]{
+  border-color:color-mix(in oklab, var(--success) 30%, rgba(255,255,255,.08));
+}
+.timelineScanLabel{
+  font-size:11px;
+  font-weight:900;
+  color:rgba(255,255,255,.6);
+}
+.timelineScanCard strong{
+  font-size:14px;
+  line-height:1.35;
+}
+.timelineScanMeta{
+  font-size:12px;
+  line-height:1.45;
+  color:rgba(255,255,255,.72);
+}
 .timelineHeroNext{
   display:flex;
   flex-wrap:wrap;
@@ -3339,6 +3494,29 @@ onBeforeUnmount(() => {
   height:100%;
   border-radius:999px;
   background:linear-gradient(90deg, color-mix(in oklab, var(--accent) 88%, white), color-mix(in oklab, var(--success) 72%, white));
+}
+.dockCardSummary{
+  display:grid;
+  gap:8px;
+  margin-top:10px;
+  padding:10px 11px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.06);
+  background:rgba(255,255,255,.025);
+}
+.dockCardSummaryLine{
+  display:grid;
+  gap:3px;
+}
+.dockCardSummaryLabel{
+  font-size:11px;
+  font-weight:800;
+  color:rgba(255,255,255,.56);
+}
+.dockCardSummaryText{
+  font-size:12px;
+  line-height:1.45;
+  color:rgba(255,255,255,.9);
 }
 .dockCardHint{
   margin-top:8px;
@@ -4660,7 +4838,7 @@ onBeforeUnmount(() => {
 @media (max-width:900px){
   .dockWrap{top:52px;padding:8px 10px 0;}
   .dockPanel{max-height:min(52vh, 520px);}
-  .timelineHeroStats,.timelineFocusRow{grid-template-columns:1fr;}
+  .timelineHeroStats,.timelineFocusRow,.timelineScanStrip{grid-template-columns:1fr;}
   .dockRow{grid-template-columns:repeat(2,minmax(0,1fr)) !important;}
   .dockBar{gap:6px;}
   .dockTab,.dockMore,.dockPill{justify-content:center;}
