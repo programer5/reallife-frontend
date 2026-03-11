@@ -39,13 +39,6 @@ const mediaBadge = computed(() => {
   return `${count}장`;
 });
 
-const flowHint = computed(() => {
-  const commentCount = Number(props.post?.commentCount || 0);
-  if (commentCount <= 0) return "첫 댓글로 대화 흐름을 만들어보세요";
-  if (commentCount === 1) return "댓글 1개 · 액션으로 이어질 수 있어요";
-  return `댓글 ${commentCount}개 · 약속/할일/장소로 이어질 수 있어요`;
-});
-
 const lightboxOpen = ref(false);
 const lightboxIndex = ref(0);
 const slide = ref(0);
@@ -174,16 +167,16 @@ function isActionSharePost(post) {
 
 function normalizedLines(post) {
   return String(post?.content || "")
-      .replace(/\r\n/g, "\n")
-      .split("\n")
-      .map((v) => v.trim())
-      .filter(Boolean);
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((v) => v.trim())
+    .filter(Boolean);
 }
 
 function stripLeadingEmojiTitle(line) {
   return String(line || "")
-      .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "")
-      .trim();
+    .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "")
+    .trim();
 }
 
 function inferKindLabel(title) {
@@ -255,6 +248,68 @@ const actionShareMeta = computed(() => {
   if (!isActionSharePost(props.post)) return null;
   return fallbackActionMetaFromContent(props.post);
 });
+
+const shareComment = computed(() => {
+  if (!actionShareMeta.value) return "";
+  const lines = normalizedLines(props.post);
+  if (!lines.length) return "";
+
+  const cleaned = [];
+  let skippedTitle = false;
+
+  for (const line of lines) {
+    if (line === "#RealLife") continue;
+    if (/^[🕒📍⏰]/u.test(line)) continue;
+
+    const normalizedTitle = stripLeadingEmojiTitle(line);
+    const title = stripLeadingEmojiTitle(actionShareMeta.value?.title || "");
+    if (!skippedTitle && normalizedTitle && title && normalizedTitle === title) {
+      skippedTitle = true;
+      continue;
+    }
+
+    cleaned.push(line);
+  }
+
+  const text = cleaned.join(" ").replace(/\s+/g, " ").trim();
+  return text.slice(0, 160);
+});
+
+const bodyText = computed(() => {
+  if (actionShareMeta.value) return shareComment.value;
+  return String(props.post?.content || "").trim();
+});
+
+const bodyPreview = computed(() => {
+  const text = bodyText.value;
+  if (!text) return "";
+  if (text.length <= 160) return text;
+  return `${text.slice(0, 160)}…`;
+});
+
+const bodyLabel = computed(() => {
+  if (!actionShareMeta.value) return "";
+  return shareComment.value ? "이렇게 덧붙였어요" : "공유 코멘트 없음";
+});
+
+const engagementStrip = computed(() => {
+  const likeCount = Number(props.post?.likeCount || 0);
+  const commentCount = Number(props.post?.commentCount || 0);
+  const parts = [];
+
+  if (actionShareMeta.value) parts.push("액션 카드 공유됨");
+  if (commentCount <= 0) parts.push("첫 댓글로 대화 시작 가능");
+  else if (commentCount === 1) parts.push("댓글 1개 · 바로 이어보기 좋아요");
+  else parts.push(`댓글 ${commentCount}개 · 대화가 이어지는 중`);
+
+  if (likeCount > 0) parts.push(`좋아요 ${likeCount}`);
+  return parts.join(" · ");
+});
+
+const commentPreviewTitle = computed(() => {
+  if (actionShareMeta.value) return "이 액션에서 이어진 대화";
+  return "최근 댓글";
+});
 </script>
 
 <template>
@@ -282,8 +337,8 @@ const actionShareMeta = computed(() => {
     </div>
 
     <section
-        v-if="actionShareMeta && (actionShareMeta.title || actionShareMeta.subtitle || actionShareMeta.state || actionShareMeta.chips.length)"
-        class="shareCard"
+      v-if="actionShareMeta && (actionShareMeta.title || actionShareMeta.subtitle || actionShareMeta.state || actionShareMeta.chips.length)"
+      class="shareCard"
     >
       <div class="shareCard__top">
         <div class="shareCard__icon">✨</div>
@@ -299,23 +354,27 @@ const actionShareMeta = computed(() => {
       </div>
     </section>
 
-    <div v-if="post.content" class="content">{{ post.content }}</div>
+    <section v-if="bodyLabel || bodyPreview" class="bodyCard" :class="{ 'bodyCard--share': actionShareMeta }">
+      <div v-if="bodyLabel" class="bodyCard__label">{{ bodyLabel }}</div>
+      <div v-if="bodyPreview" class="content">{{ bodyPreview }}</div>
+      <div v-else-if="actionShareMeta" class="bodyCard__empty">액션 카드만 간단하게 공유했어요. 댓글로 바로 이어가도 좋아요.</div>
+    </section>
 
     <div
-        v-if="visibleImages.length"
-        class="mediaSlider"
-        @click.stop="onMediaTap"
-        @pointerdown="onPointerDown"
-        @pointerup="onPointerUp"
+      v-if="visibleImages.length"
+      class="mediaSlider"
+      @click.stop="onMediaTap"
+      @pointerdown="onPointerDown"
+      @pointerup="onPointerUp"
     >
       <div class="track" :style="{ transform: `translateX(${-slide * 100}%)` }">
         <button
-            v-for="(u, idx) in visibleImages"
-            :key="idx"
-            class="slide"
-            type="button"
-            @click.stop="openLightbox(idx, $event)"
-            :aria-label="`이미지 ${idx + 1} 확대`"
+          v-for="(u, idx) in visibleImages"
+          :key="idx"
+          class="slide"
+          type="button"
+          @click.stop="openLightbox(idx, $event)"
+          :aria-label="`이미지 ${idx + 1} 확대`"
         >
           <img class="img" :src="u" alt="post image" loading="lazy" decoding="async" />
         </button>
@@ -339,16 +398,16 @@ const actionShareMeta = computed(() => {
 
     <div class="flowBar">
       <span class="flowDot"></span>
-      <span>{{ flowHint }}</span>
+      <span>{{ engagementStrip }}</span>
     </div>
 
     <div v-if="previewComments.length" class="commentPreview" @click.stop="openDetail">
-      <div class="commentPreview__title">최근 댓글</div>
+      <div class="commentPreview__title">{{ commentPreviewTitle }}</div>
       <div v-for="(c, idx) in previewComments" :key="idx" class="cRow">
         <span class="cAuthor">{{ c.authorName || c.author || "user" }}</span>
         <span class="cText">{{ c.content || c.text || "" }}</span>
       </div>
-      <div class="cMore">댓글 더 보기</div>
+      <div class="cMore">게시글 열고 이어보기</div>
     </div>
 
     <div class="actions" @click.stop>
@@ -362,6 +421,11 @@ const actionShareMeta = computed(() => {
         <span class="num">{{ Number(post.commentCount ?? 0) }}</span>
       </button>
 
+      <button class="act act--strong" type="button" @click="openDetail">
+        <span class="ico">↗</span>
+        <span class="num">이어보기</span>
+      </button>
+
       <button class="act act--ghost" type="button" @click="sharePost">
         <span class="ico">⤴</span>
         <span class="num">공유</span>
@@ -369,10 +433,10 @@ const actionShareMeta = computed(() => {
     </div>
 
     <Lightbox
-        v-if="lightboxOpen"
-        :images="visibleImages"
-        :start-index="lightboxIndex"
-        @close="lightboxOpen = false"
+      v-if="lightboxOpen"
+      :images="visibleImages"
+      :start-index="lightboxIndex"
+      @close="lightboxOpen = false"
     />
   </article>
 </template>
@@ -432,7 +496,7 @@ const actionShareMeta = computed(() => {
   margin-top: 10px;
   border: 1px solid color-mix(in oklab, var(--accent) 28%, rgba(255,255,255,.12));
   background:
-      linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, transparent), rgba(255,255,255,.02));
+    linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, transparent), rgba(255,255,255,.02));
   border-radius: 18px;
   padding: 12px;
 }
@@ -482,11 +546,35 @@ const actionShareMeta = computed(() => {
   white-space: nowrap;
 }
 
-.content{
+.bodyCard{
   margin-top: 10px;
-  white-space: pre-wrap;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.032);
+  padding: 11px 12px;
+}
+.bodyCard--share{
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.028));
+}
+.bodyCard__label{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  color: rgba(255,255,255,.58);
+  text-transform: uppercase;
+}
+.bodyCard__empty{
+  margin-top: 6px;
+  font-size: 13px;
   line-height: 1.5;
+  color: rgba(255,255,255,.68);
+}
+.content{
+  margin-top: 6px;
+  white-space: pre-wrap;
+  line-height: 1.58;
   color: rgba(255,255,255,.94);
+  font-size: 14px;
 }
 
 .actionMetaBar{
@@ -634,7 +722,7 @@ const actionShareMeta = computed(() => {
 .cRow + .cRow{ margin-top: 6px; }
 .cAuthor{ font-weight: 900; opacity: .9; white-space: nowrap; }
 .cText{ opacity: .78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cMore{ margin-top: 8px; font-size: 12px; font-weight: 900; opacity: .65; }
+.cMore{ margin-top: 8px; font-size: 12px; font-weight: 900; opacity: .72; }
 
 .actions{ margin-top: 12px; display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
 .act{
@@ -647,6 +735,10 @@ const actionShareMeta = computed(() => {
   font-weight: 900; font-size: 12px; cursor: pointer; transform: translateZ(0);
 }
 .act[data-on="true"]{ background: rgba(255,255,255,.14); }
+.act--strong{
+  background: color-mix(in oklab, var(--accent) 16%, rgba(255,255,255,.06));
+  border-color: color-mix(in oklab, var(--accent) 34%, rgba(255,255,255,.14));
+}
 .act--ghost{ opacity: .85; background: transparent; }
 .num{ opacity: .85; font-weight: 800; }
 .ico{ font-size: 14px; }
@@ -658,5 +750,7 @@ const actionShareMeta = computed(() => {
   .mediaTopMeta{ top: 8px; left: 8px; right: 8px; }
   .nav{ width: 38px; height: 38px; }
   .shareCard__top{ flex-wrap: wrap; }
+  .actions{ gap: 8px; }
+  .act{ flex: 1 1 calc(50% - 4px); justify-content: center; }
 }
 </style>

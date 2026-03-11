@@ -90,6 +90,8 @@ const feedSummary = computed(() => {
     liked: list.filter((p) => p?.likedByMe).length,
     commented: list.filter((p) => Number(p?.commentCount || 0) > 0).length,
     actionReady: list.filter((p) => Number(p?.commentCount || 0) > 0 || p?.sourceMeta || String(p?.content || "").includes("#RealLife")).length,
+    sharedAction: list.filter((p) => p?.sourceMeta || String(p?.content || "").includes("#RealLife")).length,
+    withImage: list.filter((p) => Array.isArray(p?.imageUrls) ? p.imageUrls.length > 0 : Array.isArray(p?.images) ? p.images.length > 0 : false).length,
   };
 });
 
@@ -497,6 +499,21 @@ onBeforeUnmount(() => {
                 : "연결된 사람들의 최근 순간을 시간순으로 보고 있어요."
           }}
         </div>
+
+        <div class="feedFocusRow">
+          <div class="feedFocusPill">
+            <span class="feedFocusPill__label">액션 공유</span>
+            <span class="feedFocusPill__value">{{ feedSummary.sharedAction }}</span>
+          </div>
+          <div class="feedFocusPill">
+            <span class="feedFocusPill__label">대화 시작 가능</span>
+            <span class="feedFocusPill__value">{{ feedSummary.actionReady }}</span>
+          </div>
+          <div class="feedFocusPill">
+            <span class="feedFocusPill__label">사진 포함</span>
+            <span class="feedFocusPill__value">{{ feedSummary.withImage }}</span>
+          </div>
+        </div>
       </div>
 
       <div class="feedGrid">
@@ -571,6 +588,10 @@ onBeforeUnmount(() => {
 .feedTopSummary{padding:2px 2px 0}
 .feedTopSummary__title{font-size:18px;font-weight:950}
 .feedTopSummary__sub{margin-top:4px;font-size:13px;color:rgba(255,255,255,.66)}
+.feedFocusRow{margin-top:12px;display:flex;gap:10px;flex-wrap:wrap}
+.feedFocusPill{min-height:42px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);display:inline-flex;align-items:center;gap:10px}
+.feedFocusPill__label{font-size:12px;color:rgba(255,255,255,.64);font-weight:800}
+.feedFocusPill__value{font-size:14px;font-weight:950;color:rgba(255,255,255,.95)}
 
 .feedGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,320px));gap:16px;align-items:start;justify-content:center}
 .feedGrid :deep(.card){height:auto}
