@@ -30,29 +30,29 @@
 
       <div class="right">
         <button
-            class="inboxEntry"
-            :class="{ inboxEntryActive: route.path.startsWith('/inbox'), inboxEntryUnread: totalUnread > 0 }"
-            type="button"
-            @click="goInbox"
-            aria-label="Inbox 열기"
+          class="inboxEntry"
+          :class="{ inboxEntryActive: route.path.startsWith('/inbox'), inboxEntryUnread: totalUnread > 0 }"
+          type="button"
+          @click="goInbox"
+          aria-label="Inbox 열기"
         >
           <span class="inboxIcon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
               <path d="M4 5h16v10H7l-3 3V5Z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/>
             </svg>
           </span>
-          <span class="inboxText">{{ totalUnread > 0 ? "지금 확인" : "Inbox" }}</span>
+          <span class="inboxText">{{ totalUnread > 0 ? '지금 확인' : 'Inbox' }}</span>
           <span v-if="totalUnread > 0" class="inboxBadge">{{ unreadBadge }}</span>
         </button>
 
         <span class="live" :data-on="live">
           <span class="dot" aria-hidden="true"></span>
-          {{ live ? "LIVE" : "OFFLINE" }}
+          {{ live ? 'LIVE' : 'OFFLINE' }}
         </span>
       </div>
     </div>
 
-    <div class="focusBar">
+    <div v-if="showFocus" class="focusBar desktopFocusBar">
       <div class="focusCard">
         <span class="focusLabel">지금 먼저 볼 것</span>
         <strong>{{ sectionMeta.primary }}</strong>
@@ -66,16 +66,35 @@
         <strong>{{ sectionMeta.next }}</strong>
       </div>
     </div>
+
+    <div v-if="showFocus" class="mobileFocusWrap">
+      <div class="mobileFocusCard">
+        <div class="mobileFocusRow">
+          <span class="focusLabel">지금 먼저 볼 것</span>
+          <strong>{{ sectionMeta.primary }}</strong>
+        </div>
+        <div class="mobileFocusDivider"></div>
+        <div class="mobileFocusRow">
+          <span class="focusLabel">왜 지금 중요한가</span>
+          <strong>{{ sectionMeta.reason }}</strong>
+        </div>
+        <div class="mobileFocusDivider"></div>
+        <div class="mobileFocusRow mobileFocusRow--accent">
+          <span class="focusLabel">어디로 이어지나</span>
+          <strong>{{ sectionMeta.next }}</strong>
+        </div>
+      </div>
+    </div>
   </header>
 </template>
 
 <script setup>
-import { computed, onMounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { useNotificationsStore } from "@/stores/notifications";
-import { useConversationsStore } from "@/stores/conversations";
-import { useAuthStore } from "@/stores/auth";
-import logo from "@/assets/brand/logo.png";
+import { computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useNotificationsStore } from '@/stores/notifications';
+import { useConversationsStore } from '@/stores/conversations';
+import { useAuthStore } from '@/stores/auth';
+import logo from '@/assets/brand/logo.png';
 
 const router = useRouter();
 const route = useRoute();
@@ -84,91 +103,96 @@ const conv = useConversationsStore();
 const auth = useAuthStore();
 
 const props = defineProps({
-  subtitle: { type: String, default: "" },
+  subtitle: { type: String, default: '' },
   live: { type: Boolean, default: false },
 });
 
 const conversationsUnread = computed(() =>
-    (conv.items || []).reduce((sum, item) => sum + Number(item?.unreadCount || 0), 0)
+  (conv.items || []).reduce((sum, item) => sum + Number(item?.unreadCount || 0), 0),
 );
 const totalUnread = computed(() => Number(noti.unreadCount || 0) + conversationsUnread.value);
 const unreadBadge = computed(() => {
   const n = totalUnread.value;
-  if (n > 99) return "99+";
+  if (n > 99) return '99+';
   return String(n);
 });
 
 const profileReady = computed(() => {
   const me = auth.me || {};
-  const name = String(me?.name || "").trim();
-  const handle = String(me?.handle || "").trim();
-  const bio = String(me?.bio || "").trim();
+  const name = String(me?.name || '').trim();
+  const handle = String(me?.handle || '').trim();
+  const bio = String(me?.bio || '').trim();
   return Boolean((name || handle) && bio);
 });
 
 const headerSubtitle = computed(() => {
-  if (route.path.startsWith("/home")) return "오늘의 흐름과 액션을 바로 잇는 홈";
-  if (route.path.startsWith("/inbox")) {
+  if (route.path.startsWith('/home')) return '오늘의 흐름과 액션을 바로 잇는 홈';
+  if (route.path.startsWith('/inbox')) {
     return totalUnread.value > 0
-        ? "답장과 알림을 놓치지 않는 Connect"
-        : "대화와 알림을 정리하는 Connect";
+      ? '답장과 알림을 놓치지 않는 Connect'
+      : '대화와 알림을 정리하는 Connect';
   }
-  if (route.path.startsWith("/me")) {
+  if (route.path.startsWith('/me')) {
     return profileReady.value
-        ? "내 프로필과 다음 흐름을 다듬는 공간"
-        : "내 프로필을 완성하고 다음 흐름을 준비하는 공간";
+      ? '내 프로필과 다음 흐름을 다듬는 공간'
+      : '내 프로필을 완성하고 다음 흐름을 준비하는 공간';
   }
-  if (route.path.startsWith("/u/")) return "서로의 흐름을 보고 연결을 넓히는 프로필";
-  return props.subtitle || "Real-time social";
+  if (route.path.startsWith('/u/')) return '서로의 흐름을 보고 연결을 넓히는 프로필';
+  return props.subtitle || 'Real-time social';
+});
+
+const showFocus = computed(() => {
+  const name = String(route.name || '');
+  return ['home', 'inbox', 'conversations', 'me', 'admin-dashboard'].includes(name);
 });
 
 const sectionMeta = computed(() => {
-  if (route.path.startsWith("/inbox")) {
+  if (route.path.startsWith('/inbox')) {
     if (totalUnread.value > 0) {
       return {
         primary: `답장·알림 ${unreadBadge.value}개`,
-        reason: "놓치면 대화 흐름과 리마인더가 끊길 수 있어요",
-        next: "인박스에서 바로 열고 대화나 액션으로 이어가기",
+        reason: '놓치면 대화 흐름과 리마인더가 끊길 수 있어요',
+        next: '인박스에서 바로 열고 대화나 액션으로 이어가기',
       };
     }
     return {
-      primary: "대화와 알림 흐름 점검",
-      reason: "새 메시지가 없어도 다음 약속과 할일을 정리할 수 있어요",
-      next: "인박스에서 최근 흐름 다시 이어가기",
+      primary: '대화와 알림 흐름 점검',
+      reason: '새 메시지가 없어도 다음 약속과 할일을 정리할 수 있어요',
+      next: '인박스에서 최근 흐름 다시 이어가기',
     };
   }
 
-  if (route.path.startsWith("/me")) {
+  if (route.path.startsWith('/me')) {
     return {
-      primary: profileReady.value ? "내 프로필과 공개 흐름 정리" : "프로필 기본 정보 보강",
+      primary: profileReady.value ? '내 프로필과 공개 흐름 정리' : '프로필 기본 정보 보강',
       reason: profileReady.value
-          ? "연결될 때 나를 더 빠르게 이해할 수 있어요"
-          : "프로필이 정리되면 대화와 연결 전환이 더 자연스러워져요",
-      next: profileReady.value ? "프로필 수정 또는 공개 프로필 확인" : "프로필 편집으로 바로 이동",
+        ? '연결될 때 나를 더 빠르게 이해할 수 있어요'
+        : '프로필이 정리되면 대화와 연결 전환이 더 자연스러워져요',
+      next: profileReady.value ? '프로필 수정 또는 공개 프로필 확인' : '프로필 편집으로 바로 이동',
     };
   }
 
-  if (route.path.startsWith("/u/")) {
+  if (route.path.startsWith('/u/')) {
     return {
-      primary: "상대 흐름 빠르게 읽기",
-      reason: "피드와 프로필을 같이 보면 더 자연스럽게 말을 걸 수 있어요",
-      next: "댓글, 팔로우, 대화 시작으로 이어가기",
+      primary: '상대 흐름 빠르게 읽기',
+      reason: '피드와 프로필을 같이 보면 더 자연스럽게 말을 걸 수 있어요',
+      next: '댓글, 팔로우, 대화 시작으로 이어가기',
     };
   }
 
   return {
-    primary: "오늘의 순간과 액션 흐름",
-    reason: "반응이 쌓이는 글을 먼저 보면 실제 행동으로 이어지기 쉬워요",
-    next: "홈에서 댓글 → 액션 → 대화로 바로 연결하기",
+    primary: '오늘의 순간과 액션 흐름',
+    reason: '반응이 쌓이는 글을 먼저 보면 실제 행동으로 이어지기 쉬워요',
+    next: '홈에서 댓글 → 액션 → 대화로 바로 연결하기',
   };
 });
 
 function goHome() {
-  router.push("/home");
+  router.push('/home');
 }
 
 function goInbox() {
-  router.push("/inbox");
+  router.push('/inbox');
 }
 
 onMounted(() => {
@@ -377,11 +401,11 @@ onMounted(() => {
   box-shadow: 0 0 0 6px rgba(255, 107, 125, 0.12);
 }
 
-.live[data-on="true"] {
+.live[data-on='true'] {
   border-color: color-mix(in oklab, var(--success) 55%, var(--border));
 }
 
-.live[data-on="true"] .dot {
+.live[data-on='true'] .dot {
   background: var(--success);
   box-shadow: 0 0 0 6px rgba(85, 227, 160, 0.14);
 }
@@ -423,6 +447,10 @@ onMounted(() => {
   color: rgba(255, 255, 255, 0.96);
 }
 
+.mobileFocusWrap {
+  display: none;
+}
+
 @media (max-width: 980px) {
   .desktopNav {
     display: none;
@@ -440,6 +468,44 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
+  .desktopFocusBar {
+    display: none;
+  }
+
+  .mobileFocusWrap {
+    display: block;
+    padding: 0 12px 10px;
+  }
+
+  .mobileFocusCard {
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+    overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .mobileFocusRow {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+  }
+
+  .mobileFocusRow strong {
+    font-size: 12px;
+    line-height: 1.42;
+    color: rgba(255, 255, 255, 0.96);
+  }
+
+  .mobileFocusRow--accent {
+    background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 10%, rgba(255,255,255,0.03)), rgba(255,255,255,0.01));
+  }
+
+  .mobileFocusDivider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
   .brandSub {
     font-size: 11px;
   }
@@ -462,20 +528,6 @@ onMounted(() => {
     height: 17px;
     font-size: 10px;
     padding: 0 4px;
-  }
-
-  .focusBar {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .focusCard {
-    border-radius: 16px;
-    padding: 10px 12px;
-  }
-
-  .focusCard strong {
-    font-size: 12px;
   }
 }
 </style>

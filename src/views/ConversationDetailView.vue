@@ -7,6 +7,7 @@ import RlModal from "@/components/ui/RlModal.vue";
 import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
+import PostComposer from "@/components/PostComposer.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -51,6 +52,8 @@ const dockOpen = ref(false);
 const dockJustMovedPinId = ref(null);
 const savingCandidateId = ref(null);
 const lastCreatedPinId = ref(null);
+const shareComposerOpen = ref(false);
+const shareComposerDraft = ref(null);
 
 // ✅ v2.10: placeholder slot for clearer FLIP destination
 const flipPlaceholder = ref(null); // { pinId, title, time, place, type }
@@ -1231,18 +1234,25 @@ function feedShareMetaForPin(pin) {
 
 function sharePinToFeed(pin) {
   try {
-    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
+    shareComposerDraft.value = {
       content: feedShareTextForPin(pin),
       visibility: "ALL",
       source: "action-pin",
       pinId: pin?.pinId || null,
       sourceMeta: feedShareMetaForPin(pin),
-    }));
-    toast.success?.("피드 공유 준비", "홈에서 바로 게시할 수 있게 초안을 채워뒀어요.");
-    router.push({ path: "/home", query: { compose: "1" } });
+    };
+    shareComposerOpen.value = true;
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
+}
+
+function closeShareComposer() {
+  shareComposerOpen.value = false;
+}
+
+function onShareComposerCreated() {
+  shareComposerOpen.value = false;
 }
 
 function openPinEdit(pin) {
@@ -2936,6 +2946,13 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
+
+    <PostComposer
+      v-if="shareComposerOpen"
+      :initial-draft="shareComposerDraft"
+      @close="closeShareComposer"
+      @created="onShareComposerCreated"
+    />
 
     <!-- ✅ 핀 액션 모달 -->
     <RlModal
