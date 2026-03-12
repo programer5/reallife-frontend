@@ -7,7 +7,6 @@ import RlModal from "@/components/ui/RlModal.vue";
 import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
-import PostComposer from "@/components/PostComposer.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -52,8 +51,6 @@ const dockOpen = ref(false);
 const dockJustMovedPinId = ref(null);
 const savingCandidateId = ref(null);
 const lastCreatedPinId = ref(null);
-const shareComposerOpen = ref(false);
-const shareComposerDraft = ref(null);
 
 // ✅ v2.10: placeholder slot for clearer FLIP destination
 const flipPlaceholder = ref(null); // { pinId, title, time, place, type }
@@ -360,16 +357,8 @@ function pinKindMeta(p) {
 
 function pinTimelineState(p) {
   const kind = classifyPin(p);
-  const status = String(p?.status || "ACTIVE").toUpperCase();
   const now = Date.now();
   const startTs = p?.startAt ? new Date(p.startAt).getTime() : 0;
-
-  if (status === "DONE") {
-    return { stage: "done", label: "완료", tone: "success", progress: 100 };
-  }
-  if (status === "CANCELED" || status === "CANCELLED") {
-    return { stage: "canceled", label: "취소", tone: "danger", progress: 100 };
-  }
 
   if (kind === "PLACE") {
     return { stage: "saved", label: "저장됨", tone: "stable", progress: 34 };
@@ -1073,6 +1062,49 @@ function pinCtaHint(pin) {
   return '장소는 수정 후 공유해 두면 나중에 다시 찾기 쉬워져요';
 }
 
+
+function pinTimelineEvents(pin) {
+  const events = [];
+  if (pin?.createdAt) {
+    events.push({
+      key: `created-${pin.pinId || pin.id || ''}`,
+      time: pin.createdAt,
+      label: '액션 생성',
+      tone: 'create',
+    });
+  }
+
+  const status = String(pin?.status || '').toUpperCase();
+  if (status === 'DONE' && pin?.updatedAt) {
+    events.push({
+      key: `done-${pin.pinId || pin.id || ''}`,
+      time: pin.updatedAt,
+      label: '완료 처리',
+      tone: 'done',
+    });
+  } else if ((status === 'CANCELED' || status === 'CANCELLED') && pin?.updatedAt) {
+    events.push({
+      key: `cancel-${pin.pinId || pin.id || ''}`,
+      time: pin.updatedAt,
+      label: '취소 처리',
+      tone: 'cancel',
+    });
+  }
+
+  return events
+    .filter((event) => event.time)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+}
+
+function pinTimelineTimeText(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).replace('T', ' ').slice(0, 16);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mi}`;
+}
+
 async function loadPins() {
   if (!conversationId.value) return;
   if (!canViewConversation.value) return;
@@ -1215,7 +1247,6 @@ function feedShareMetaForPin(pin) {
   const time = pin?.startAt ? pinTimeText(pin) : "시간 미정";
   const place = String(pin?.placeText || "장소 미정").trim();
   const remind = pin?.remindAt ? reminderTimeText(pin) : "리마인드 없음";
-  const timeline = pinTimelineState(pin);
 
   const chips = [
     time ? `🕒 ${time}` : "",
@@ -1228,8 +1259,8 @@ function feedShareMetaForPin(pin) {
     title,
     subtitle: [meta.label, place !== "장소 미정" ? place : ""].filter(Boolean).join(" · "),
     description: [time, place].filter(Boolean).join(" · "),
-    state: timeline.label,
-    status: timeline.stage.toUpperCase(),
+    state: remind && remind !== "리마인드 없음" ? "리마인더 설정됨" : meta.label,
+    status: remind && remind !== "리마인드 없음" ? remind : meta.label,
 
     kind: meta.label,
     emoji: meta.emoji,
@@ -1243,25 +1274,18 @@ function feedShareMetaForPin(pin) {
 
 function sharePinToFeed(pin) {
   try {
-    shareComposerDraft.value = {
+    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
       content: feedShareTextForPin(pin),
       visibility: "ALL",
       source: "action-pin",
       pinId: pin?.pinId || null,
       sourceMeta: feedShareMetaForPin(pin),
-    };
-    shareComposerOpen.value = true;
+    }));
+    toast.success?.("피드 공유 준비", "홈에서 바로 게시할 수 있게 초안을 채워뒀어요.");
+    router.push({ path: "/home", query: { compose: "1" } });
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
-}
-
-function closeShareComposer() {
-  shareComposerOpen.value = false;
-}
-
-function onShareComposerCreated() {
-  shareComposerOpen.value = false;
 }
 
 function openPinEdit(pin) {
@@ -2734,10 +2758,20 @@ onBeforeUnmount(() => {
             <div class="dockProgressFill" :style="{ width: pinTimelineState(p).progress + '%' }"></div>
           </div>
           <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
+          <div v-if="pinTimelineEvents(p).length" class="dockCardTimeline">
+            <div class="dockCardTimelineHead">Action Timeline</div>
+            <div class="dockCardTimelineList">
+              <div v-for="event in pinTimelineEvents(p)" :key="event.key" class="dockCardTimelineItem" :data-tone="event.tone">
+                <span class="dockCardTimelineDot" aria-hidden="true"></span>
+                <span class="dockCardTimelineTime">{{ pinTimelineTimeText(event.time) }}</span>
+                <span class="dockCardTimelineLabel">{{ event.label }}</span>
+              </div>
+            </div>
+          </div>
           <div v-if="!p.__placeholder" class="dockCardActions" @click.stop>
             <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
-            <button v-if="String(p.status || 'ACTIVE').toUpperCase() === 'ACTIVE'" class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
-            <button v-if="String(p.status || 'ACTIVE').toUpperCase() === 'ACTIVE'" class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
+            <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
+            <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
           </div>
           <button v-if="!p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
         </div>
@@ -2955,13 +2989,6 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
-
-    <PostComposer
-      v-if="shareComposerOpen"
-      :initial-draft="shareComposerDraft"
-      @close="closeShareComposer"
-      @created="onShareComposerCreated"
-    />
 
     <!-- ✅ 핀 액션 모달 -->
     <RlModal
@@ -4911,6 +4938,58 @@ onBeforeUnmount(() => {
   .timelineReminderActions{justify-items:start}
 }
 
+
+.dockCardTimeline{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+}
+.dockCardTimelineHead{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.dockCardTimelineList{
+  display:grid;
+  gap: 8px;
+}
+.dockCardTimelineItem{
+  display:grid;
+  grid-template-columns: auto auto 1fr;
+  align-items:center;
+  gap: 8px;
+  font-size: 12px;
+  color: color-mix(in oklab, var(--text) 86%, var(--muted));
+}
+.dockCardTimelineDot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 70%, white);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+.dockCardTimelineItem[data-tone="done"] .dockCardTimelineDot{
+  background: var(--success);
+  box-shadow: 0 0 0 6px rgba(85, 227, 160, .14);
+}
+.dockCardTimelineItem[data-tone="cancel"] .dockCardTimelineDot{
+  background: var(--danger);
+  box-shadow: 0 0 0 6px rgba(255, 107, 125, .12);
+}
+.dockCardTimelineTime{
+  min-width: 38px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.dockCardTimelineLabel{
+  font-weight: 700;
+  color: var(--text);
+}
+
 </style>
 
 
@@ -4930,4 +5009,56 @@ onBeforeUnmount(() => {
   border-color:rgba(255,255,255,.22);
   background:rgba(255,255,255,.08);
 }
+
+.dockCardTimeline{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+}
+.dockCardTimelineHead{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.dockCardTimelineList{
+  display:grid;
+  gap: 8px;
+}
+.dockCardTimelineItem{
+  display:grid;
+  grid-template-columns: auto auto 1fr;
+  align-items:center;
+  gap: 8px;
+  font-size: 12px;
+  color: color-mix(in oklab, var(--text) 86%, var(--muted));
+}
+.dockCardTimelineDot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 70%, white);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+.dockCardTimelineItem[data-tone="done"] .dockCardTimelineDot{
+  background: var(--success);
+  box-shadow: 0 0 0 6px rgba(85, 227, 160, .14);
+}
+.dockCardTimelineItem[data-tone="cancel"] .dockCardTimelineDot{
+  background: var(--danger);
+  box-shadow: 0 0 0 6px rgba(255, 107, 125, .12);
+}
+.dockCardTimelineTime{
+  min-width: 38px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.dockCardTimelineLabel{
+  font-weight: 700;
+  color: var(--text);
+}
+
 </style>
