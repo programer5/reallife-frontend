@@ -362,7 +362,6 @@ onBeforeUnmount(() => {
 
         <div class="heroActions">
           <RlButton class="toolbarBtn" size="sm" variant="soft" @click="loadFirst" :loading="loading">새로고침</RlButton>
-          <RlButton class="toolbarBtn toolbarBtn--primary" size="sm" variant="primary" @click="openComposer">작성</RlButton>
           <button class="composerShortcut composerShortcut--desktop" type="button" @click="openComposer">
             <span class="composerShortcut__plus">+</span>
             <span>오늘의 순간 공유하기</span>
@@ -380,7 +379,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="modeMeta">{{ modeMeta }}</div>
       </div>
-      <div class="desktopToolbarHint">Home은 피드가 아니라 행동 허브처럼, 지금 바로 이어질 수 있는 흐름을 먼저 보여줘요.</div>
+      <div class="desktopToolbarHint">지금 바로 댓글과 액션으로 이어질 수 있는 흐름을 먼저 보여줘요.</div>
     </div>
 
     <div class="mobileToolbar">
@@ -413,8 +412,8 @@ onBeforeUnmount(() => {
     </div>
 
     <section v-if="!loading && !error && displayedItems.length" class="actionLaneGrid">
-      <button class="actionLane cardSurface" type="button" @click="topActionPost ? openPost(topActionPost) : openComposer()">
-        <div class="actionLane__eyebrow">지금 이어질 행동</div>
+      <button class="actionLane actionLane--spotlight cardSurface" type="button" @click="topActionPost ? openPost(topActionPost) : openComposer()">
+        <div class="actionLane__eyebrow">지금 먼저 볼 흐름</div>
         <div class="actionLane__title">{{ actionLaneTitle(topActionPost) }}</div>
         <div class="actionLane__body">{{ actionLaneBody(topActionPost) }}</div>
       </button>
@@ -495,8 +494,8 @@ onBeforeUnmount(() => {
         <div class="feedTopSummary__sub">
           {{
             viewMode === "FOR_YOU"
-                ? "댓글, 좋아요, 액션 공유 반응이 빠른 글부터 보여줘요."
-                : "연결된 사람들의 최근 순간을 시간순으로 보고 있어요."
+                ? "반응이 빠른 글과 액션 공유 흐름을 먼저 보여줘요."
+                : "연결된 사람들의 최근 순간과 바로 이어질 수 있는 흐름을 보여줘요."
           }}
         </div>
 
@@ -539,7 +538,7 @@ onBeforeUnmount(() => {
 .page{padding:20px 20px calc(96px + env(safe-area-inset-bottom));max-width:1480px;margin:0 auto;display:grid;gap:16px}
 .cardSurface{border:1px solid rgba(255,255,255,.10);border-radius:24px;background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));box-shadow:0 18px 46px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.04)}
 
-.desktopHero{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:stretch;padding:18px 20px}
+.desktopHero{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:stretch;padding:18px 20px}
 .heroCopyBlock{display:grid;gap:14px;align-content:center}
 .heroActionBlock{display:grid;gap:14px;align-content:start}
 
@@ -559,7 +558,7 @@ onBeforeUnmount(() => {
 .heroActions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
 .desktopToolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:14px 18px}
-.desktopToolbarHint{font-size:13px;color:rgba(255,255,255,.68);text-align:right;max-width:42ch;justify-self:end}
+.desktopToolbarHint{font-size:13px;color:rgba(255,255,255,.68);text-align:right;max-width:32ch;justify-self:end}
 
 .mobileToolbar{display:none}
 
@@ -576,24 +575,26 @@ onBeforeUnmount(() => {
 .composerShortcut--desktop{justify-content:center}
 .composerShortcut__plus{display:inline-flex;width:16px;justify-content:center;opacity:.82;font-weight:900}
 
-.actionLaneGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.actionLaneGrid{display:grid;grid-template-columns:1.35fr .85fr .85fr;gap:12px}
 .actionLane{padding:16px;text-align:left;cursor:pointer;display:grid;gap:8px;transition:transform .16s ease,border-color .18s ease,background .18s ease}
 .actionLane:hover{transform:translateY(-1px);border-color:color-mix(in oklab,var(--accent) 34%,rgba(255,255,255,.14))}
+.actionLane--spotlight{padding:18px 18px 20px}
 .actionLane__eyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:rgba(255,255,255,.62)}
 .actionLane__title{font-size:18px;font-weight:950;line-height:1.25}
+.actionLane--spotlight .actionLane__title{font-size:22px;line-height:1.18}
 .actionLane__body{font-size:13px;line-height:1.55;color:rgba(255,255,255,.72)}
 
 .list{display:flex;flex-direction:column;gap:12px}
 .list--loading{gap:14px}
-.feedTopSummary{padding:2px 2px 0}
+.feedTopSummary{padding:4px 2px 0}
 .feedTopSummary__title{font-size:18px;font-weight:950}
-.feedTopSummary__sub{margin-top:4px;font-size:13px;color:rgba(255,255,255,.66)}
+.feedTopSummary__sub{margin-top:4px;font-size:13px;color:rgba(255,255,255,.66);max-width:58ch}
 .feedFocusRow{margin-top:12px;display:flex;gap:10px;flex-wrap:wrap}
 .feedFocusPill{min-height:42px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);display:inline-flex;align-items:center;gap:10px}
 .feedFocusPill__label{font-size:12px;color:rgba(255,255,255,.64);font-weight:800}
 .feedFocusPill__value{font-size:14px;font-weight:950;color:rgba(255,255,255,.95)}
 
-.feedGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:stretch;justify-content:center}
+.feedGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;align-items:stretch;justify-content:center}
 .feedGrid :deep(.card){height:auto}
 
 .newPostBanner{align-self:center;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 40%, rgba(255,255,255,.14));background:color-mix(in oklab,var(--accent) 20%, rgba(255,255,255,.05));color:rgba(255,255,255,.96);font-weight:900;box-shadow:0 10px 30px rgba(25,48,110,.22)}
@@ -631,6 +632,7 @@ onBeforeUnmount(() => {
   .page{padding-top:14px;max-width:960px}
   .feedGrid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));justify-content:stretch}
   .actionLaneGrid{grid-template-columns:1fr}
+  .actionLane--spotlight .actionLane__title{font-size:20px}
 }
 @media (max-width:860px){
   .page{padding:14px 12px calc(106px + env(safe-area-inset-bottom));max-width:840px}
@@ -644,6 +646,7 @@ onBeforeUnmount(() => {
   .modePill{width:100%;justify-content:center;padding:0 10px}
   .modeMeta{font-size:11.5px}
   .brandTitle{font-size:20px}
+  .feedTopSummary__sub{max-width:none}
 }
 @media (max-width:480px){
   .page{padding:12px 10px calc(100px + env(safe-area-inset-bottom))}

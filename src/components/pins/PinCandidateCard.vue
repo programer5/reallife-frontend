@@ -1,6 +1,6 @@
 <!-- src/components/pins/PinCandidateCard.vue -->
 <script setup>
-import { computed, ref, watch, nextTick  } from "vue";
+import { computed, ref, watch, nextTick } from "vue";
 import RlButton from "@/components/ui/RlButton.vue";
 import RlModal from "@/components/ui/RlModal.vue";
 
@@ -18,21 +18,54 @@ function fmt(dt) {
 }
 
 function toLocalInput(dt) {
-  // "YYYY-MM-DDTHH:mm" 형식으로 맞춤
   if (!dt) return "";
   const s = String(dt);
   if (s.includes("T")) return s.slice(0, 16);
-  // "YYYY-MM-DD HH:mm" -> "YYYY-MM-DDTHH:mm"
   if (s.length >= 16) return s.slice(0, 10) + "T" + s.slice(11, 16);
   return "";
 }
 
 function fromLocalInput(v) {
-  // "YYYY-MM-DDTHH:mm" -> ISO-ish "YYYY-MM-DDTHH:mm:00"
   if (!v) return null;
   if (v.length === 16) return `${v}:00`;
   return v;
 }
+
+/* =========================
+ * ✅ 타입 감지 / UI 톤
+ * ========================= */
+function inferCandidateKind(candidate) {
+  const title = String(candidate?.title || "");
+  const place = String(candidate?.placeText || "");
+  const rawType = String(candidate?.type || candidate?.kind || "").toUpperCase();
+
+  if (["PLACE", "LOCATION"].includes(rawType)) return "place";
+  if (["TODO", "TASK"].includes(rawType)) return "todo";
+  if (["PROMISE", "APPOINTMENT", "MEETING"].includes(rawType)) return "promise";
+
+  if (place) return "place";
+  if (/(할일|해야|작업|업무|정리|구매|체크|예약|준비|제출)/.test(title)) return "todo";
+  if (/(장소|카페|식당|공원|역|출구|성수|방문)/.test(title)) return "place";
+  return "promise";
+}
+
+const candidateKind = computed(() => inferCandidateKind(props.candidate));
+
+const kindLabel = computed(() => {
+  if (candidateKind.value === "todo") return "할일";
+  if (candidateKind.value === "place") return "장소";
+  return "약속";
+});
+
+const followupCopy = computed(() => {
+  if (candidateKind.value === "todo") {
+    return "저장하면 해야 할 일 흐름으로 이어지고, 대화에서 완료까지 관리할 수 있어요.";
+  }
+  if (candidateKind.value === "place") {
+    return "저장하면 장소 메모로 이어지고, 대화에서 약속 장소로 자연스럽게 연결할 수 있어요.";
+  }
+  return "저장하면 약속 카드로 이어지고, 대화에서 시간·장소·완료 흐름까지 이어갈 수 있어요.";
+});
 
 /* =========================
  * ✅ Remind UX 개선 (칩 + 기억 + 없음)
@@ -61,7 +94,6 @@ function writeLastRemind(v) {
   localStorage.setItem(REMIND_KEY, String(v));
 }
 
-// 후보 startAt 기준 스마트 기본값 (후보에 remindAt이 없을 때 사용)
 function smartDefaultRemind(startAt) {
   try {
     const s = startAt ? Date.parse(startAt) : NaN;
@@ -76,7 +108,6 @@ function smartDefaultRemind(startAt) {
   }
 }
 
-// 후보에 remindAt이 있으면 startAt-remindAt을 역산해서 기본 선택
 function guessFromCandidate(candidate) {
   try {
     const s = candidate?.startAt ? Date.parse(candidate.startAt) : NaN;
@@ -92,7 +123,6 @@ function guessFromCandidate(candidate) {
 
 const remindMinutes = ref(30);
 
-// candidate 바뀔 때 기본값 세팅
 watch(
     () => props.candidate,
     (c) => {
@@ -100,7 +130,6 @@ watch(
       const guessed = guessFromCandidate(c);
       const smart = smartDefaultRemind(c?.startAt);
 
-      // 우선순위: 마지막 선택 > 후보값 추정(remindAt) > 스마트 기본값
       const next =
           last !== null && [0, 5, 10, 30, 60].includes(last)
               ? last
@@ -113,7 +142,6 @@ watch(
     { immediate: true }
 );
 
-// 사용자가 선택하면 기억
 watch(
     () => remindMinutes.value,
     (v) => {
@@ -126,7 +154,6 @@ const remindLabel = computed(() => {
   return opt?.label || "30분 전";
 });
 
-// 서버로 보낼 값(없음이면 null)
 const overrideRemindMinutesToSend = computed(() => {
   return remindMinutes.value === 0 ? null : remindMinutes.value;
 });
@@ -140,20 +167,12 @@ const title = ref("");
 const placeText = ref("");
 const startAtLocal = ref("");
 
-const canSave = computed(() => {
-  // 제목은 빈값이면 서버가 기본값 처리하도록 null로 보내도 되지만,
-  // UX상 제목은 최소 1자 권장. 다만 강제하진 않음.
-  return true;
-});
+const canSave = computed(() => true);
 
 function openEdit() {
   title.value = props.candidate?.title || "";
   placeText.value = props.candidate?.placeText || "";
   startAtLocal.value = toLocalInput(props.candidate?.startAt || "");
-
-  // ✅ 주의: 사용자가 이미 칩에서 선택했으면 그 값을 유지하는 게 UX상 좋음
-  // 따라서 여기서 remindMinutes를 다시 덮어쓰지 않음.
-
   editOpen.value = true;
 }
 
@@ -168,12 +187,11 @@ function confirmDefault() {
     overrideTitle: null,
     overridePlaceText: null,
     overrideStartAt: null,
-    overrideRemindMinutes: overrideRemindMinutesToSend.value, // ✅ 없음(0) -> null
+    overrideRemindMinutes: overrideRemindMinutesToSend.value,
   });
 }
 
 async function confirmEdited() {
-  // ✅ 한글 IME 조합중이면 blur + nextTick으로 값 확정
   const el = document.activeElement;
   if (el && typeof el.blur === "function") el.blur();
   await nextTick();
@@ -192,16 +210,18 @@ async function confirmEdited() {
 watch(
     () => props.busy,
     (b) => {
-      // 저장 중이면 닫히지 않게 유지
       if (b) return;
     }
 );
 </script>
 
 <template>
-  <div class="wrap">
+  <div class="wrap" :data-kind="candidateKind">
     <div class="top">
-      <div class="title">📌 {{ candidate?.title || "약속" }}</div>
+      <div class="titleRow">
+        <div class="title">📌 {{ candidate?.title || "약속" }}</div>
+        <span class="kindPill" :data-kind="candidateKind">{{ kindLabel }}</span>
+      </div>
 
       <div class="meta">
         <span v-if="candidate?.startAt">🕒 {{ fmt(candidate.startAt) }}</span>
@@ -210,9 +230,10 @@ watch(
           (세부 정보 없음)
         </span>
       </div>
+
+      <div class="followupHint">{{ followupCopy }}</div>
     </div>
 
-    <!-- ✅ Chat Slim: 리마인드(퀵 3개) + 더보기 -->
     <div class="remindSlim">
       <span class="remindSlimLabel">리마인드</span>
 
@@ -249,7 +270,6 @@ watch(
       </button>
     </div>
 
-    <!-- ✅ 수정 모달 -->
     <RlModal
         :open="editOpen"
         title="📌 핀 저장 전 수정"
@@ -289,7 +309,6 @@ watch(
           />
         </label>
 
-        <!-- ✅ 모달에서도 리마인드 변경 가능 -->
         <div class="remindRow">
           <div class="remindLabel">리마인드</div>
           <div class="remindChips">
@@ -321,26 +340,76 @@ watch(
 </template>
 
 <style scoped>
-/* ✅ ConversationDetailView premium 톤 유지 */
 .wrap{
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: 16px;
-
   border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
   background: color-mix(in oklab, var(--surface) 86%, transparent);
-
   box-shadow: 0 1px 0 rgba(255,255,255,.06) inset;
   backdrop-filter: blur(10px);
   color: var(--text);
 }
 
-.top{ display:flex; flex-direction:column; gap:4px; }
+.wrap[data-kind="promise"]{
+  border-color: color-mix(in oklab, #6e9cff 28%, var(--border));
+  box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 0 0 1px rgba(110,156,255,.04);
+}
+.wrap[data-kind="todo"]{
+  border-color: color-mix(in oklab, #ffd466 28%, var(--border));
+  box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 0 0 1px rgba(255,212,102,.04);
+}
+.wrap[data-kind="place"]{
+  border-color: color-mix(in oklab, #4dd0a4 28%, var(--border));
+  box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 0 0 1px rgba(77,208,164,.04);
+}
+
+.top{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.titleRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
 
 .title{
   font-weight: 950;
   font-size: 13px;
   color: var(--text);
+}
+
+.kindPill{
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  font-size: 11px;
+  font-weight: 900;
+}
+.kindPill[data-kind="promise"]{
+  border-color: rgba(110,156,255,.28);
+  background: rgba(82,127,255,.16);
+  color: #cfe0ff;
+}
+.kindPill[data-kind="todo"]{
+  border-color: rgba(255,212,102,.26);
+  background: rgba(255,212,102,.14);
+  color: #ffe8a3;
+}
+.kindPill[data-kind="place"]{
+  border-color: rgba(77,208,164,.26);
+  background: rgba(77,208,164,.14);
+  color: #c9f7e9;
 }
 
 .meta{
@@ -352,6 +421,12 @@ watch(
 }
 .muted{ opacity: .65; }
 
+.followupHint{
+  font-size: 12px;
+  line-height: 1.5;
+  color: color-mix(in oklab, var(--text) 76%, var(--muted));
+}
+
 .actions{
   margin-top: 10px;
   display:flex;
@@ -359,7 +434,6 @@ watch(
   flex-wrap: wrap;
 }
 
-/* ✅ Remind chips */
 .remindRow{
   padding: 8px 0 2px;
   display:flex;
@@ -391,7 +465,6 @@ watch(
   opacity:.5;
 }
 
-/* modal form */
 .editBody{ padding: 8px 0 2px; display:flex; flex-direction:column; gap:10px; }
 .field{ display:flex; flex-direction:column; gap:6px; }
 .label{ font-size: 12px; font-weight: 900; color: var(--muted); }
@@ -409,7 +482,7 @@ watch(
   border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
 }
 .remindSlim{
-  margin-top: 8px;
+  margin-top: 10px;
   display:flex;
   align-items:center;
   justify-content: space-between;

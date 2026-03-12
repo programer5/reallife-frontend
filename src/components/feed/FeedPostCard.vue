@@ -167,10 +167,10 @@ function isActionSharePost(post) {
 
 function normalizedLines(post) {
   return String(post?.content || "")
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((v) => v.trim())
-    .filter(Boolean);
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((v) => v.trim())
+      .filter(Boolean);
 }
 
 function stripLeadingEmojiTitle(line) {
@@ -207,10 +207,18 @@ function actionStateTone(raw) {
 function inferKindLabel(title) {
   const s = String(title || "");
   if (!s) return "액션";
-  if (/(약속|만나|미팅|식사|데이트|모임)/.test(s)) return "약속";
-  if (/(할일|해야|작업|업무|정리|구매|체크)/.test(s)) return "할일";
-  if (/(장소|가자|방문|성수|역|카페|공원|식당)/.test(s)) return "장소";
+  if (/(약속|만나|미팅|식사|데이트|모임|약속잡)/.test(s)) return "약속";
+  if (/(할일|해야|작업|업무|정리|구매|체크|예약|준비|제출)/.test(s)) return "할일";
+  if (/(장소|가자|방문|성수|역|카페|공원|식당|주소|출구)/.test(s)) return "장소";
   return "액션";
+}
+
+function kindTone(kind) {
+  const v = String(kind || "").trim();
+  if (v === "약속") return "promise";
+  if (v === "할일") return "todo";
+  if (v === "장소") return "place";
+  return "neutral";
 }
 
 function fallbackActionMetaFromContent(post) {
@@ -243,6 +251,7 @@ function fallbackActionMetaFromContent(post) {
     badge: "액션 공유",
     title,
     subtitle: subtitle || description || "",
+    kind,
     state: remindAt ? "리마인더 설정됨" : kind,
     chips: chips.slice(0, 3),
   };
@@ -261,10 +270,12 @@ const actionShareMeta = computed(() => {
       if (meta.remindAt) chips.push(`⏰ ${meta.remindAt}`);
     }
 
+    const kind = meta.kind || meta.type || inferKindLabel(meta.title || meta.subtitle || "");
     return {
       badge: meta.badge || "액션 공유",
       title: meta.title || "",
       subtitle: meta.subtitle || meta.description || "",
+      kind: inferKindLabel(kind),
       state: actionStateLabel(meta.status || meta.state || ""),
       chips: chips.slice(0, 3),
     };
@@ -273,6 +284,9 @@ const actionShareMeta = computed(() => {
   if (!isActionSharePost(props.post)) return null;
   return fallbackActionMetaFromContent(props.post);
 });
+
+const actionKindTone = computed(() => kindTone(actionShareMeta.value?.kind || ""));
+const actionKindLabel = computed(() => actionShareMeta.value?.kind || "");
 
 const shareComment = computed(() => {
   if (!actionShareMeta.value) return "";
@@ -362,16 +376,42 @@ const commentPreviewTitle = computed(() => {
     </div>
 
     <section
-      v-if="actionShareMeta && (actionShareMeta.title || actionShareMeta.subtitle || actionShareMeta.state || actionShareMeta.chips.length)"
-      class="shareCard"
+        v-if="actionShareMeta && (actionShareMeta.title || actionShareMeta.subtitle || actionShareMeta.state || actionShareMeta.chips.length)"
+        class="shareCard"
     >
       <div class="shareCard__top">
         <div class="shareCard__icon">✨</div>
+
         <div class="shareCard__body">
+          <div class="shareCard__labels">
+            <span
+                v-if="actionKindLabel"
+                class="actionKind"
+                :data-tone="actionKindTone"
+            >
+              {{ actionKindLabel }}
+            </span>
+
+            <div
+                v-if="actionShareMeta.state"
+                class="shareCard__state shareCard__state--mobile"
+                :data-tone="actionStateTone(actionShareMeta.state)"
+            >
+              {{ actionShareMeta.state }}
+            </div>
+          </div>
+
           <div v-if="actionShareMeta.title" class="shareCard__title">{{ actionShareMeta.title }}</div>
           <div v-if="actionShareMeta.subtitle" class="shareCard__sub">{{ actionShareMeta.subtitle }}</div>
         </div>
-        <div v-if="actionShareMeta.state" class="shareCard__state" :data-tone="actionStateTone(actionShareMeta.state)">{{ actionShareMeta.state }}</div>
+
+        <div
+            v-if="actionShareMeta.state"
+            class="shareCard__state shareCard__state--desktop"
+            :data-tone="actionStateTone(actionShareMeta.state)"
+        >
+          {{ actionShareMeta.state }}
+        </div>
       </div>
 
       <div v-if="actionShareMeta.chips.length" class="actionMetaBar">
@@ -386,20 +426,20 @@ const commentPreviewTitle = computed(() => {
     </section>
 
     <div
-      v-if="visibleImages.length"
-      class="mediaSlider"
-      @click.stop="onMediaTap"
-      @pointerdown="onPointerDown"
-      @pointerup="onPointerUp"
+        v-if="visibleImages.length"
+        class="mediaSlider"
+        @click.stop="onMediaTap"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
     >
       <div class="track" :style="{ transform: `translateX(${-slide * 100}%)` }">
         <button
-          v-for="(u, idx) in visibleImages"
-          :key="idx"
-          class="slide"
-          type="button"
-          @click.stop="openLightbox(idx, $event)"
-          :aria-label="`이미지 ${idx + 1} 확대`"
+            v-for="(u, idx) in visibleImages"
+            :key="idx"
+            class="slide"
+            type="button"
+            @click.stop="openLightbox(idx, $event)"
+            :aria-label="`이미지 ${idx + 1} 확대`"
         >
           <img class="img" :src="u" alt="post image" loading="lazy" decoding="async" />
         </button>
@@ -458,17 +498,17 @@ const commentPreviewTitle = computed(() => {
     </div>
 
     <Lightbox
-      v-if="lightboxOpen"
-      :images="visibleImages"
-      :start-index="lightboxIndex"
-      @close="lightboxOpen = false"
+        v-if="lightboxOpen"
+        :images="visibleImages"
+        :start-index="lightboxIndex"
+        @close="lightboxOpen = false"
     />
   </article>
 </template>
 
 <style scoped>
 .card{
-  min-height:360px;
+  min-height:372px;
   display:flex;
   flex-direction:column;
   border: 1px solid rgba(255,255,255,.10);
@@ -524,7 +564,7 @@ const commentPreviewTitle = computed(() => {
   margin-top: 10px;
   border: 1px solid color-mix(in oklab, var(--accent) 28%, rgba(255,255,255,.12));
   background:
-    linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, transparent), rgba(255,255,255,.02));
+      linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, transparent), rgba(255,255,255,.02));
   border-radius: 18px;
   padding: 12px;
 }
@@ -546,6 +586,13 @@ const commentPreviewTitle = computed(() => {
 .shareCard__body{
   flex:1;
   min-width:0;
+}
+.shareCard__labels{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:6px;
 }
 .shareCard__title{
   font-size:15px;
@@ -573,6 +620,38 @@ const commentPreviewTitle = computed(() => {
   color: rgba(255,255,255,.86);
   white-space: nowrap;
 }
+.shareCard__state--mobile{ display:none; }
+
+.actionKind{
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  color: rgba(255,255,255,.92);
+}
+.actionKind[data-tone="promise"]{
+  border-color: rgba(110, 156, 255, .28);
+  background: rgba(82, 127, 255, .16);
+  color: #cfe0ff;
+}
+.actionKind[data-tone="todo"]{
+  border-color: rgba(255, 212, 102, .26);
+  background: rgba(255, 212, 102, .14);
+  color: #ffe8a3;
+}
+.actionKind[data-tone="place"]{
+  border-color: rgba(77, 208, 164, .26);
+  background: rgba(77, 208, 164, .14);
+  color: #c9f7e9;
+}
+
 .shareCard__state[data-tone="pending"]{
   border-color: color-mix(in oklab, var(--warning) 42%, rgba(255,255,255,.12));
   background: color-mix(in oklab, var(--warning) 20%, rgba(255,255,255,.05));
@@ -622,6 +701,7 @@ const commentPreviewTitle = computed(() => {
   line-height: 1.58;
   color: rgba(255,255,255,.94);
   font-size: 14px;
+  min-height: calc(1.58em * 2);
 }
 
 .actionMetaBar{
@@ -659,7 +739,7 @@ const commentPreviewTitle = computed(() => {
   width: 100%;
   display:block;
   object-fit: cover;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 16 / 18;
   max-height: 680px;
   background: rgba(255,255,255,.04);
 }
@@ -772,7 +852,13 @@ const commentPreviewTitle = computed(() => {
 .cMore{ margin-top: 8px; font-size: 12px; font-weight: 900; opacity: .72; }
 
 .actions{
-  margin-top:auto; margin-top: 12px; display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+  margin-top:auto;
+  padding-top: 12px;
+  display:flex;
+  gap: 10px;
+  align-items:center;
+  flex-wrap: wrap;
+}
 .act{
   display:inline-flex; align-items:center; gap: 8px;
   height: 34px; padding: 0 12px;
@@ -794,12 +880,13 @@ const commentPreviewTitle = computed(() => {
 @keyframes bump{ 0%{ transform: scale(1); } 55%{ transform: scale(1.08); } 100%{ transform: scale(1); } }
 
 @media (max-width: 720px){
-  .img{ aspect-ratio: 1 / 1.08; }
+  .img{ aspect-ratio: 1 / 1.05; }
   .mediaTopMeta{ top: 8px; left: 8px; right: 8px; }
   .nav{ width: 38px; height: 38px; }
   .shareCard__top{ flex-wrap: wrap; }
-  .actions{
-  margin-top:auto; gap: 8px; }
+  .shareCard__state--desktop{ display:none; }
+  .shareCard__state--mobile{ display:inline-flex; }
+  .actions{ gap: 8px; }
   .act{ flex: 1 1 calc(50% - 4px); justify-content: center; }
 }
 </style>
