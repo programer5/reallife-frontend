@@ -360,8 +360,16 @@ function pinKindMeta(p) {
 
 function pinTimelineState(p) {
   const kind = classifyPin(p);
+  const status = String(p?.status || "ACTIVE").toUpperCase();
   const now = Date.now();
   const startTs = p?.startAt ? new Date(p.startAt).getTime() : 0;
+
+  if (status === "DONE") {
+    return { stage: "done", label: "완료", tone: "success", progress: 100 };
+  }
+  if (status === "CANCELED" || status === "CANCELLED") {
+    return { stage: "canceled", label: "취소", tone: "danger", progress: 100 };
+  }
 
   if (kind === "PLACE") {
     return { stage: "saved", label: "저장됨", tone: "stable", progress: 34 };
@@ -1207,6 +1215,7 @@ function feedShareMetaForPin(pin) {
   const time = pin?.startAt ? pinTimeText(pin) : "시간 미정";
   const place = String(pin?.placeText || "장소 미정").trim();
   const remind = pin?.remindAt ? reminderTimeText(pin) : "리마인드 없음";
+  const timeline = pinTimelineState(pin);
 
   const chips = [
     time ? `🕒 ${time}` : "",
@@ -1219,8 +1228,8 @@ function feedShareMetaForPin(pin) {
     title,
     subtitle: [meta.label, place !== "장소 미정" ? place : ""].filter(Boolean).join(" · "),
     description: [time, place].filter(Boolean).join(" · "),
-    state: remind && remind !== "리마인드 없음" ? "리마인더 설정됨" : meta.label,
-    status: remind && remind !== "리마인드 없음" ? remind : meta.label,
+    state: timeline.label,
+    status: timeline.stage.toUpperCase(),
 
     kind: meta.label,
     emoji: meta.emoji,
@@ -2727,8 +2736,8 @@ onBeforeUnmount(() => {
           <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
           <div v-if="!p.__placeholder" class="dockCardActions" @click.stop>
             <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
-            <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
-            <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
+            <button v-if="String(p.status || 'ACTIVE').toUpperCase() === 'ACTIVE'" class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
+            <button v-if="String(p.status || 'ACTIVE').toUpperCase() === 'ACTIVE'" class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
           </div>
           <button v-if="!p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
         </div>

@@ -175,8 +175,33 @@ function normalizedLines(post) {
 
 function stripLeadingEmojiTitle(line) {
   return String(line || "")
-    .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "")
-    .trim();
+      .replace(/^[\u{1F300}-\u{1FAFF}\uFE0F\u200D]+\s*/u, "")
+      .trim();
+}
+
+function normalizeActionState(raw) {
+  const s = String(raw || "").trim().toUpperCase();
+  if (!s) return "";
+  if (["DONE", "COMPLETED", "완료", "완료됨"].includes(s)) return "DONE";
+  if (["CANCELED", "CANCELLED", "취소", "취소됨"].includes(s)) return "CANCELED";
+  if (["ACTIVE", "PENDING", "SCHEDULED", "예정", "예정됨", "진행 준비"].includes(s)) return "ACTIVE";
+  return "";
+}
+
+function actionStateLabel(raw) {
+  const normalized = normalizeActionState(raw);
+  if (normalized === "DONE") return "완료";
+  if (normalized === "CANCELED") return "취소";
+  if (normalized === "ACTIVE") return "예정";
+  return String(raw || "").trim();
+}
+
+function actionStateTone(raw) {
+  const normalized = normalizeActionState(raw);
+  if (normalized === "DONE") return "done";
+  if (normalized === "CANCELED") return "cancelled";
+  if (normalized === "ACTIVE") return "pending";
+  return "neutral";
 }
 
 function inferKindLabel(title) {
@@ -240,7 +265,7 @@ const actionShareMeta = computed(() => {
       badge: meta.badge || "액션 공유",
       title: meta.title || "",
       subtitle: meta.subtitle || meta.description || "",
-      state: meta.status || meta.state || "",
+      state: actionStateLabel(meta.status || meta.state || ""),
       chips: chips.slice(0, 3),
     };
   }
@@ -346,7 +371,7 @@ const commentPreviewTitle = computed(() => {
           <div v-if="actionShareMeta.title" class="shareCard__title">{{ actionShareMeta.title }}</div>
           <div v-if="actionShareMeta.subtitle" class="shareCard__sub">{{ actionShareMeta.subtitle }}</div>
         </div>
-        <div v-if="actionShareMeta.state" class="shareCard__state">{{ actionShareMeta.state }}</div>
+        <div v-if="actionShareMeta.state" class="shareCard__state" :data-tone="actionStateTone(actionShareMeta.state)">{{ actionShareMeta.state }}</div>
       </div>
 
       <div v-if="actionShareMeta.chips.length" class="actionMetaBar">
@@ -547,6 +572,21 @@ const commentPreviewTitle = computed(() => {
   font-weight: 900;
   color: rgba(255,255,255,.86);
   white-space: nowrap;
+}
+.shareCard__state[data-tone="pending"]{
+  border-color: color-mix(in oklab, var(--warning) 42%, rgba(255,255,255,.12));
+  background: color-mix(in oklab, var(--warning) 20%, rgba(255,255,255,.05));
+  color: color-mix(in oklab, var(--warning) 78%, white);
+}
+.shareCard__state[data-tone="done"]{
+  border-color: color-mix(in oklab, var(--success) 44%, rgba(255,255,255,.12));
+  background: color-mix(in oklab, var(--success) 20%, rgba(255,255,255,.05));
+  color: color-mix(in oklab, var(--success) 78%, white);
+}
+.shareCard__state[data-tone="cancelled"]{
+  border-color: color-mix(in oklab, var(--danger) 44%, rgba(255,255,255,.12));
+  background: color-mix(in oklab, var(--danger) 20%, rgba(255,255,255,.05));
+  color: color-mix(in oklab, var(--danger) 78%, white);
 }
 
 .bodyCard{
