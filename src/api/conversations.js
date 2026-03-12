@@ -34,3 +34,12 @@ export async function fetchConversationReadReceipts(conversationId) {
     const res = await api.get(`/api/conversations/${conversationId}/read-receipts`);
     return res.data; // { items: [{ userId, lastReadAt }] }
 }
+
+export async function createGroupConversation({ title, participantIds = [], coverImageFileId = null }) {
+  const res = await api.post("/api/conversations/group", {
+    title,
+    participantIds,
+    coverImageFileId,
+  });
+  return res.data;
+}

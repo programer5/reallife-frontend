@@ -7,7 +7,6 @@ import RlModal from "@/components/ui/RlModal.vue";
 import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
-import PostComposer from "@/components/PostComposer.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -616,6 +615,24 @@ onBeforeUnmount(() => {
 const myId = computed(() => auth.me?.id || null);
 
 /** 상대(목록 데이터 기반) */
+
+const currentConversationRow = computed(() => {
+  const cid = conversationId.value;
+  return convStore.items?.find(c => String(c.conversationId) === String(cid)) || null;
+});
+
+const conversationType = computed(() =>
+  String(currentConversationRow.value?.conversationType || "DIRECT")
+);
+
+const conversationTitle = computed(() =>
+  currentConversationRow.value?.conversationTitle || ""
+);
+
+const isGroupConversation = computed(() =>
+  conversationType.value === "GROUP"
+);
+
 const peer = computed(() => {
   const cid = conversationId.value;
   const row = convStore.items?.find((c) => String(c.conversationId) === String(cid));
@@ -855,12 +872,12 @@ function loadPinActivityFromStorage(cid) {
 const pinActivity = ref([]);
 
 function syncPinActivity(cid = conversationId.value) {
-  pinActivity.value = loadPinActivityFromStorage(cid).slice(0, 12);
+  pinActivity.value = loadPinActivityFromStorage(cid).slice(0, 6);
 }
 
 function savePinActivity(cid = conversationId.value) {
   try {
-    sessionStorage.setItem(pinActivityStorageKey(cid), JSON.stringify(pinActivity.value.slice(0, 12)));
+    sessionStorage.setItem(pinActivityStorageKey(cid), JSON.stringify(pinActivity.value.slice(0, 6)));
   } catch {}
 }
 
@@ -873,12 +890,9 @@ function rememberPinAction(action, pin) {
     type: classifyPin(pin),
     placeText: pin?.placeText || "",
     startAt: pin?.startAt || "",
-    remindAt: pin?.remindAt || "",
-    status: pin?.status || "",
-    createdAt: pin?.createdAt || "",
     at: new Date().toISOString(),
   };
-  pinActivity.value = [entry, ...pinActivity.value.filter((x) => String(x.id) !== String(entry.id))].slice(0, 12);
+  pinActivity.value = [entry, ...pinActivity.value.filter((x) => String(x.pinId) !== String(entry.pinId))].slice(0, 6);
   savePinActivity();
 }
 
@@ -966,126 +980,21 @@ function openReminderPins(pin) {
 const recentPinActivity = computed(() => pinActivity.value.slice(0, 4));
 
 function pinActivityLabel(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CREATED") return "생성";
-  if (action === "DONE") return "완료";
-  if (action === "CANCELED") return "취소";
-  if (action === "SHARED") return "공유";
+  if (item?.action === "DONE") return "완료";
+  if (item?.action === "CANCELED") return "취소";
   return "숨김";
 }
 
 function pinActivityTone(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CREATED") return "create";
-  if (action === "DONE") return "done";
-  if (action === "CANCELED") return "cancel";
-  if (action === "SHARED") return "share";
+  if (item?.action === "DONE") return "done";
+  if (item?.action === "CANCELED") return "cancel";
   return "hide";
 }
 
 function pinActivityMeta(item) {
-  const when = item?.startAt ? pinTimeText(item) : actionHistoryTimeText(item?.at);
+  const when = item?.startAt ? pinTimeText(item) : "방금 처리";
   const place = item?.placeText ? ` · ${item.placeText}` : "";
   return `${when}${place}`;
-}
-
-const historyFilter = ref("ALL");
-
-const actionHistorySummary = computed(() => ({
-  active: (Array.isArray(pins.value) ? pins.value : []).length,
-  recent: pinActivity.value.filter((item) => ["DONE", "CANCELED", "DISMISSED", "SHARED"].includes(String(item?.action || "").toUpperCase())).length,
-  created: pinActivity.value.filter((item) => String(item?.action || "").toUpperCase() === "CREATED").length,
-}));
-
-const conversationActionHistory = computed(() => {
-  const current = (Array.isArray(pins.value) ? pins.value : []).map((pin) => ({
-    id: `current-${pin?.pinId || Math.random()}` ,
-    pinId: pin?.pinId || null,
-    action: "CURRENT",
-    title: pin?.title || pinKindMeta(pin).label,
-    type: classifyPin(pin),
-    placeText: pin?.placeText || "",
-    startAt: pin?.startAt || "",
-    remindAt: pin?.remindAt || "",
-    status: pin?.status || "ACTIVE",
-    at: pin?.createdAt || pin?.startAt || new Date().toISOString(),
-  }));
-
-  const recent = pinActivity.value.map((item) => ({
-    ...item,
-    id: item?.id || `${item?.action || "event"}-${item?.pinId || item?.at || Date.now()}`,
-  }));
-
-  return [...current, ...recent]
-    .sort((a, b) => (new Date(b?.at || 0).getTime() || 0) - (new Date(a?.at || 0).getTime() || 0))
-    .slice(0, 12);
-});
-
-const visibleConversationActionHistory = computed(() => {
-  const filter = historyFilter.value;
-  if (filter === "CURRENT") return conversationActionHistory.value.filter((item) => item?.action === "CURRENT");
-  if (filter === "RECENT") return conversationActionHistory.value.filter((item) => item?.action !== "CURRENT");
-  return conversationActionHistory.value;
-});
-
-function actionHistoryLabel(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CURRENT") return pinTimelineState(item).label;
-  if (action === "CREATED") return "생성";
-  if (action === "DONE") return "완료";
-  if (action === "CANCELED") return "취소";
-  if (action === "DISMISSED") return "숨김";
-  if (action === "SHARED") return "공유";
-  return "이력";
-}
-
-function actionHistoryTone(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CURRENT") return pinTimelineState(item).tone;
-  if (action === "CREATED") return "create";
-  if (action === "DONE") return "done";
-  if (action === "CANCELED") return "cancel";
-  if (action === "DISMISSED") return "hide";
-  if (action === "SHARED") return "share";
-  return "soft";
-}
-
-function actionHistoryKindLabel(item) {
-  const kind = String(item?.type || classifyPin(item) || "").toUpperCase();
-  if (kind === "PROMISE") return "약속";
-  if (kind === "TODO") return "할일";
-  if (kind === "PLACE") return "장소";
-  return "액션";
-}
-
-function actionHistoryTimeText(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).replace("T", " ").slice(0, 16);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${mm}.${dd} ${hh}:${mi}`;
-}
-
-function actionHistoryMeta(item) {
-  const parts = [actionHistoryKindLabel(item)];
-  if (item?.startAt) parts.push(pinTimeText(item));
-  if (item?.placeText) parts.push(item.placeText);
-  if (item?.remindAt) parts.push(reminderTimeText(item));
-  return parts.join(" · ");
-}
-
-function actionHistoryDescription(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CURRENT") return "이 대화에서 아직 이어지고 있는 액션이에요.";
-  if (action === "CREATED") return "대화에서 새 액션으로 저장된 순간이에요.";
-  if (action === "DONE") return "처리가 끝난 액션이라 피드 공유나 기록 확인으로 이어갈 수 있어요.";
-  if (action === "CANCELED") return "취소로 정리된 액션이에요. 필요하면 새 흐름으로 다시 만들 수 있어요.";
-  if (action === "DISMISSED") return "내 화면에서 숨긴 액션이에요.";
-  if (action === "SHARED") return "홈 피드로 이어지도록 공유 초안을 만든 이력이에요.";
-  return "이 대화에서 이어진 액션 기록이에요.";
 }
 
 const timelinePrimaryMeta = computed(() => {
@@ -1313,28 +1222,6 @@ function guessRemindMinutesFromPin(pin) {
 
 const pinEditLoading = ref(false);
 
-const feedComposerOpen = ref(false);
-const feedComposerDraft = ref(null);
-
-function openFeedComposerForPin(pin) {
-  feedComposerDraft.value = {
-    content: feedShareTextForPin(pin),
-    visibility: "ALL",
-    sourceMeta: feedShareMetaForPin(pin),
-  };
-  feedComposerOpen.value = true;
-}
-
-function closeFeedComposer() {
-  feedComposerOpen.value = false;
-  feedComposerDraft.value = null;
-}
-
-function onFeedComposerCreated() {
-  closeFeedComposer();
-  toast.success?.("피드 공유 완료", "대화를 벗어나지 않고 바로 피드에 올렸어요.");
-}
-
 function toLocalInput(dt) {
   if (!dt) return "";
   const s = String(dt);
@@ -1405,23 +1292,18 @@ function feedShareMetaForPin(pin) {
 
 function sharePinToFeed(pin) {
   try {
-    rememberPinAction("SHARED", pin);
-    openFeedComposerForPin(pin);
+    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
+      content: feedShareTextForPin(pin),
+      visibility: "ALL",
+      source: "action-pin",
+      pinId: pin?.pinId || null,
+      sourceMeta: feedShareMetaForPin(pin),
+    }));
+    toast.success?.("피드 공유 준비", "홈에서 바로 게시할 수 있게 초안을 채워뒀어요.");
+    router.push({ path: "/home", query: { compose: "1" } });
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
-}
-
-function sharePinActivityToFeed(item) {
-  sharePinToFeed({
-    pinId: item?.pinId || null,
-    title: item?.title || "액션",
-    placeText: item?.placeText || "",
-    startAt: item?.startAt || "",
-    remindAt: item?.remindAt || "",
-    status: item?.status || (String(item?.action || "").toUpperCase() === "DONE" ? "DONE" : String(item?.action || "").toUpperCase() === "CANCELED" ? "CANCELED" : "ACTIVE"),
-    type: item?.type || classifyPin(item),
-  });
 }
 
 function openPinEdit(pin) {
@@ -2387,7 +2269,6 @@ if (_cid) {
         if (dockJustMovedPinId.value === String(created.pinId)) dockJustMovedPinId.value = null;
       }, 900);
 
-      rememberPinAction("CREATED", created);
       toast.success?.("핀 생성", "Pinned에 저장했어요.");
       await nextTick();
       if (flyDraft) enqueueDockToActiveFly({ ...flyDraft, createdPinId: created.pinId });
@@ -2863,46 +2744,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-
-        <div v-if="conversationActionHistory.length" class="timelineHistory">
-          <div class="timelineHistoryHead">
-            <div>
-              <div class="timelineHistoryEyebrow">Conversation → Action history</div>
-              <div class="timelineHistoryTitle">이 대화에서 만든 액션 기록</div>
-            </div>
-            <div class="timelineHistorySummary">
-              <span>진행중 {{ actionHistorySummary.active }}</span>
-              <span>최근 처리 {{ actionHistorySummary.recent }}</span>
-              <span>생성 {{ actionHistorySummary.created }}</span>
-            </div>
-          </div>
-          <div class="timelineHistoryFilters">
-            <button class="timelineHistoryFilter" :class="{ on: historyFilter === 'ALL' }" type="button" @click="historyFilter = 'ALL'">전체</button>
-            <button class="timelineHistoryFilter" :class="{ on: historyFilter === 'CURRENT' }" type="button" @click="historyFilter = 'CURRENT'">진행중</button>
-            <button class="timelineHistoryFilter" :class="{ on: historyFilter === 'RECENT' }" type="button" @click="historyFilter = 'RECENT'">최근 처리</button>
-          </div>
-          <div class="timelineHistoryList">
-            <div v-for="item in visibleConversationActionHistory" :key="item.id" class="timelineHistoryItem">
-              <span class="timelineHistoryBadge" :data-tone="actionHistoryTone(item)">{{ actionHistoryLabel(item) }}</span>
-              <div class="timelineHistoryBody">
-                <div class="timelineHistoryRow">
-                  <div class="timelineHistoryItemTitle">{{ item.title }}</div>
-                  <div class="timelineHistoryTime">{{ actionHistoryTimeText(item.at) }}</div>
-                </div>
-                <div class="timelineHistoryMeta">{{ actionHistoryMeta(item) }}</div>
-                <div class="timelineHistoryDesc">{{ actionHistoryDescription(item) }}</div>
-              </div>
-              <button
-                v-if="item.pinId && actionHistoryTone(item) !== 'cancel' && actionHistoryTone(item) !== 'hide'"
-                class="timelineHistoryShare"
-                type="button"
-                @click="sharePinActivityToFeed(item)"
-              >
-                피드 공유
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div v-if="pins && pins.length" class="dockRowWrap">
@@ -3335,13 +3176,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </Teleport>
-
-    <PostComposer
-      v-if="feedComposerOpen"
-      :initial-draft="feedComposerDraft"
-      @close="closeFeedComposer"
-      @created="onFeedComposerCreated"
-    />
 </template>
 
 <style scoped>
@@ -5060,42 +4894,15 @@ onBeforeUnmount(() => {
 .timelineFocusLabel{font-size:11px;color:var(--muted);font-weight:800;}
 .timelineFocusCard strong{font-size:24px;line-height:1;font-weight:950;}
 .timelineFocusMeta{font-size:11px;color:rgba(255,255,255,.68);}
-.timelineRecent{margin-top:14px;display:grid;gap:10px;padding:16px;border-radius:22px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.018));box-shadow:inset 0 1px 0 rgba(255,255,255,.04);}
-.timelineRecentHead{font-size:11px;color:var(--muted);font-weight:900;letter-spacing:.08em;text-transform:uppercase;}
-.timelineRecentList{display:grid;gap:10px;}
-.timelineRecentItem{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:18px;border:1px solid color-mix(in oklab, var(--border) 80%, transparent);background:color-mix(in oklab, var(--surface) 88%, white 12%);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);}
-.timelineRecentBadge{display:inline-flex;align-items:center;justify-content:center;min-width:56px;height:28px;padding:0 11px;border-radius:999px;font-size:11px;font-weight:900;border:1px solid color-mix(in oklab, var(--border) 84%, transparent);background:rgba(255,255,255,.03);}
+.timelineRecent{margin-top:12px;display:grid;gap:8px;}
+.timelineRecentHead{font-size:11px;color:var(--muted);font-weight:900;}
+.timelineRecentList{display:grid;gap:8px;}
+.timelineRecentItem{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in oklab, var(--border) 80%, transparent);background: color-mix(in oklab, var(--surface) 78%, transparent);}
+.timelineRecentBadge{display:inline-flex;align-items:center;justify-content:center;min-width:48px;height:26px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:900;border:1px solid color-mix(in oklab, var(--border) 84%, transparent);}
 .timelineRecentBadge[data-tone="done"]{background: color-mix(in oklab, var(--success) 18%, transparent);border-color: color-mix(in oklab, var(--success) 34%, var(--border));}
 .timelineRecentBadge[data-tone="cancel"]{background: color-mix(in oklab, var(--danger) 14%, transparent);border-color: color-mix(in oklab, var(--danger) 34%, var(--border));}
-.timelineRecentBadge[data-tone="create"]{background: color-mix(in oklab, var(--accent) 16%, transparent);border-color: color-mix(in oklab, var(--accent) 34%, var(--border));}
-.timelineRecentBadge[data-tone="share"]{background: color-mix(in oklab, #7dd3fc 14%, transparent);border-color: color-mix(in oklab, #7dd3fc 34%, var(--border));}
 .timelineRecentBadge[data-tone="hide"]{background: color-mix(in oklab, var(--surface-2) 76%, transparent);}
 .timelineRecentBody{min-width:0;display:grid;gap:3px;}
-.timelineHistory{margin-top:14px;display:grid;gap:12px;padding:18px;border-radius:22px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.018));box-shadow:inset 0 1px 0 rgba(255,255,255,.04);}
-.timelineHistoryHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;}
-.timelineHistoryEyebrow{font-size:11px;font-weight:900;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;}
-.timelineHistoryTitle{font-size:16px;font-weight:950;color:var(--text);margin-top:4px;}
-.timelineHistorySummary{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;font-weight:800;color:rgba(255,255,255,.72);}
-.timelineHistorySummary span{padding:7px 11px;border-radius:999px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:color-mix(in oklab, var(--surface) 88%, white 12%);}
-.timelineHistoryFilters{display:flex;gap:8px;flex-wrap:wrap;padding-top:2px;}
-.timelineHistoryFilter{min-height:32px;padding:0 13px;border-radius:999px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:color-mix(in oklab, var(--surface) 86%, white 10%);color:rgba(255,255,255,.76);font-size:12px;font-weight:900;}
-.timelineHistoryFilter.on{border-color: color-mix(in oklab, var(--accent) 34%, var(--border));background: color-mix(in oklab, var(--accent) 14%, transparent);color: var(--text);}
-.timelineHistoryList{display:grid;gap:10px;}
-.timelineHistoryItem{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:18px;border:1px solid color-mix(in oklab, var(--border) 84%, transparent);background:color-mix(in oklab, var(--surface) 88%, white 12%);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);}
-.timelineHistoryBadge{min-width:52px;height:26px;padding:0 10px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:rgba(255,255,255,.05);}
-.timelineHistoryBadge[data-tone="pending"],.timelineHistoryBadge[data-tone="upcoming"]{border-color: color-mix(in oklab, var(--warning) 34%, var(--border));background: color-mix(in oklab, var(--warning) 14%, transparent);}
-.timelineHistoryBadge[data-tone="done"]{border-color: color-mix(in oklab, var(--success) 34%, var(--border));background: color-mix(in oklab, var(--success) 14%, transparent);}
-.timelineHistoryBadge[data-tone="cancel"]{border-color: color-mix(in oklab, var(--danger) 34%, var(--border));background: color-mix(in oklab, var(--danger) 14%, transparent);}
-.timelineHistoryBadge[data-tone="create"]{border-color: color-mix(in oklab, var(--accent) 34%, var(--border));background: color-mix(in oklab, var(--accent) 14%, transparent);}
-.timelineHistoryBadge[data-tone="share"]{border-color: color-mix(in oklab, #7dd3fc 34%, var(--border));background: color-mix(in oklab, #7dd3fc 14%, transparent);}
-.timelineHistoryBadge[data-tone="hide"]{background: color-mix(in oklab, var(--surface-2) 76%, transparent);}
-.timelineHistoryBody{min-width:0;flex:1;display:grid;gap:4px;}
-.timelineHistoryRow{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
-.timelineHistoryItemTitle{font-size:13px;font-weight:900;color:var(--text);word-break:break-word;}
-.timelineHistoryTime{font-size:11px;color:var(--muted);white-space:nowrap;}
-.timelineHistoryMeta{font-size:11px;color:rgba(255,255,255,.72);line-height:1.45;}
-.timelineHistoryDesc{font-size:12px;color:rgba(255,255,255,.8);line-height:1.5;}
-.timelineHistoryShare{min-height:30px;padding:0 12px;border-radius:999px;border:1px solid color-mix(in oklab, var(--accent) 34%, var(--border));background: color-mix(in oklab, var(--accent) 12%, transparent);color:var(--text);font-size:11px;font-weight:900;white-space:nowrap;}
 .timelineRecentTitle{font-size:13px;font-weight:900;color:var(--text);}
 .timelineRecentMeta{font-size:11px;color:var(--muted);}
 .stateCardInline{max-width:760px;margin:0 auto;width:100%;padding:0 12px 12px;}

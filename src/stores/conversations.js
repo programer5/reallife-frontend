@@ -116,7 +116,9 @@ export const useConversationsStore = defineStore("conversations", {
             // ✅ 목록에 없던 대화면 임시 카드로 먼저 추가하고, 잠깐 뒤 refresh로 보정
             const placeholder = {
                 conversationId: cid,
-                peerUser: null,
+                conversationType: "DIRECT",
+        conversationTitle: null,
+        peerUser: null,
                 lastMessageAt: createdAt,
                 lastMessagePreview,
                 unreadCount: active ? 0 : (isMine ? 0 : 1),

@@ -53,3 +53,18 @@ export async function uploadImages(files, { onProgress } = {}) {
 
     return ids;
 }
+
+export async function uploadFiles(files) {
+  const arr = Array.from(files || []);
+  const ids = [];
+  for (let f of arr) {
+    const form = new FormData();
+    form.append("file", f);
+    const res = await api.post("/api/files", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    const id = res.data?.fileId || res.data?.id;
+    if (id) ids.push(id);
+  }
+  return ids;
+}
