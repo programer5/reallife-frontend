@@ -58,6 +58,7 @@ const routes = [
         children: [
           { path: "", name: "inbox", component: InboxView },
           { path: "new", name: "inbox-new", component: () => import("../views/NewDirectMessageView.vue") },
+          { path: "group-create", name: "inbox-group-create", component: () => import("../views/GroupCreateView.vue") },
           { path: "conversations", name: "conversations", component: () => import("../views/ConversationsView.vue") },
           { path: "conversations/:conversationId", name: "conversation-detail", component: () => import("../views/ConversationDetailView.vue") },
           { path: "conversations/:conversationId/pins", name: "conversation-pins", component: () => import("../views/PinnedListView.vue") },

@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import { useConversationsStore } from "@/stores/conversations";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
+import GroupCreateModal from "@/components/chat/GroupCreateModal.vue";
 
 const router = useRouter();
 const conv = useConversationsStore();
@@ -19,6 +20,7 @@ const unreadTotal = computed(() =>
 const pendingAction = ref(null);
 const pendingActionExists = computed(() => !!pendingAction.value);
 const pendingTargetConversationId = ref("");
+const showGroupCreate = ref(false);
 
 function loadPendingAction() {
   try {
@@ -79,6 +81,20 @@ function goPendingSource() {
 function openConversation(id) {
   if (pendingActionExists.value) markPendingTarget(id);
   router.push(`/inbox/conversations/${id}`);
+}
+
+function goGroupCreate() {
+  showGroupCreate.value = true;
+}
+
+function closeGroupCreate() {
+  showGroupCreate.value = false;
+}
+
+function handleGroupCreated(conversationId) {
+  showGroupCreate.value = false;
+  conv.refresh?.();
+  if (conversationId) router.push(`/inbox/conversations/${conversationId}`);
 }
 
 function goNewDm() {
@@ -313,6 +329,7 @@ function activityMeta(c) {
 
       <div class="actions">
         <RlButton size="sm" variant="primary" @click="goNewDm">새 DM</RlButton>
+        <RlButton size="sm" variant="soft" @click="goGroupCreate">그룹 채팅</RlButton>
         <RlButton size="sm" variant="soft" @click="conv.refresh()" :disabled="loading">새로고침</RlButton>
       </div>
     </header>
@@ -453,7 +470,10 @@ function activityMeta(c) {
           <div class="content">
             <div class="row1">
               <div class="nameWrap">
-                <div class="name">{{ peerName(c) }}</div>
+                <div class="nameLine">
+                  <div class="name">{{ peerName(c) }}</div>
+                  <span v-if="isGroupConversation(c)" class="groupBadge">GROUP</span>
+                </div>
                 <span class="activityPill" :class="conversationPriorityTone(c)">{{ activityMeta(c) }}</span>
               </div>
               <div class="time">{{ fmtListTime(c.lastMessageAt || c.updatedAt) }}</div>
@@ -493,7 +513,12 @@ function activityMeta(c) {
         </div>
       </div>
     </div>
-  </div>
+    <GroupCreateModal
+    v-if="showGroupCreate"
+    @close="closeGroupCreate"
+    @created="handleGroupCreated"
+  />
+</div>
 </template>
 
 <style scoped>
@@ -562,7 +587,9 @@ function activityMeta(c) {
 .row2{margin-top:6px}
 .row3{margin-top:10px;display:grid;gap:7px}
 .nameWrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.nameLine{display:flex;align-items:center;gap:8px;min-width:0}
 .name{font-weight:950;color:var(--text)}
+.groupBadge{flex:0 0 auto;font-size:10px;font-weight:900;letter-spacing:.08em;color:color-mix(in oklab,var(--accent) 74%,white);border:1px solid color-mix(in oklab,var(--accent) 35%,transparent);background:color-mix(in oklab,var(--accent) 10%,transparent);padding:3px 7px;border-radius:999px}
 .time{font-size:12px;color:var(--muted);white-space:nowrap}
 .preview{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:color-mix(in oklab,var(--text) 88%,white)}
 .rightMeta{display:flex;align-items:center;gap:8px;flex-shrink:0}
