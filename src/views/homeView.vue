@@ -593,8 +593,14 @@ onBeforeUnmount(() => {
 .feedFocusPill__label{font-size:12px;color:rgba(255,255,255,.64);font-weight:800}
 .feedFocusPill__value{font-size:14px;font-weight:950;color:rgba(255,255,255,.95)}
 
-.feedGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,320px));gap:16px;align-items:start;justify-content:center}
-.feedGrid :deep(.card){height:auto}
+.feedGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(296px,320px));
+  gap:18px;
+  align-items:stretch;
+  justify-content:center
+}
+.feedGrid :deep(.card){height:100%}
 
 .newPostBanner{align-self:center;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 40%, rgba(255,255,255,.14));background:color-mix(in oklab,var(--accent) 20%, rgba(255,255,255,.05));color:rgba(255,255,255,.96);font-weight:900;box-shadow:0 10px 30px rgba(25,48,110,.22)}
 
@@ -618,7 +624,7 @@ onBeforeUnmount(() => {
   .feedGrid{grid-template-columns:repeat(4,320px)}
 }
 @media (max-width:1460px){
-  .feedGrid{grid-template-columns:repeat(auto-fit,minmax(280px,320px));justify-content:center}
+  .feedGrid{grid-template-columns:repeat(auto-fit,minmax(292px,320px));justify-content:center}
 }
 @media (max-width:1180px){
   .desktopHero,.desktopToolbar{display:none}
@@ -629,7 +635,7 @@ onBeforeUnmount(() => {
   .actionCluster{display:flex;align-items:center;gap:8px;flex-shrink:0}
   .toolbarBottom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:end}
   .page{padding-top:14px;max-width:960px}
-  .feedGrid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));justify-content:stretch}
+  .feedGrid{grid-template-columns:repeat(auto-fit,minmax(292px,1fr));justify-content:stretch}
   .actionLaneGrid{grid-template-columns:1fr}
 }
 @media (max-width:860px){
