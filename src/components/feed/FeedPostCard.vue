@@ -175,8 +175,8 @@ function normalizedLines(post) {
 
 function stripLeadingEmojiTitle(line) {
   return String(line || "")
-      .replace(/^[\u{1F300}-\u{1FAFF}\uFE0F\u200D]+\s*/u, "")
-      .trim();
+    .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "")
+    .trim();
 }
 
 function inferKindLabel(title) {
@@ -443,10 +443,9 @@ const commentPreviewTitle = computed(() => {
 
 <style scoped>
 .card{
+  min-height:360px;
   display:flex;
   flex-direction:column;
-  height:100%;
-  min-height: 100%;
   border: 1px solid rgba(255,255,255,.10);
   background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.035));
   border-radius: 20px;
@@ -552,7 +551,6 @@ const commentPreviewTitle = computed(() => {
 
 .bodyCard{
   margin-top: 10px;
-  min-height: 96px;
   border-radius: 16px;
   border: 1px solid rgba(255,255,255,.08);
   background: rgba(255,255,255,.032);
@@ -576,14 +574,14 @@ const commentPreviewTitle = computed(() => {
 }
 .content{
   margin-top: 6px;
+  display:-webkit-box;
+  -webkit-line-clamp:4;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
   white-space: pre-wrap;
   line-height: 1.58;
   color: rgba(255,255,255,.94);
   font-size: 14px;
-  display:-webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow:hidden;
 }
 
 .actionMetaBar{
@@ -700,7 +698,6 @@ const commentPreviewTitle = computed(() => {
 
 .flowBar{
   margin-top: 10px;
-  margin-bottom: 0;
   min-height: 34px;
   display:flex;
   align-items:center;
@@ -722,7 +719,6 @@ const commentPreviewTitle = computed(() => {
 
 .commentPreview{
   margin-top: 10px;
-  min-height: 86px;
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(255,255,255,.04);
   border-radius: 14px;
@@ -732,24 +728,11 @@ const commentPreviewTitle = computed(() => {
 .cRow{ display:flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.3; }
 .cRow + .cRow{ margin-top: 6px; }
 .cAuthor{ font-weight: 900; opacity: .9; white-space: nowrap; }
-.cText{
-  opacity: .78;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex:1;
-  min-width:0;
-}
+.cText{ opacity: .78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cMore{ margin-top: 8px; font-size: 12px; font-weight: 900; opacity: .72; }
 
 .actions{
-  margin-top: auto;
-  padding-top: 12px;
-  display:flex;
-  gap: 10px;
-  align-items:center;
-  flex-wrap: wrap;
-}
+  margin-top:auto; margin-top: 12px; display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
 .act{
   display:inline-flex; align-items:center; gap: 8px;
   height: 34px; padding: 0 12px;
@@ -771,14 +754,12 @@ const commentPreviewTitle = computed(() => {
 @keyframes bump{ 0%{ transform: scale(1); } 55%{ transform: scale(1.08); } 100%{ transform: scale(1); } }
 
 @media (max-width: 720px){
-  .card{ min-height: auto; }
-  .bodyCard{ min-height: auto; }
-  .commentPreview{ min-height: auto; }
   .img{ aspect-ratio: 1 / 1.08; }
   .mediaTopMeta{ top: 8px; left: 8px; right: 8px; }
   .nav{ width: 38px; height: 38px; }
   .shareCard__top{ flex-wrap: wrap; }
-  .actions{ gap: 8px; }
+  .actions{
+  margin-top:auto; gap: 8px; }
   .act{ flex: 1 1 calc(50% - 4px); justify-content: center; }
 }
 </style>
