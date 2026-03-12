@@ -328,16 +328,16 @@ function activityMeta(c) {
     </section>
 
     <section class="scanStrip">
-      <article class="scanCard rl-cardish">
+      <article class="scanCard rl-cardish scanCard--accent">
         <div class="scanLabel">지금 먼저 볼 것</div>
         <div class="scanValue">{{ firstPriorityTitle }}</div>
       </article>
-      <article class="scanCard rl-cardish">
-        <div class="scanLabel">왜 중요한가</div>
+      <article class="scanCard rl-cardish scanCard--warning">
+        <div class="scanLabel">왜 지금 중요한가</div>
         <div class="scanValue">{{ firstPriorityReason }}</div>
       </article>
-      <article class="scanCard rl-cardish">
-        <div class="scanLabel">어디로 가면 되나</div>
+      <article class="scanCard rl-cardish scanCard--normal">
+        <div class="scanLabel">어디로 이어질까</div>
         <div class="scanValue">{{ firstPriorityDestination }}</div>
       </article>
     </section>
@@ -512,10 +512,13 @@ function activityMeta(c) {
 .heroStat strong{font-size:22px;font-weight:950}
 .heroStat span{font-size:12px;color:var(--muted)}
 
-.scanStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.scanCard{border-radius:18px;padding:14px}
+.scanStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
+.scanCard{border-radius:20px;padding:15px;display:grid;gap:8px;min-height:126px;align-content:start;border:1px solid rgba(255,255,255,.07);box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+.scanCard--accent{background:linear-gradient(180deg,color-mix(in oklab,var(--accent) 9%,transparent),color-mix(in oklab,var(--surface) 90%,white 10%))}
+.scanCard--warning{background:linear-gradient(180deg,color-mix(in oklab,var(--warning) 8%,transparent),color-mix(in oklab,var(--surface) 90%,white 10%))}
+.scanCard--normal{background:linear-gradient(180deg,rgba(255,255,255,.034),color-mix(in oklab,var(--surface) 90%,white 10%))}
 .scanLabel{font-size:11px;font-weight:900;letter-spacing:.08em;color:var(--muted)}
-.scanValue{margin-top:8px;font-size:14px;line-height:1.55;font-weight:800;color:color-mix(in oklab,var(--text) 94%,white)}
+.scanValue{font-size:15px;line-height:1.58;font-weight:850;color:color-mix(in oklab,var(--text) 94%,white)}
 
 .pickGuide{border-radius:20px;padding:14px 15px}
 .pickGuide__title{font-size:15px;font-weight:950}

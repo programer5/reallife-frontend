@@ -32,7 +32,7 @@ function fromLocalInput(v) {
 }
 
 /* =========================
- * ✅ 타입 감지 / UI 톤
+ * 타입 감지 / UI 톤
  * ========================= */
 function inferCandidateKind(candidate) {
   const title = String(candidate?.title || "");
@@ -57,6 +57,12 @@ const kindLabel = computed(() => {
   return "약속";
 });
 
+const kindIcon = computed(() => {
+  if (candidateKind.value === "todo") return "☑";
+  if (candidateKind.value === "place") return "📍";
+  return "📅";
+});
+
 const followupCopy = computed(() => {
   if (candidateKind.value === "todo") {
     return "저장하면 해야 할 일 흐름으로 이어지고, 대화에서 완료까지 관리할 수 있어요.";
@@ -68,7 +74,7 @@ const followupCopy = computed(() => {
 });
 
 /* =========================
- * ✅ Remind UX 개선 (칩 + 기억 + 없음)
+ * Remind UX 개선 (칩 + 기억 + 없음)
  * ========================= */
 const REMIND_KEY = "rl:lastRemindMinutes";
 
@@ -159,7 +165,7 @@ const overrideRemindMinutesToSend = computed(() => {
 });
 
 /* =========================
- * ✅ Edit Modal
+ * Edit Modal
  * ========================= */
 const editOpen = ref(false);
 
@@ -219,7 +225,10 @@ watch(
   <div class="wrap" :data-kind="candidateKind">
     <div class="top">
       <div class="titleRow">
-        <div class="title">📌 {{ candidate?.title || "약속" }}</div>
+        <div class="titleWrap">
+          <span class="typeIcon" :data-kind="candidateKind">{{ kindIcon }}</span>
+          <div class="title">{{ candidate?.title || "약속" }}</div>
+        </div>
         <span class="kindPill" :data-kind="candidateKind">{{ kindLabel }}</span>
       </div>
 
@@ -342,7 +351,7 @@ watch(
 <style scoped>
 .wrap{
   margin-top: 8px;
-  padding: 10px 12px;
+  padding: 12px 12px 11px;
   border-radius: 16px;
   border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
   background: color-mix(in oklab, var(--surface) 86%, transparent);
@@ -372,16 +381,50 @@ watch(
 
 .titleRow{
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   justify-content:space-between;
   gap:10px;
   flex-wrap:wrap;
+}
+
+.titleWrap{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+
+.typeIcon{
+  width:24px;
+  height:24px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.04);
+  flex:0 0 auto;
+}
+.typeIcon[data-kind="promise"]{
+  border-color: rgba(110,156,255,.28);
+  background: rgba(82,127,255,.16);
+}
+.typeIcon[data-kind="todo"]{
+  border-color: rgba(255,212,102,.26);
+  background: rgba(255,212,102,.14);
+}
+.typeIcon[data-kind="place"]{
+  border-color: rgba(77,208,164,.26);
+  background: rgba(77,208,164,.14);
 }
 
 .title{
   font-weight: 950;
   font-size: 13px;
   color: var(--text);
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .kindPill{
@@ -395,6 +438,7 @@ watch(
   background: rgba(255,255,255,.04);
   font-size: 11px;
   font-weight: 900;
+  flex:0 0 auto;
 }
 .kindPill[data-kind="promise"]{
   border-color: rgba(110,156,255,.28);
@@ -457,6 +501,7 @@ watch(
   border-radius:999px;
   font-size:12px;
   color: var(--text);
+  white-space: nowrap;
 }
 .chip.on{
   border-color: rgba(255,255,255,.28);
@@ -465,9 +510,22 @@ watch(
   opacity:.5;
 }
 
-.editBody{ padding: 8px 0 2px; display:flex; flex-direction:column; gap:10px; }
-.field{ display:flex; flex-direction:column; gap:6px; }
-.label{ font-size: 12px; font-weight: 900; color: var(--muted); }
+.editBody{
+  padding: 8px 0 2px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.label{
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+}
 .input{
   width: 100%;
   height: 44px;
@@ -481,10 +539,11 @@ watch(
 .input:focus{
   border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
 }
+
 .remindSlim{
   margin-top: 10px;
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   justify-content: space-between;
   gap: 10px;
 }
@@ -494,13 +553,21 @@ watch(
   font-weight: 900;
   color: var(--muted);
   white-space: nowrap;
+  padding-top: 8px;
 }
 
 .remindQuick{
   display:flex;
   gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  overflow-x:auto;
+  flex-wrap:nowrap;
+  justify-content:flex-end;
+  padding-bottom:2px;
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+.remindQuick::-webkit-scrollbar{
+  display:none;
 }
 
 .chip.more{
@@ -508,7 +575,7 @@ watch(
 }
 
 .actionsSlim{
-  margin-top: 10px;
+  margin-top: 12px;
   display:flex;
   align-items:center;
   gap: 8px;
@@ -532,5 +599,28 @@ watch(
 .dismissLink:disabled{
   opacity: .4;
   cursor: not-allowed;
+}
+
+@media (max-width: 640px){
+  .titleRow{
+    align-items:flex-start;
+  }
+
+  .remindSlim{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .remindSlimLabel{
+    padding-top:0;
+  }
+
+  .actionsSlim{
+    align-items:center;
+  }
+
+  .dismissLink{
+    margin-left:0;
+  }
 }
 </style>

@@ -46,7 +46,7 @@
       </div>
     </section>
 
-    <section class="flowCard">
+    <section class="flowCard toneHistoryCard">
       <div class="flowHead">
         <div>
           <div class="title">오늘의 내 흐름</div>
@@ -68,7 +68,7 @@
         </div>
 
         <div class="flowItem">
-          <div class="flowLabel">어디로 이어갈까</div>
+          <div class="flowLabel">어디로 이어질까</div>
           <div class="flowValue">{{ flowDestinationTitle }}</div>
           <div class="flowHint">{{ flowDestinationHint }}</div>
         </div>
@@ -919,18 +919,27 @@ onMounted(async () => {
   display:grid;
   gap:16px;
 }
+.toneHistoryCard{
+  border:1px solid color-mix(in oklab, var(--border) 84%, transparent);
+  background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.018));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
 .flowGrid{
   display:grid;
   grid-template-columns:repeat(3, minmax(0,1fr));
   gap:12px;
+  align-items:stretch;
 }
 .flowItem{
   padding:16px;
   border-radius:18px;
-  border:1px solid var(--border);
+  border:1px solid rgba(255,255,255,.07);
   background:color-mix(in oklab, var(--surface) 90%, white 10%);
   display:grid;
   gap:6px;
+  min-height:126px;
+  align-content:start;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035);
 }
 .flowLabel{
   font-size:12px;

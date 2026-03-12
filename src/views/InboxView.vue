@@ -82,12 +82,12 @@ const scanStrip = computed(() => {
         tone: "accent",
       },
       {
-        label: "왜 먼저 봐야 하나",
+        label: "왜 지금 중요한가",
         value: "댓글에서 생긴 흐름을 대화로 바로 이어갈 수 있어요.",
         tone: "warning",
       },
       {
-        label: "어디로 가면 되나",
+        label: "어디로 이어질까",
         value: "대화 목록에서 가장 맞는 방을 선택하면 돼요.",
         tone: "normal",
       },
@@ -102,12 +102,12 @@ const scanStrip = computed(() => {
         tone: "accent",
       },
       {
-        label: "왜 먼저 봐야 하나",
+        label: "왜 지금 중요한가",
         value: "실제 행동으로 이어질 가능성이 가장 높아요.",
         tone: "warning",
       },
       {
-        label: "어디로 가면 되나",
+        label: "어디로 이어질까",
         value: "리마인더를 열고 대화·핀 흐름으로 이어가면 돼요.",
         tone: "normal",
       },
@@ -122,12 +122,12 @@ const scanStrip = computed(() => {
         tone: "accent",
       },
       {
-        label: "왜 먼저 봐야 하나",
+        label: "왜 지금 중요한가",
         value: "대화의 온도가 식기 전에 실제 행동으로 이어갈 수 있어요.",
         tone: "warning",
       },
       {
-        label: "어디로 가면 되나",
+        label: "어디로 이어질까",
         value: "대화 목록이나 최신 메시지 알림에서 바로 들어가면 돼요.",
         tone: "normal",
       },
@@ -141,12 +141,12 @@ const scanStrip = computed(() => {
       tone: "accent",
     },
     {
-      label: "왜 먼저 봐야 하나",
+      label: "왜 지금 중요한가",
       value: "댓글, 메시지, 리마인더가 행동으로 이어지는 출발점이에요.",
       tone: "warning",
     },
     {
-      label: "어디로 가면 되나",
+      label: "어디로 이어질까",
       value: "Inbox에서 알림을 열고 대화나 게시글로 바로 이동하면 돼요.",
       tone: "normal",
     },
@@ -722,13 +722,13 @@ onBeforeUnmount(() => {
 .sub{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.45}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 
-.scanStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.scanCard{border-radius:18px;padding:14px;display:grid;gap:7px}
-.scanCard--accent{background:linear-gradient(180deg,color-mix(in oklab,var(--accent) 10%,transparent),color-mix(in oklab,var(--surface) 86%,transparent))}
-.scanCard--warning{background:linear-gradient(180deg,color-mix(in oklab,var(--warning) 9%,transparent),color-mix(in oklab,var(--surface) 86%,transparent))}
-.scanCard--normal{background:linear-gradient(180deg,rgba(255,255,255,.03),color-mix(in oklab,var(--surface) 86%,transparent))}
+.scanStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:stretch}
+.scanCard{border-radius:20px;padding:15px;display:grid;gap:8px;min-height:126px;align-content:start;border:1px solid rgba(255,255,255,.07);box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+.scanCard--accent{background:linear-gradient(180deg,color-mix(in oklab,var(--accent) 9%,transparent),color-mix(in oklab,var(--surface) 90%,white 10%))}
+.scanCard--warning{background:linear-gradient(180deg,color-mix(in oklab,var(--warning) 8%,transparent),color-mix(in oklab,var(--surface) 90%,white 10%))}
+.scanCard--normal{background:linear-gradient(180deg,rgba(255,255,255,.034),color-mix(in oklab,var(--surface) 90%,white 10%))}
 .scanLabel{font-size:11px;font-weight:900;letter-spacing:.08em;color:var(--muted)}
-.scanValue{font-size:14px;font-weight:900;line-height:1.45}
+.scanValue{font-size:15px;font-weight:900;line-height:1.55;color:color-mix(in oklab,var(--text) 95%,white)}
 
 .hero{border-radius:24px;padding:16px;display:grid;grid-template-columns:1.15fr .85fr;gap:12px}
 .heroLabel{font-size:12px;font-weight:900;letter-spacing:.05em;color:color-mix(in oklab,var(--accent) 78%,white)}

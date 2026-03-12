@@ -349,6 +349,38 @@ const commentPreviewTitle = computed(() => {
   if (actionShareMeta.value) return "이 액션에서 이어진 대화";
   return "최근 댓글";
 });
+
+const insightHeadline = computed(() => {
+  if (actionShareMeta.value) {
+    if (Number(props.post?.commentCount || 0) > 0) return "지금 이 액션에서 대화가 이어지고 있어요";
+    if (actionShareMeta.value?.state) return `${actionShareMeta.value.state} 상태의 액션 공유예요`;
+    return "액션 카드가 피드로 공유됐어요";
+  }
+  if (Number(props.post?.commentCount || 0) > 0) return "댓글이 달려서 바로 이어가기 좋아요";
+  if (images.value.length > 0) return "사진과 함께 올라온 최근 순간이에요";
+  return "첫 반응이 달리면 대화로 이어지기 쉬운 글이에요";
+});
+
+const insightSubline = computed(() => {
+  if (actionShareMeta.value) {
+    if (shareComment.value) return "카드 정보와 덧붙인 코멘트를 분리해서 읽기 쉽게 정리했어요.";
+    return "댓글을 남기면 약속, 할 일, 장소 흐름으로 다시 이어갈 수 있어요.";
+  }
+  if (Number(props.post?.commentCount || 0) > 0) return "게시글을 열면 최근 댓글과 다음 액션 흐름을 같이 볼 수 있어요.";
+  return "가볍게 댓글을 달아 대화를 시작하거나 저장해 두고 다시 볼 수 있어요.";
+});
+
+const commentActionLabel = computed(() => {
+  if (actionShareMeta.value) return "대화 보기";
+  if (Number(props.post?.commentCount || 0) > 0) return "댓글 보기";
+  return "댓글 열기";
+});
+
+const detailActionLabel = computed(() => {
+  if (actionShareMeta.value) return "액션 이어보기";
+  if (Number(props.post?.commentCount || 0) > 0) return "흐름 이어보기";
+  return "게시글 보기";
+});
 </script>
 
 <template>
@@ -466,6 +498,17 @@ const commentPreviewTitle = computed(() => {
       <span>{{ engagementStrip }}</span>
     </div>
 
+    <div class="insightPanel">
+      <div class="insightLine">
+        <span class="insightLabel">지금 포인트</span>
+        <strong>{{ insightHeadline }}</strong>
+      </div>
+      <div class="insightLine">
+        <span class="insightLabel">이어가기</span>
+        <span class="insightText">{{ insightSubline }}</span>
+      </div>
+    </div>
+
     <div v-if="previewComments.length" class="commentPreview" @click.stop="openDetail">
       <div class="commentPreview__title">{{ commentPreviewTitle }}</div>
       <div v-for="(c, idx) in previewComments" :key="idx" class="cRow">
@@ -484,11 +527,12 @@ const commentPreviewTitle = computed(() => {
       <button class="act" type="button" @click="openDetail">
         <span class="ico">💬</span>
         <span class="num">{{ Number(post.commentCount ?? 0) }}</span>
+        <span>{{ commentActionLabel }}</span>
       </button>
 
       <button class="act act--strong" type="button" @click="openDetail">
         <span class="ico">↗</span>
-        <span class="num">이어보기</span>
+        <span class="num">{{ detailActionLabel }}</span>
       </button>
 
       <button class="act act--ghost" type="button" @click="sharePost">
@@ -829,6 +873,19 @@ const commentPreviewTitle = computed(() => {
   font-size: 12px;
   color: rgba(255,255,255,.76);
 }
+.insightPanel{
+  margin-top:10px;
+  display:grid;
+  gap:8px;
+  padding:11px 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.08);
+  background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.025));
+}
+.insightLine{display:grid;gap:4px;}
+.insightLabel{font-size:11px;font-weight:900;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.05em;}
+.insightLine strong{font-size:13px;line-height:1.45;color:rgba(255,255,255,.94);}
+.insightText{font-size:12px;line-height:1.5;color:rgba(255,255,255,.76);}
 .flowDot{
   width: 8px;
   height: 8px;

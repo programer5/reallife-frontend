@@ -116,6 +116,67 @@ const likedHotPost = computed(() => {
   return list[0] || null;
 });
 
+function compactPreview(post, fallback = "새 흐름이 올라오면 여기서 먼저 정리해 보여드릴게요.") {
+  if (!post) return fallback;
+
+  const sourceMeta = post?.sourceMeta || {};
+  const parts = [
+    sourceMeta?.title,
+    sourceMeta?.subtitle,
+    sourceMeta?.time,
+    sourceMeta?.place,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+
+  if (parts.length) return parts.slice(0, 2).join(" · ");
+
+  const content = String(post?.content || "")
+    .replace(/#RealLife/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return content ? content.slice(0, 72) : fallback;
+}
+
+const homeFlowCards = computed(() => ([
+  {
+    key: "action",
+    eyebrow: "지금 먼저 볼 흐름",
+    title: topActionPost.value ? actionLaneTitle(topActionPost.value) : "가장 먼저 이어질 흐름을 기다리는 중",
+    body: compactPreview(topActionPost.value, "댓글·액션으로 바로 이어질 순간이 생기면 여기서 먼저 보여줘요."),
+    meta: topActionPost.value ? `댓글 ${Number(topActionPost.value?.commentCount || 0)} · 좋아요 ${Number(topActionPost.value?.likeCount || 0)}` : "새 순간이 올라오면 자동으로 갱신돼요.",
+    tone: "accent",
+    action: () => topActionPost.value ? openPost(topActionPost.value) : openComposer(),
+  },
+  {
+    key: "recent",
+    eyebrow: "가장 최근 순간",
+    title: freshestPost.value ? "방금 올라온 흐름부터 보기" : "새 순간을 기다리는 중",
+    body: compactPreview(freshestPost.value, "가장 최근에 공유된 순간부터 자연스럽게 이어갈 수 있어요."),
+    meta: freshestPost.value ? `${fmtPostMeta(freshestPost.value)} 업로드` : "새로고침하면 최신 흐름을 다시 확인해요.",
+    tone: "soft",
+    action: () => freshestPost.value ? openPost(freshestPost.value) : loadFirst(),
+  },
+  {
+    key: "hot",
+    eyebrow: "반응이 빠른 글",
+    title: likedHotPost.value ? "지금 반응이 모이는 흐름" : "반응이 쌓이는 중",
+    body: compactPreview(likedHotPost.value, "좋아요와 댓글이 붙기 시작한 글부터 보면 액션으로 이어지기 쉬워요."),
+    meta: likedHotPost.value ? `좋아요 ${Number(likedHotPost.value?.likeCount || 0)} · 댓글 ${Number(likedHotPost.value?.commentCount || 0)}` : "반응이 붙는 순간이 생기면 여기서 먼저 보여줘요.",
+    tone: "soft",
+    action: () => likedHotPost.value ? openPost(likedHotPost.value) : loadFirst(),
+  },
+]));
+
+function fmtPostMeta(post) {
+  const raw = post?.createdAt || post?.createdDateTime;
+  const t = Date.parse(raw || "");
+  if (!Number.isFinite(t)) return "최근";
+  const d = new Date(t);
+  return `${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 function actionLaneTitle(post) {
   if (!post) return "아직 바로 이어질 흐름이 없어요";
   if (post?.sourceMeta || String(post?.content || "").includes("#RealLife")) {
@@ -411,27 +472,19 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <section v-if="!loading && !error && displayedItems.length" class="actionLaneGrid">
-      <button class="actionLane actionLane--spotlight cardSurface" type="button" @click="topActionPost ? openPost(topActionPost) : openComposer()">
-        <div class="actionLane__eyebrow">지금 먼저 볼 흐름</div>
-        <div class="actionLane__title">{{ actionLaneTitle(topActionPost) }}</div>
-        <div class="actionLane__body">{{ actionLaneBody(topActionPost) }}</div>
-      </button>
-
-      <button class="actionLane cardSurface" type="button" @click="freshestPost ? openPost(freshestPost) : loadFirst()">
-        <div class="actionLane__eyebrow">가장 최근 순간</div>
-        <div class="actionLane__title">
-          {{ freshestPost ? "방금 올라온 흐름부터 보기" : "새 순간을 기다리는 중" }}
-        </div>
-        <div class="actionLane__body">{{ actionLaneBody(freshestPost) }}</div>
-      </button>
-
-      <button class="actionLane cardSurface" type="button" @click="likedHotPost ? openPost(likedHotPost) : loadFirst()">
-        <div class="actionLane__eyebrow">반응이 빠른 글</div>
-        <div class="actionLane__title">
-          {{ likedHotPost ? "지금 반응이 모이는 흐름" : "반응이 쌓이는 중" }}
-        </div>
-        <div class="actionLane__body">{{ actionLaneBody(likedHotPost) }}</div>
+    <section v-if="!loading && !error && displayedItems.length" class="flowInsightGrid">
+      <button
+        v-for="entry in homeFlowCards"
+        :key="entry.key"
+        class="flowInsightCard cardSurface"
+        :class="`flowInsightCard--${entry.tone}`"
+        type="button"
+        @click="entry.action()"
+      >
+        <div class="flowInsightCard__eyebrow">{{ entry.eyebrow }}</div>
+        <div class="flowInsightCard__title">{{ entry.title }}</div>
+        <div class="flowInsightCard__body">{{ entry.body }}</div>
+        <div class="flowInsightCard__meta">{{ entry.meta }}</div>
       </button>
     </section>
 
@@ -575,14 +628,15 @@ onBeforeUnmount(() => {
 .composerShortcut--desktop{justify-content:center}
 .composerShortcut__plus{display:inline-flex;width:16px;justify-content:center;opacity:.82;font-weight:900}
 
-.actionLaneGrid{display:grid;grid-template-columns:1.35fr .85fr .85fr;gap:12px}
-.actionLane{padding:16px;text-align:left;cursor:pointer;display:grid;gap:8px;transition:transform .16s ease,border-color .18s ease,background .18s ease}
-.actionLane:hover{transform:translateY(-1px);border-color:color-mix(in oklab,var(--accent) 34%,rgba(255,255,255,.14))}
-.actionLane--spotlight{padding:18px 18px 20px}
-.actionLane__eyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:rgba(255,255,255,.62)}
-.actionLane__title{font-size:18px;font-weight:950;line-height:1.25}
-.actionLane--spotlight .actionLane__title{font-size:22px;line-height:1.18}
-.actionLane__body{font-size:13px;line-height:1.55;color:rgba(255,255,255,.72)}
+.flowInsightGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:stretch;isolation:isolate}
+.flowInsightCard{padding:16px 16px 14px;text-align:left;cursor:pointer;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:8px;min-height:182px;align-content:start;transition:transform .16s ease,border-color .18s ease,background .18s ease;overflow:hidden;position:relative}
+.flowInsightCard:hover{transform:translateY(-1px);border-color:color-mix(in oklab,var(--accent) 34%,rgba(255,255,255,.14))}
+.flowInsightCard--accent{background:linear-gradient(180deg,color-mix(in oklab,var(--accent) 10%,rgba(255,255,255,.04)),rgba(255,255,255,.02))}
+.flowInsightCard--soft{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02))}
+.flowInsightCard__eyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:rgba(255,255,255,.62)}
+.flowInsightCard__title{font-size:18px;font-weight:950;line-height:1.28;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:keep-all;overflow-wrap:anywhere}
+.flowInsightCard__body{font-size:13px;line-height:1.58;color:rgba(255,255,255,.74);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:calc(1.58em * 3);word-break:break-word;overflow-wrap:anywhere}
+.flowInsightCard__meta{margin-top:auto;font-size:12px;color:rgba(255,255,255,.58);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
 .list{display:flex;flex-direction:column;gap:12px}
 .list--loading{gap:14px}
@@ -631,8 +685,7 @@ onBeforeUnmount(() => {
   .toolbarBottom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:end}
   .page{padding-top:14px;max-width:960px}
   .feedGrid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));justify-content:stretch}
-  .actionLaneGrid{grid-template-columns:1fr}
-  .actionLane--spotlight .actionLane__title{font-size:20px}
+  .flowInsightGrid{grid-template-columns:1fr}
 }
 @media (max-width:860px){
   .page{padding:14px 12px calc(106px + env(safe-area-inset-bottom));max-width:840px}
