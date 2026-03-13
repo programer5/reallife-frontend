@@ -8,7 +8,6 @@ export async function createCapsule({ messageId, conversationId, title, unlockAt
   params.set("title", title || "");
   params.set("unlockAt", unlockAt);
   params.set("userId", userId);
-
   const res = await api.post(`/api/capsules?${params.toString()}`);
   return res.data;
 }
@@ -16,4 +15,9 @@ export async function createCapsule({ messageId, conversationId, title, unlockAt
 export async function openCapsule(capsuleId) {
   const res = await api.post(`/api/capsules/${capsuleId}/open`);
   return res.data;
+}
+
+export async function fetchConversationCapsules(conversationId) {
+  const res = await api.get(`/api/conversations/${conversationId}/capsules`);
+  return res.data || { conversationId, items: [] };
 }
