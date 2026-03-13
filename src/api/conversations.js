@@ -43,3 +43,9 @@ export async function createGroupConversation({ title, participantIds = [], cove
   });
   return res.data;
 }
+
+
+export async function fetchConversationMembers(conversationId) {
+    const res = await api.get(`/api/conversations/${conversationId}/members`);
+    return res.data; // { conversationId, items: [...] }
+}

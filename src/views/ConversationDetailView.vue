@@ -15,7 +15,7 @@ import PostComposer from "@/components/PostComposer.vue";
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { uploadFiles } from "@/api/files";
 import { createCapsule } from "@/api/capsules";
-import { markConversationRead } from "@/api/conversations";
+import { markConversationRead, fetchConversationMembers } from "@/api/conversations";
 import { fetchConversationReadState } from "@/api/conversations";
 import {
   getConversationLock,
@@ -45,6 +45,17 @@ const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
+const groupMembers = ref([]);
+const groupMembersLoading = ref(false);
+const currentConversationRow = computed(() =>
+  convStore.items?.find((c) => String(c.conversationId) === String(conversationId.value)) || null
+);
+const isGroupConversation = computed(() =>
+  String(currentConversationRow.value?.conversationType || "DIRECT") === "GROUP"
+);
+const groupConversationTitle = computed(() =>
+  currentConversationRow.value?.conversationTitle || "그룹 대화"
+);
 const isPinnedHighlight = ref(false);
 
 const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
@@ -621,21 +632,23 @@ onBeforeUnmount(() => {
 const myId = computed(() => auth.me?.id || null);
 
 /** 상대(목록 데이터 기반) */
-const peer = computed(() => {
-  const cid = conversationId.value;
-  const row = convStore.items?.find((c) => String(c.conversationId) === String(cid));
-  return row?.peerUser || null;
-});
+const peer = computed(() => currentConversationRow.value?.peerUser || null);
 
 const peerName = computed(() => {
+  if (isGroupConversation.value) return groupConversationTitle.value;
   return peer.value?.nickname || peer.value?.name || "대화";
 });
 const peerHandle = computed(() => {
+  if (isGroupConversation.value) return `${groupMembers.value.length || 0}명 참여`;
   return peer.value?.handle || "";
 });
-const hasPeer = computed(() => !!peer.value);
+const hasPeer = computed(() => !isGroupConversation.value && !!peer.value);
 
 function peerInitial() {
+  if (isGroupConversation.value) {
+    const s = String(groupConversationTitle.value || "").trim();
+    return s ? s[0].toUpperCase() : "G";
+  }
   const s = String(peer.value?.nickname || peer.value?.name || peer.value?.handle || "").trim();
   return s ? s[0].toUpperCase() : "U";
 }
@@ -646,6 +659,12 @@ function openPeerProfile() {
   if (id) return router.push(`/u/id/${id}`);
 }
 
+
+watch([conversationId, isGroupConversation], async () => {
+  if (conversationId.value) {
+    await loadGroupMembers();
+  }
+});
 /** ====== DM 잠금 ====== */
 const lockEnabled = ref(false);
 const unlocked = ref(false);
@@ -2275,6 +2294,7 @@ async function createTimeCapsuleFromDraft() {
     capsuleModalOpen.value = false;
     toast.success?.("타임 캡슐", "나중에 열릴 메시지로 저장했어요.");
     await loadFirstPage();
+  await loadGroupMembers();
     scrollToBottom({ smooth: true });
   } catch (e) {
     toast.error?.("타임 캡슐 실패", e?.response?.data?.message || "타임 캡슐을 만들지 못했어요.");
@@ -2675,6 +2695,22 @@ async function syncTailAfterReconnect() {
   } catch {}
 }
 
+async function loadGroupMembers() {
+  if (!isGroupConversation.value || !conversationId.value) {
+    groupMembers.value = [];
+    return;
+  }
+  groupMembersLoading.value = true;
+  try {
+    const res = await fetchConversationMembers(conversationId.value);
+    groupMembers.value = Array.isArray(res?.items) ? res.items : [];
+  } catch {
+    groupMembers.value = [];
+  } finally {
+    groupMembersLoading.value = false;
+  }
+}
+
 onMounted(async () => {
   const ok = await ensureSessionOrRedirect();
   if (!ok) return;
@@ -2870,7 +2906,8 @@ onBeforeUnmount(() => {
         <div class="peerAva" aria-hidden="true">{{ peerInitial() }}</div>
         <div class="peerMeta">
           <div class="peerName">{{ peerName }}</div>
-          <div class="peerHandle" v-if="peerHandle">@{{ peerHandle }}</div>
+          <div class="peerHandle" v-if="isGroupConversation">{{ peerHandle }}</div>
+          <div class="peerHandle" v-else-if="peerHandle">@{{ peerHandle }}</div>
           <div class="peerHandle" v-else>프로필</div>
         </div>
       </button>
@@ -2887,6 +2924,20 @@ onBeforeUnmount(() => {
     </div>
 
     <SseStatusBanner />
+
+    <div v-if="isGroupConversation" class="groupMembersInline rl-cardish">
+      <div class="groupMembersHead">
+        <span>멤버 목록</span>
+        <span v-if="groupMembersLoading" class="groupMembersLoading">불러오는 중…</span>
+      </div>
+      <div v-if="groupMembers.length" class="groupMembersList">
+        <span v-for="m in groupMembers" :key="m.userId" class="groupMemberChip">
+          {{ m.nickname || m.handle || "멤버" }}
+          <small v-if="m.handle">@{{ m.handle }}</small>
+        </span>
+      </div>
+      <div v-else class="groupMembersEmpty">등록된 멤버를 불러오지 못했어요.</div>
+    </div>
 
     
 <!-- ✅ RealLife v2: Active Actions Dock -->
@@ -3637,6 +3688,13 @@ onBeforeUnmount(() => {
 .peerName{font-weight:950;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .peerHandle{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .right{display:flex;justify-content:flex-end}
+.groupMembersInline{margin-top:10px;padding:12px 14px;border:1px solid color-mix(in oklab,var(--border) 80%, transparent);background:color-mix(in oklab,var(--surface) 82%, transparent);border-radius:16px}
+.groupMembersHead{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:900;color:var(--muted);margin-bottom:8px}
+.groupMembersLoading{font-size:11px;color:var(--muted)}
+.groupMembersList{display:flex;flex-wrap:wrap;gap:8px}
+.groupMemberChip{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 26%, transparent);background:color-mix(in oklab,var(--accent) 10%, transparent);font-size:12px;font-weight:800;color:color-mix(in oklab,var(--text) 90%, white)}
+.groupMemberChip small{font-size:11px;color:var(--muted)}
+.groupMembersEmpty{font-size:12px;color:var(--muted)}
 .hiddenFileInput{display:none}
 .composerInner--stack{display:grid;gap:10px}
 .composerRow{display:grid;grid-template-columns:auto auto 1fr auto;gap:8px;align-items:center}
