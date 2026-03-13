@@ -21,7 +21,7 @@ export const useAuthStore = defineStore("auth", {
 
       try {
         await api.post("/api/auth/login-cookie", {
-          email: usernameOrEmail,
+          identifier: usernameOrEmail,
           password: password,
         });
 

@@ -91,7 +91,7 @@ router.beforeEach(async (to) => {
     try {
       await auth.ensureSession();
     } catch {
-      return { path: "/login" };
+      return { path: "/login", query: { redirect: to.fullPath } };
     }
   }
 

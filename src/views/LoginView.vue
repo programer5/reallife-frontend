@@ -9,8 +9,8 @@
 
       <form class="form" @submit.prevent="onSubmit">
         <label class="label">
-          아이디/이메일
-          <input class="input" v-model.trim="usernameOrEmail" autocomplete="username" inputmode="email" placeholder="username or email" />
+          이메일 또는 아이디
+          <input class="input" v-model.trim="usernameOrEmail" autocomplete="username" inputmode="email" placeholder="email 또는 handle" />
         </label>
 
         <label class="label">
@@ -33,11 +33,12 @@
 
 <script setup>
 import { computed, ref } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { useToastStore } from "../stores/toast";
 
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 const toast = useToastStore();
 
@@ -51,9 +52,10 @@ async function onSubmit() {
   try {
     await auth.loginCookie({ usernameOrEmail: usernameOrEmail.value, password: password.value });
     toast.success("로그인 성공", "환영합니다!");
-    router.replace("/home");
+    const redirect = String(route.query.redirect || "/home");
+    router.replace(redirect);
   } catch {
-    toast.error("로그인 실패", "아이디/비밀번호를 확인해주세요.");
+    toast.error("로그인 실패", "이메일 또는 아이디(handle), 비밀번호를 확인해주세요.");
   }
 }
 </script>

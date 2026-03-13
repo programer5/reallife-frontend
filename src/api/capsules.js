@@ -1,4 +1,3 @@
-
 import api from "../lib/api";
 
 export async function createCapsule({ messageId, conversationId, title, unlockAt, userId }) {
@@ -6,7 +5,7 @@ export async function createCapsule({ messageId, conversationId, title, unlockAt
   params.set("messageId", messageId);
   params.set("conversationId", conversationId);
   params.set("title", title || "");
-  params.set("unlockAt", unlockAt);
+  params.set("unlockAt", String(unlockAt || "").replace("Z",""));
   params.set("userId", userId);
   const res = await api.post(`/api/capsules?${params.toString()}`);
   return res.data;
