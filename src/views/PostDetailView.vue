@@ -67,7 +67,18 @@ const mentionCandidates = computed(() => {
 });
 
 const rootCommentCount = computed(() => comments.value.filter((x) => !x.parentCommentId).length);
-const imageCount = computed(() => Array.isArray(post.value?.imageUrls) ? post.value.imageUrls.length : 0);
+const mediaItems = computed(() => {
+  const list = Array.isArray(post.value?.mediaItems) ? post.value.mediaItems : [];
+  if (list.length) return list;
+  const fallback = Array.isArray(post.value?.imageUrls) ? post.value.imageUrls : [];
+  return fallback.map((url) => ({ mediaType: "IMAGE", url, thumbnailUrl: url }));
+});
+const imageCount = computed(() => mediaItems.value.filter((m) => String(m?.mediaType || "IMAGE").toUpperCase() === "IMAGE").length);
+const videoItems = computed(() => mediaItems.value.filter((m) => String(m?.mediaType || "").toUpperCase() === "VIDEO"));
+const imageMediaItems = computed(() =>
+  mediaItems.value.filter((m) => String(m?.mediaType || "IMAGE").toUpperCase() === "IMAGE")
+);
+const imageUrls = computed(() => imageMediaItems.value.map((m) => m.url).filter(Boolean));
 const mediaLayout = computed(() => {
   const n = imageCount.value;
   if (n <= 0) return "none";
@@ -208,7 +219,7 @@ function normalizedPostLines(target) {
 }
 function stripLeadingEmojiTitle(line) {
   return String(line || "")
-    .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u, "")
+    .replace(/^[\u{1F300}-\u{1FAFF}\uFE0F\u200D]+\s*/u, "")
     .trim();
 }
 function inferActionKindLabel(title) {
@@ -631,36 +642,38 @@ watch(sortMode, () => loadCommentsFirst());
           <div class="content">{{ detailBodyText }}</div>
         </div>
 
-        <div v-if="post.imageUrls?.length" class="media" :class="`media--${mediaLayout}`">
+        <div v-if="videoItems.length" class="videoList"><video v-for="(m,i) in videoItems" :key="m.url || i" class="videoPlayer" :src="m.url" controls playsinline preload="metadata"></video></div>
+
+        <div v-if="imageCount" class="media" :class="`media--${mediaLayout}`">
           <button
             v-if="mediaLayout === 'single'"
             class="heroShot"
             type="button"
             @click="openLightbox(0)"
           >
-            <img :src="post.imageUrls[0]" alt="" />
+            <img :src="imageUrls[0]" alt="" />
           </button>
 
           <div v-else-if="mediaLayout === 'double'" class="doubleGrid">
-            <button v-for="(url, i) in post.imageUrls" :key="url" class="gridShot" type="button" @click="openLightbox(i)">
+            <button v-for="(url, i) in imageUrls" :key="url" class="gridShot" type="button" @click="openLightbox(i)">
               <img :src="url" alt="" />
             </button>
           </div>
 
           <div v-else class="carousel">
             <button
-              v-if="post.imageUrls.length > 1"
+              v-if="imageCount > 1"
               class="nav left"
               type="button"
               @click="$refs.carousel?.scrollBy({ left: -320, behavior: 'smooth' })"
             >‹</button>
             <div ref="carousel" class="track">
-              <button v-for="(url, i) in post.imageUrls" :key="url" class="shot" type="button" @click="openLightbox(i)">
+              <button v-for="(url, i) in imageUrls" :key="url" class="shot" type="button" @click="openLightbox(i)">
                 <img :src="url" alt="" />
               </button>
             </div>
             <button
-              v-if="post.imageUrls.length > 1"
+              v-if="imageCount > 1"
               class="nav right"
               type="button"
               @click="$refs.carousel?.scrollBy({ left: 320, behavior: 'smooth' })"
@@ -810,7 +823,7 @@ watch(sortMode, () => loadCommentsFirst());
       </div>
     </div>
 
-    <Lightbox v-if="lbOpen" :images="post?.imageUrls || []" :start-index="lbIndex" @close="lbOpen=false" />
+    <Lightbox v-if="lbOpen" :images="imageUrls" :start-index="lbIndex" @close="lbOpen=false" />
   </div>
 </template>
 
@@ -860,6 +873,8 @@ watch(sortMode, () => loadCommentsFirst());
 .badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.92);font-weight:900;font-size:11px}
 .dot{opacity:.55}
 .content{font-size:14px;line-height:1.58;white-space:pre-wrap;color:rgba(255,255,255,.96)}
+.videoList{margin-top:12px;display:grid;gap:10px}
+.videoPlayer{display:block;width:100%;max-height:70vh;border-radius:18px;background:#000}
 .media{margin-top:12px;display:grid;gap:10px}
 .media--double{margin-top:14px}
 .heroShot,.gridShot,.shot{border:0;background:transparent;padding:0;cursor:pointer}

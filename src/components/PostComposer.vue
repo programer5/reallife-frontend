@@ -1,3 +1,4 @@
+
 <!-- src/components/PostComposer.vue -->
 <template>
   <Teleport to="body">
@@ -6,7 +7,7 @@
         <div class="top">
           <div>
             <div class="title">새 게시글</div>
-            <div class="sub">누가 볼 수 있을지도 선택할 수 있어요</div>
+            <div class="sub">이미지와 동영상을 함께 올릴 수 있어요</div>
           </div>
           <button class="x" type="button" @click="close" aria-label="Close">✕</button>
         </div>
@@ -34,25 +35,6 @@
               </label>
             </div>
 
-            <section v-if="normalizedShareMeta" class="shareMetaCard">
-              <div class="shareHead">
-                <div>
-                  <div class="shareEyebrow">{{ normalizedShareMeta.badge }}</div>
-                  <div class="shareTitle">{{ normalizedShareMeta.title }}</div>
-                  <div v-if="normalizedShareMeta.subtitle" class="shareSub">{{ normalizedShareMeta.subtitle }}</div>
-                </div>
-                <div v-if="normalizedShareMeta.state" class="shareState">{{ normalizedShareMeta.state }}</div>
-              </div>
-
-              <div v-if="normalizedShareMeta.chips.length" class="shareChips">
-                <span v-for="chip in normalizedShareMeta.chips" :key="chip" class="shareChip">{{ chip }}</span>
-              </div>
-
-              <div class="shareHint">
-                이 액션 카드는 공유 맥락이고, 아래 본문에는 <b>내 코멘트</b>를 덧붙이면 더 자연스러워요.
-              </div>
-            </section>
-
             <label class="label">
               내용
               <textarea
@@ -61,7 +43,7 @@
                 class="textarea"
                 rows="6"
                 maxlength="2000"
-                :placeholder="normalizedShareMeta ? '이 액션에 대한 내 생각이나 맥락을 덧붙여보세요.' : '무슨 일이 있었나요?'"
+                placeholder="무슨 일이 있었나요?"
               />
               <div class="hint"><span>{{ content.length }}</span><span>/2000</span></div>
             </label>
@@ -75,14 +57,14 @@
                 @dragleave.prevent="dragOver = false"
                 @drop.prevent="onDrop"
               >
-                <div class="dropTitle">이미지 업로드</div>
-                <div class="dropSub">드래그&드롭 또는 파일 선택</div>
+                <div class="dropTitle">미디어 업로드</div>
+                <div class="dropSub">이미지 또는 동영상을 드래그&드롭 하거나 파일 선택</div>
 
                 <input
                   ref="fileInput"
                   class="hiddenInput"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   @change="onPick"
                 />
@@ -92,15 +74,18 @@
                 </button>
 
                 <div class="rules">
-                  <div>• 최대 {{ MAX_FILES }}장</div>
-                  <div>• 한 장 최대 {{ MAX_MB }}MB</div>
+                  <div>• 이미지/동영상 최대 {{ MAX_FILES }}개</div>
+                  <div>• 이미지 한 장 최대 {{ IMAGE_MAX_MB }}MB</div>
+                  <div>• 동영상 한 개 최대 {{ VIDEO_MAX_MB }}MB</div>
                 </div>
               </div>
 
-              <div v-if="previews.length" class="grid" aria-label="Selected images">
-                <div v-for="p in previews" :key="p.key" class="thumb">
-                  <img :src="p.url" alt="" class="img" />
-                  <button class="rm" type="button" @click="remove(p.key)" aria-label="Remove image">✕</button>
+              <div v-if="previews.length" class="grid" aria-label="Selected media">
+                <div v-for="p in previews" :key="p.key" class="thumb" :data-kind="p.kind">
+                  <img v-if="p.kind === 'image'" :src="p.url" alt="" class="img" />
+                  <video v-else class="img" :src="p.url" muted playsinline preload="metadata"></video>
+                  <div class="mediaBadge">{{ p.kind === 'video' ? 'VIDEO' : 'IMAGE' }}</div>
+                  <button class="rm" type="button" @click="remove(p.key)" aria-label="Remove media">✕</button>
                 </div>
               </div>
 
@@ -131,9 +116,9 @@
 </template>
 
 <script setup>
-import { Teleport, computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue';
+import { Teleport, computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useToastStore } from '../stores/toast';
-import { uploadImages } from '../api/files';
+import { uploadFiles } from '../api/files';
 import { createPost } from '../api/posts';
 
 const props = defineProps({
@@ -145,8 +130,10 @@ const emit = defineEmits(['close', 'created']);
 const toast = useToastStore();
 
 const MAX_FILES = 5;
-const MAX_MB = 10;
-const MAX_BYTES = MAX_MB * 1024 * 1024;
+const IMAGE_MAX_MB = 10;
+const VIDEO_MAX_MB = 60;
+const IMAGE_MAX_BYTES = IMAGE_MAX_MB * 1024 * 1024;
+const VIDEO_MAX_BYTES = VIDEO_MAX_MB * 1024 * 1024;
 
 const content = ref('');
 const contentEl = ref(null);
@@ -163,28 +150,12 @@ const progress = ref(0);
 const uploadError = ref('');
 const busy = ref(false);
 
-const shareMeta = computed(() => props.sourceMeta || props.initialDraft?.sourceMeta || null);
-
-const normalizedShareMeta = computed(() => {
-  const meta = shareMeta.value;
-  if (!meta) return null;
-
-  const chips = [];
-  if (Array.isArray(meta.chips) && meta.chips.length) {
-    chips.push(...meta.chips.filter(Boolean).map((v) => String(v).trim()));
-  } else {
-    if (meta.time) chips.push(`🕒 ${meta.time}`);
-    if (meta.place) chips.push(`📍 ${meta.place}`);
-    if (meta.remindAt) chips.push(`⏰ ${meta.remindAt}`);
-  }
-
-  return {
-    badge: meta.badge || '액션 공유',
-    title: meta.title || '공유할 액션',
-    subtitle: meta.subtitle || meta.description || '',
-    state: meta.status || meta.state || '',
-    chips: chips.slice(0, 4),
-  };
+const canSubmit = computed(() => {
+  return !busy.value && (
+    String(content.value || '').trim().length > 0 ||
+    selectedFiles.value.length > 0 ||
+    legacyUrl.value.trim().length > 0
+  );
 });
 
 let prevOverflow = '';
@@ -210,6 +181,11 @@ onMounted(async () => {
 onUnmounted(() => {
   document.body.style.overflow = prevOverflow;
   window.removeEventListener('keydown', onKeydown);
+  for (const p of previews.value) {
+    if (p.url?.startsWith?.('blob:')) {
+      try { URL.revokeObjectURL(p.url); } catch {}
+    }
+  }
 });
 
 function close() {
@@ -220,6 +196,10 @@ function close() {
 function makeKey(file) {
   return `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(16).slice(2)}`;
 }
+function kindOf(file) {
+  const type = String(file?.type || '').toLowerCase();
+  return type.startsWith('video/') ? 'video' : 'image';
+}
 
 function addFiles(files) {
   const incoming = Array.from(files || []);
@@ -228,22 +208,28 @@ function addFiles(files) {
   const clipped = incoming.slice(0, Math.max(0, remaining));
 
   if (incoming.length > clipped.length) {
-    toast.info('이미지 제한', `최대 ${MAX_FILES}장까지 업로드할 수 있어요.`);
+    toast.info('미디어 제한', `최대 ${MAX_FILES}개까지 업로드할 수 있어요.`);
   }
 
   for (const f of clipped) {
-    if (!f.type.startsWith('image/')) {
-      toast.error('업로드 불가', '이미지 파일만 업로드할 수 있어요.');
+    const kind = kindOf(f);
+    if (!(String(f.type || '').startsWith('image/') || String(f.type || '').startsWith('video/'))) {
+      toast.error('업로드 불가', '이미지 또는 동영상 파일만 업로드할 수 있어요.');
       continue;
     }
-    if (f.size > MAX_BYTES) {
-      toast.error('업로드 불가', `이미지는 한 장당 최대 ${MAX_MB}MB까지 가능해요.`);
+    if (kind === 'image' && f.size > IMAGE_MAX_BYTES) {
+      toast.error('업로드 불가', `이미지는 한 장당 최대 ${IMAGE_MAX_MB}MB까지 가능해요.`);
       continue;
     }
+    if (kind === 'video' && f.size > VIDEO_MAX_BYTES) {
+      toast.error('업로드 불가', `동영상은 한 개당 최대 ${VIDEO_MAX_MB}MB까지 가능해요.`);
+      continue;
+    }
+
     const key = makeKey(f);
     const url = URL.createObjectURL(f);
     selectedFiles.value.push(f);
-    previews.value.push({ key, url, file: f });
+    previews.value.push({ key, url, file: f, kind });
   }
 
   uploadedIds.value = [];
@@ -254,511 +240,116 @@ function onPick(e) {
   addFiles(e.target.files);
   e.target.value = '';
 }
-
 function onDrop(e) {
   dragOver.value = false;
-  addFiles(e.dataTransfer?.files);
+  addFiles(e.dataTransfer?.files || []);
 }
-
 function remove(key) {
   const idx = previews.value.findIndex((p) => p.key === key);
   if (idx < 0) return;
-  URL.revokeObjectURL(previews.value[idx].url);
+  const p = previews.value[idx];
+  if (p.url?.startsWith?.('blob:')) {
+    try { URL.revokeObjectURL(p.url); } catch {}
+  }
   previews.value.splice(idx, 1);
   selectedFiles.value.splice(idx, 1);
   uploadedIds.value = [];
-  uploadError.value = '';
 }
 
 async function uploadNow() {
-  uploadError.value = '';
-  progress.value = 0;
-
-  if (!selectedFiles.value.length) {
-    uploadedIds.value = [];
-    return [];
-  }
-
+  if (!selectedFiles.value.length) return [];
   uploading.value = true;
+  progress.value = 0;
+  uploadError.value = '';
   try {
-    const ids = await uploadImages(selectedFiles.value, {
-      onProgress: (pct) => (progress.value = pct),
+    const ids = await uploadFiles(selectedFiles.value, {
+      onProgress: (p) => { progress.value = p; }
     });
-    uploadedIds.value = (ids || []).filter(Boolean);
+    uploadedIds.value = ids || [];
     return uploadedIds.value;
   } catch (e) {
-    uploadError.value = e?.response?.data?.message || e?.message || '이미지 업로드에 실패했습니다.';
+    uploadError.value = e?.response?.data?.message || '미디어 업로드에 실패했어요.';
     throw e;
   } finally {
     uploading.value = false;
   }
 }
 
-const canSubmit = computed(() => {
-  const hasText = content.value.trim().length > 0;
-  const hasImage = selectedFiles.value.length > 0;
-  const hasLegacy = legacyUrl.value.trim().length > 0;
-  return hasText || hasImage || hasLegacy;
-});
-
 async function submit() {
-  if (!canSubmit.value) return;
+  if (!canSubmit.value || busy.value) return;
   busy.value = true;
   try {
-    let imageFileIds = uploadedIds.value;
-    if (selectedFiles.value.length && !uploadedIds.value.length) {
-      imageFileIds = await uploadNow();
+    let mediaFileIds = uploadedIds.value;
+    if (selectedFiles.value.length && (!mediaFileIds || !mediaFileIds.length)) {
+      mediaFileIds = await uploadNow();
     }
-
     const imageUrls = legacyUrl.value.trim() ? [legacyUrl.value.trim()] : [];
+
     const created = await createPost({
-      content: content.value.trim(),
+      content: content.value || '',
       visibility: visibility.value,
-      imageFileIds: imageFileIds || [],
+      mediaFileIds: mediaFileIds || [],
+      imageFileIds: mediaFileIds || [],
       imageUrls,
     });
 
-    toast.success('게시 완료', '피드에 반영되었습니다.');
+    toast.success?.('게시 완료', '새 게시글을 올렸어요.');
     emit('created', created);
     emit('close');
-  } catch {
-    toast.error('게시 실패', '잠시 후 다시 시도해주세요.');
+  } catch (e) {
+    toast.error?.('게시 실패', e?.response?.data?.message || '게시에 실패했어요.');
   } finally {
     busy.value = false;
   }
 }
-
-onBeforeUnmount(() => {
-  previews.value.forEach((p) => URL.revokeObjectURL(p.url));
-});
 </script>
 
 <style scoped>
-.backdrop {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100dvh;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.62);
-  z-index: 2140;
-  overscroll-behavior: contain;
-}
-
-.sheet {
-  width: min(720px, 100vw);
-  max-height: min(92dvh, 920px);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  border-radius: 22px 22px 0 0;
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 92%, transparent);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.55);
-  overflow: hidden;
-}
-
-.top {
-  display: flex;
-  justify-content: space-between;
-  align-items: start;
-  gap: 12px;
-  padding: 16px 16px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.title {
-  font-weight: 950;
-  font-size: 16px;
-}
-
-.sub {
-  margin-top: 4px;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-.x {
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  opacity: 0.9;
-}
-
-.form {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  min-height: 0;
-}
-
-.bodyScroll {
-  min-height: 0;
-  overflow: auto;
-  padding: 14px 16px calc(28px + env(safe-area-inset-bottom));
-  display: grid;
-  gap: 14px;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.label {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.select,
-.input {
-  height: 44px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface-2) 88%, transparent);
-  padding: 0 12px;
-  color: var(--text);
-}
-
-.textarea {
-  resize: vertical;
-  min-height: 110px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface-2) 88%, transparent);
-  padding: 12px;
-  color: var(--text);
-  line-height: 1.4;
-}
-
-.hint {
-  display: flex;
-  justify-content: end;
-  gap: 2px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.shareMetaCard {
-  border: 1px solid color-mix(in oklab, var(--accent) 32%, var(--border));
-  background: linear-gradient(180deg, rgba(124, 156, 255, 0.1), rgba(124, 156, 255, 0.04));
-  border-radius: 18px;
-  padding: 14px;
-}
-
-.shareHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.shareEyebrow {
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  text-transform: uppercase;
-}
-
-.shareTitle {
-  margin-top: 6px;
-  font-size: 16px;
-  font-weight: 950;
-  color: var(--text);
-}
-
-.shareSub {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.45;
-}
-
-.shareState {
-  min-height: 30px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 900;
-  color: var(--text);
-  white-space: nowrap;
-}
-
-.shareChips {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-
-.shareChip {
-  padding: 7px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 12px;
-  color: var(--text);
-}
-
-.shareHint {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.45;
-}
-
-.uploader {
-  display: grid;
-  gap: 12px;
-}
-
-.drop {
-  border-radius: 18px;
-  border: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
-  padding: 14px;
-  display: grid;
-  gap: 8px;
-}
-
-.drop[data-drag='true'] {
-  border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
-  background: color-mix(in oklab, var(--accent) 12%, var(--surface));
-}
-
-.dropTitle {
-  font-weight: 900;
-  color: var(--text);
-}
-
-.dropSub {
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-.hiddenInput {
-  display: none;
-}
-
-.pickBtn {
-  justify-self: start;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in oklab, var(--accent) 40%, var(--border));
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-  color: var(--text);
-  font-weight: 900;
-}
-
-.rules {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-}
-
-.thumb {
-  position: relative;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: #000;
-  aspect-ratio: 1 / 1;
-}
-
-.img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.rm {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 30px;
-  height: 30px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(0, 0, 0, 0.35);
-  color: #fff;
-}
-
-.progress {
-  display: grid;
-  gap: 6px;
-}
-
-.bar {
-  height: 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface-2) 80%, transparent);
-  overflow: hidden;
-}
-
-.barFill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--success));
-  border-radius: 999px;
-}
-
-.progressText {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.err {
-  font-size: 12.5px;
-  color: color-mix(in oklab, var(--danger) 80%, white);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.retry {
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  font-weight: 900;
-}
-
-.actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 98%, transparent);
-  box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.24);
-}
-
-.btn {
-  height: 48px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-weight: 950;
-}
-
-.btn.ghost {
-  background: transparent;
-}
-
-.btn.primary {
-  border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
-  background: color-mix(in oklab, var(--accent) 18%, transparent);
-}
-
-.btn:disabled {
-  opacity: 0.55;
-}
-
-.footNote {
-  margin-top: 2px;
-  font-size: 11.5px;
-  color: var(--muted);
-  line-height: 1.35;
-}
-
-@media (max-width: 640px) {
-  .backdrop {
-    align-items: stretch;
-    justify-content: stretch;
-  }
-
-  .sheet {
-    width: 100vw;
-    height: 100dvh;
-    max-height: 100dvh;
-    border-radius: 0;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-  }
-
-  .top {
-    padding: 14px 14px 10px;
-  }
-
-  .row {
-    grid-template-columns: 1fr;
-  }
-
-  .bodyScroll {
-    padding: 12px 14px 18px;
-  }
-
-  .actions {
-    position: sticky;
-    bottom: 0;
-    padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
-    grid-template-columns: 1fr 1fr;
-    z-index: 2;
-  }
-
-  .btn {
-    height: 52px;
-    border-radius: 18px;
-  }
-
-  .shareHead {
-    flex-direction: column;
-  }
-
-  .grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (min-width: 641px) and (max-width: 899px) {
-  .backdrop {
-    padding: 0;
-    align-items: flex-end;
-  }
-
-  .sheet {
-    width: min(760px, 100vw);
-  }
-}
-
-@media (min-width: 900px) {
-  .backdrop {
-    padding: 16px;
-    align-items: center;
-  }
-
-  .sheet {
-    border-radius: 24px;
-    max-width: 760px;
-  }
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(12px);display:grid;place-items:center;padding:16px;z-index:70}
+.sheet{width:min(760px,100%);max-height:min(90vh,920px);display:grid;grid-template-rows:auto 1fr;overflow:hidden;border-radius:28px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(10,18,40,.98), rgba(8,14,30,.98))}
+.top{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 20px 12px;border-bottom:1px solid rgba(255,255,255,.06)}
+.title{font-size:22px;font-weight:950;color:rgba(255,255,255,.98)}
+.sub{margin-top:4px;font-size:13px;color:rgba(255,255,255,.7)}
+.x{width:40px;height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#fff}
+.form{min-height:0;display:grid;grid-template-rows:1fr auto}
+.bodyScroll{overflow:auto;padding:16px 20px 18px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.label{display:grid;gap:8px;color:#fff;font-size:13px;font-weight:800}
+.select,.input,.textarea{width:100%;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(7,13,30,.85);color:#fff;padding:0 14px}
+.select,.input{height:46px}
+.textarea{min-height:170px;padding:14px;resize:vertical}
+.hint{margin-top:6px;display:flex;justify-content:flex-end;gap:4px;color:rgba(255,255,255,.56);font-size:12px}
+.uploader{margin-top:14px;display:grid;gap:12px}
+.drop{padding:16px;border-radius:22px;border:1px dashed rgba(255,255,255,.14);background:rgba(255,255,255,.02)}
+.drop[data-drag="true"]{border-color:rgba(120,180,255,.6);background:rgba(90,130,255,.08)}
+.dropTitle{font-size:16px;font-weight:950;color:#fff}
+.dropSub{margin-top:8px;color:rgba(255,255,255,.7);font-size:13px}
+.hiddenInput{display:none}
+.pickBtn{margin-top:14px;height:42px;padding:0 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(46,72,125,.62);color:#fff;font-weight:900}
+.rules{margin-top:12px;display:grid;gap:4px;color:rgba(255,255,255,.64);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.thumb{position:relative;border-radius:18px;overflow:hidden;background:rgba(255,255,255,.04);aspect-ratio:1 / 1}
+.thumb[data-kind="video"]{aspect-ratio:4 / 5}
+.img{width:100%;height:100%;object-fit:cover;display:block}
+.mediaBadge{position:absolute;left:8px;top:8px;padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.44);color:#fff;font-size:10px;font-weight:900}
+.rm{position:absolute;right:8px;top:8px;width:28px;height:28px;border-radius:999px;border:none;background:rgba(0,0,0,.52);color:#fff}
+.progress{display:grid;gap:8px}
+.bar{height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.barFill{height:100%;background:linear-gradient(90deg,#76a7ff,#9ecbff)}
+.progressText{font-size:12px;color:rgba(255,255,255,.7);font-weight:800}
+.err{padding:10px 12px;border-radius:14px;background:rgba(255,96,120,.08);color:#ffb7c3;font-size:13px;font-weight:700}
+.retry{margin-left:10px;border:none;background:transparent;color:#fff;text-decoration:underline}
+.footNote{margin-top:8px;color:rgba(255,255,255,.62);font-size:12px}
+.actions{display:flex;justify-content:space-between;gap:12px;padding:14px 20px;border-top:1px solid rgba(255,255,255,.06)}
+.btn{flex:1;height:52px;border-radius:18px;border:1px solid rgba(255,255,255,.1);font-weight:950;color:#fff}
+.btn.ghost{background:rgba(255,255,255,.03)}
+.btn.primary{background:linear-gradient(180deg, rgba(65,86,143,.88), rgba(53,76,134,.86))}
+@media (max-width: 640px){
+  .row{grid-template-columns:1fr}
+  .sheet{padding-bottom:env(safe-area-inset-bottom)}
+  .bodyScroll{padding:14px 14px 16px}
+  .top{padding:14px 14px 10px}
+  .actions{padding:12px 14px calc(12px + env(safe-area-inset-bottom))}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 </style>

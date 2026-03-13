@@ -14,10 +14,15 @@ const emit = defineEmits(["like"]);
 const router = useRouter();
 const toast = useToastStore();
 
-const images = computed(() => {
+const mediaItems = computed(() => {
   const p = props.post || {};
-  return p.imageUrls || p.images || [];
+  if (Array.isArray(p.mediaItems) && p.mediaItems.length) return p.mediaItems;
+  const fallback = p.imageUrls || p.images || [];
+  return Array.isArray(fallback) ? fallback.map((url) => ({ mediaType: "IMAGE", url, thumbnailUrl: url })) : [];
 });
+
+const images = computed(() => mediaItems.value.filter((m) => String(m?.mediaType || "IMAGE").toUpperCase() === "IMAGE").map((m) => m.url || m.thumbnailUrl).filter(Boolean));
+const firstVideo = computed(() => mediaItems.value.find((m) => String(m?.mediaType || "").toUpperCase() === "VIDEO") || null);
 
 const previewComments = computed(() => {
   const p = props.post || {};
@@ -385,6 +390,11 @@ const detailActionLabel = computed(() => {
 
 <template>
   <article class="card" role="article" @click="openDetail">
+    <div v-if="firstVideo" class="videoHero" @click.stop="openDetail">
+      <video class="videoHero__player" :src="firstVideo.url" controls playsinline preload="metadata"></video>
+      <div class="videoHero__badge">VIDEO</div>
+    </div>
+
     <div class="head">
       <div class="avatar"></div>
 

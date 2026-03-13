@@ -24,11 +24,12 @@ export async function fetchFeed({ size = 10, cursor = null } = {}) {
     };
 }
 
-export async function createPost({ content, visibility = "ALL", imageFileIds = [], imageUrls = [] }) {
+export async function createPost({ content, visibility = "ALL", imageFileIds = [], mediaFileIds = [], imageUrls = [] }) {
     const body = {
         content: content ?? "",
         visibility,
         imageFileIds,
+        mediaFileIds,
         imageUrls,
     };
 
