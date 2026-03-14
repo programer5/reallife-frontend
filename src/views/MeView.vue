@@ -454,7 +454,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useToastStore } from "@/stores/toast";
 import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
-import { uploadFiles } from "@/api/files";
+import { uploadImages } from "@/api/files";
 import { fetchMe, updateProfile } from "@/api/me";
 import { fetchUserProfileByHandle } from "@/api/users";
 
@@ -724,15 +724,15 @@ async function onUploadAvatar(event) {
 
   try {
     saving.value = true;
-    const uploadedIds = await uploadFiles([file]);
-    const firstId = uploadedIds?.[0];
+    const uploaded = await uploadImages([file]);
+    const first = uploaded?.[0];
 
-    if (!firstId) {
+    if (!first?.id) {
       throw new Error("파일 업로드 결과가 올바르지 않아요.");
     }
 
-    avatarFileId.value = firstId;
-    avatarUrl.value = URL.createObjectURL(file);
+    avatarFileId.value = first.id;
+    avatarUrl.value = first.url || avatarUrl.value;
     toast.success("사진 업로드 완료", "저장 버튼을 누르면 프로필에 반영돼요.");
   } catch (e) {
     toast.error("사진 업로드 실패", e?.response?.data?.message || e?.message || "사진 업로드에 실패했어요.");
@@ -743,9 +743,6 @@ async function onUploadAvatar(event) {
 }
 
 function clearAvatar() {
-  if (String(avatarUrl.value || "").startsWith("blob:")) {
-    try { URL.revokeObjectURL(avatarUrl.value); } catch {}
-  }
   avatarFileId.value = null;
   avatarUrl.value = "";
 }
@@ -1467,6 +1464,10 @@ onMounted(async () => {
     grid-template-columns:1fr;
   }
 }
+
+.flowGrid--vault{grid-template-columns:repeat(3,minmax(0,1fr))}
+.flowItem--button{text-align:left;cursor:pointer}
+@media (max-width: 860px){.flowGrid--vault{grid-template-columns:1fr}}
 </style>
 @media (max-width: 860px){
   .heroTop,

@@ -58,13 +58,14 @@ const routes = [
         children: [
           { path: "", name: "inbox", component: InboxView },
           { path: "new", name: "inbox-new", component: () => import("../views/NewDirectMessageView.vue") },
-          { path: "group-create", name: "inbox-group-create", component: () => import("../views/GroupCreateView.vue") },
           { path: "conversations", name: "conversations", component: () => import("../views/ConversationsView.vue") },
           { path: "conversations/:conversationId", name: "conversation-detail", component: () => import("../views/ConversationDetailView.vue") },
+          { path: "conversations/:conversationId/group", name: "conversation-group-manage", component: () => import("../views/GroupManageView.vue") },
           { path: "conversations/:conversationId/pins", name: "conversation-pins", component: () => import("../views/PinnedListView.vue") },
         ],
       },
       { path: "me", name: "me", component: MeView },
+      { path: "me/activity", name: "me-activity", component: () => import("../views/MyActivityView.vue") },
       {
         path: "ops/dashboard",
         name: "admin-dashboard",
@@ -91,7 +92,7 @@ router.beforeEach(async (to) => {
     try {
       await auth.ensureSession();
     } catch {
-      return { path: "/login", query: { redirect: to.fullPath } };
+      return { path: "/login" };
     }
   }
 

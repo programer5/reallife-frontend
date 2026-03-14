@@ -7,15 +7,8 @@ import RlModal from "@/components/ui/RlModal.vue";
 import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
-import ConversationCapsulePanel from "@/components/chat/ConversationCapsulePanel.vue";
-import MessageAttachmentPicker from "@/components/chat/MessageAttachmentPicker.vue";
-import MessageAttachmentPreview from "@/components/chat/MessageAttachmentPreview.vue";
-import CapsuleComposerModal from "@/components/chat/CapsuleComposerModal.vue";
-import PostComposer from "@/components/PostComposer.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
-import { uploadFiles } from "@/api/files";
-import { createCapsule, fetchConversationCapsules } from "@/api/capsules";
 import { markConversationRead } from "@/api/conversations";
 import { fetchConversationReadState } from "@/api/conversations";
 import {
@@ -35,6 +28,7 @@ import { readNotification } from "@/api/notifications";
 import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
 import { updateMessage } from "@/api/messages";
+import { uploadFiles } from "@/api/files";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -44,18 +38,6 @@ const convStore = useConversationsStore();
 const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
-const capsuleItems = ref([]);
-const capsuleLoading = ref(false);
-const capsuleAlertSeen = ref(new Set());
-const capsuleModalOpen = ref(false);
-const capsuleTitle = ref("");
-const capsuleUnlockAt = ref("");
-const capsuleSaving = ref(false);
-const attachedFiles = ref([]);
-const attachmentUploading = ref(false);
-const attachmentError = ref("");
-const attachmentProgress = ref(0);
-const fileInputRef = ref(null);
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
@@ -633,105 +615,25 @@ onBeforeUnmount(() => {
 });
 const myId = computed(() => auth.me?.id || null);
 
-
-async function refreshCapsules() {
-  if (!conversationId.value || conversationId.value === "undefined" || conversationId.value === "null") {
-    capsuleItems.value = [];
-    return;
-  }
-  capsuleLoading.value = true;
-  try {
-    const res = await fetchConversationCapsules(conversationId.value);
-    const nextItems = Array.isArray(res?.items) ? res.items : [];
-    const openedNow = nextItems.filter((x) => x?.opened);
-    const newlyOpened = openedNow.filter((x) => !capsuleAlertSeen.value.has(String(x.capsuleId)));
-    for (const item of newlyOpened) {
-      capsuleAlertSeen.value.add(String(item.capsuleId));
-      toast.success?.("타임 캡슐 열림", `${item.title || "캡슐"} 이(가) 열렸어요.`);
-    }
-    capsuleItems.value = nextItems;
-  } catch {
-    capsuleItems.value = [];
-  } finally {
-    capsuleLoading.value = false;
-  }
-}
-
-function relayFromCapsule(payload) {
-  try {
-    sessionStorage.setItem("reallife:pendingAction", JSON.stringify(payload));
-    sessionStorage.setItem("reallife:pendingActionTargetConversationId", String(conversationId.value || ""));
-  } catch {}
-  pendingAction.value = payload;
-  pendingActionPrimed.value = false;
-  relayAutoMode.value = true;
-  primePendingAction(true, true);
-  bumpPendingHighlight();
-  nextTick(async () => {
-    try { await quickSendPendingAction(); } catch {}
-    toast.success?.("액션 릴레이 시작", "캡슐 내용을 바탕으로 액션 제안을 만들고 있어요.");
-  });
-}
-
-function openCapsuleModal() {
-  const base = String(content.value || "").trim();
-  if (!base) {
-    toast.info?.("타임 캡슐", "먼저 메시지를 입력한 뒤 ⏳ 버튼을 눌러 주세요.");
-    return;
-  }
-  const dt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  capsuleTitle.value = base.slice(0, 30) || "나중에 열 메시지";
-  capsuleUnlockAt.value = dt.toISOString().slice(0, 16);
-  capsuleModalOpen.value = true;
-}
-function closeCapsuleModal() {
-  capsuleModalOpen.value = false;
-}
-async function createTimeCapsuleFromDraft() {
-  const text = String(content.value || "").trim();
-  if (!text) {
-    toast.error?.("타임 캡슐", "캡슐로 저장할 메시지가 없어요.");
-    return;
-  }
-  if (!capsuleUnlockAt.value) {
-    toast.error?.("타임 캡슐", "열릴 시간을 선택해 주세요.");
-    return;
-  }
-  capsuleSaving.value = true;
-  try {
-    const sent = await sendMessage({
-      conversationId: conversationId.value,
-      content: text,
-      attachmentIds: [],
-      unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
-    });
-    await createCapsule({
-      messageId: sent.messageId || sent.id,
-      conversationId: conversationId.value,
-      title: capsuleTitle.value || text.slice(0, 30),
-      unlockAt: new Date(capsuleUnlockAt.value).toISOString(),
-      userId: myId.value,
-    });
-    content.value = "";
-    capsuleModalOpen.value = false;
-    await refreshCapsules();
-    toast.success?.("타임 캡슐 생성", "입력한 메시지를 나중에 열릴 캡슐로 저장했어요.");
-  } catch (e) {
-    toast.error?.("타임 캡슐 실패", e?.response?.data?.message || "타임 캡슐을 만들지 못했어요.");
-  } finally {
-    capsuleSaving.value = false;
-  }
-}
-
-function attachmentKind(file){ const type = String(file?.type || file?.contentType || "").toLowerCase(); if(type.startsWith("image/")) return "image"; if(type.startsWith("video/")) return "video"; return "file"; }
-function previewUrlFor(file){ try { return URL.createObjectURL(file); } catch { return ""; } }
-function normalizePickedFiles(fileList){ return Array.from(fileList || []).map((file)=>({ file, name:file.name || "첨부파일", size:Number(file.size||0), type:file.type||"", kind:attachmentKind(file), previewUrl:previewUrlFor(file) })); }
-function openAttachmentPicker(){ fileInputRef.value?.click?.(); }
-function removeAttachedFile(index){ const item = attachedFiles.value[index]; if(item?.previewUrl && String(item.previewUrl).startsWith("blob:")){ try{ URL.revokeObjectURL(item.previewUrl);}catch{} } attachedFiles.value.splice(index,1); nextTick(()=>syncComposerHeightVar()); }
-function clearAttachments(){ for(const item of attachedFiles.value){ if(item?.previewUrl && String(item.previewUrl).startsWith("blob:")){ try{ URL.revokeObjectURL(item.previewUrl);}catch{} } } attachedFiles.value=[]; attachmentError.value=""; attachmentProgress.value=0; nextTick(()=>syncComposerHeightVar()); }
-function onPickFiles(e){ const list=e?.target?.files; if(!list || !list.length) return; attachedFiles.value=[...attachedFiles.value, ...normalizePickedFiles(list)]; if(e?.target) e.target.value=""; nextTick(()=>syncComposerHeightVar()); }
-
 /** 상대(목록 데이터 기반) */
+
+const currentConversationRow = computed(() => {
+  const cid = conversationId.value;
+  return convStore.items?.find(c => String(c.conversationId) === String(cid)) || null;
+});
+
+const conversationType = computed(() =>
+  String(currentConversationRow.value?.conversationType || "DIRECT")
+);
+
+const conversationTitle = computed(() =>
+  currentConversationRow.value?.conversationTitle || ""
+);
+
+const isGroupConversation = computed(() =>
+  conversationType.value === "GROUP"
+);
+
 const peer = computed(() => {
   const cid = conversationId.value;
   const row = convStore.items?.find((c) => String(c.conversationId) === String(cid));
@@ -739,9 +641,11 @@ const peer = computed(() => {
 });
 
 const peerName = computed(() => {
+  if (isGroupConversation.value) return currentConversationRow.value?.conversationTitle || "그룹 대화";
   return peer.value?.nickname || peer.value?.name || "대화";
 });
 const peerHandle = computed(() => {
+  if (isGroupConversation.value) return "그룹 관리";
   return peer.value?.handle || "";
 });
 const hasPeer = computed(() => !!peer.value);
@@ -751,6 +655,7 @@ function peerInitial() {
   return s ? s[0].toUpperCase() : "U";
 }
 function openPeerProfile() {
+  if (isGroupConversation.value) return router.push(`/inbox/conversations/${conversationId.value}/group`);
   const h = peer.value?.handle;
   const id = peer.value?.userId || peer.value?.id;
   if (h) return router.push(`/u/${h}`);
@@ -971,12 +876,12 @@ function loadPinActivityFromStorage(cid) {
 const pinActivity = ref([]);
 
 function syncPinActivity(cid = conversationId.value) {
-  pinActivity.value = loadPinActivityFromStorage(cid).slice(0, 12);
+  pinActivity.value = loadPinActivityFromStorage(cid).slice(0, 6);
 }
 
 function savePinActivity(cid = conversationId.value) {
   try {
-    sessionStorage.setItem(pinActivityStorageKey(cid), JSON.stringify(pinActivity.value.slice(0, 12)));
+    sessionStorage.setItem(pinActivityStorageKey(cid), JSON.stringify(pinActivity.value.slice(0, 6)));
   } catch {}
 }
 
@@ -989,17 +894,13 @@ function rememberPinAction(action, pin) {
     type: classifyPin(pin),
     placeText: pin?.placeText || "",
     startAt: pin?.startAt || "",
-    remindAt: pin?.remindAt || "",
-    status: pin?.status || "",
-    createdAt: pin?.createdAt || "",
     at: new Date().toISOString(),
   };
-  pinActivity.value = [entry, ...pinActivity.value.filter((x) => String(x.id) !== String(entry.id))].slice(0, 12);
+  pinActivity.value = [entry, ...pinActivity.value.filter((x) => String(x.pinId) !== String(entry.pinId))].slice(0, 6);
   savePinActivity();
 }
 
 watch(conversationId, () => {
-  refreshCapsules();
   syncPinActivity();
 }, { immediate: true });
 
@@ -1083,126 +984,21 @@ function openReminderPins(pin) {
 const recentPinActivity = computed(() => pinActivity.value.slice(0, 4));
 
 function pinActivityLabel(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CREATED") return "생성";
-  if (action === "DONE") return "완료";
-  if (action === "CANCELED") return "취소";
-  if (action === "SHARED") return "공유";
+  if (item?.action === "DONE") return "완료";
+  if (item?.action === "CANCELED") return "취소";
   return "숨김";
 }
 
 function pinActivityTone(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CREATED") return "create";
-  if (action === "DONE") return "done";
-  if (action === "CANCELED") return "cancel";
-  if (action === "SHARED") return "share";
+  if (item?.action === "DONE") return "done";
+  if (item?.action === "CANCELED") return "cancel";
   return "hide";
 }
 
 function pinActivityMeta(item) {
-  const when = item?.startAt ? pinTimeText(item) : actionHistoryTimeText(item?.at);
+  const when = item?.startAt ? pinTimeText(item) : "방금 처리";
   const place = item?.placeText ? ` · ${item.placeText}` : "";
   return `${when}${place}`;
-}
-
-const historyFilter = ref("ALL");
-
-const actionHistorySummary = computed(() => ({
-  active: (Array.isArray(pins.value) ? pins.value : []).length,
-  recent: pinActivity.value.filter((item) => ["DONE", "CANCELED", "DISMISSED", "SHARED"].includes(String(item?.action || "").toUpperCase())).length,
-  created: pinActivity.value.filter((item) => String(item?.action || "").toUpperCase() === "CREATED").length,
-}));
-
-const conversationActionHistory = computed(() => {
-  const current = (Array.isArray(pins.value) ? pins.value : []).map((pin) => ({
-    id: `current-${pin?.pinId || Math.random()}` ,
-    pinId: pin?.pinId || null,
-    action: "CURRENT",
-    title: pin?.title || pinKindMeta(pin).label,
-    type: classifyPin(pin),
-    placeText: pin?.placeText || "",
-    startAt: pin?.startAt || "",
-    remindAt: pin?.remindAt || "",
-    status: pin?.status || "ACTIVE",
-    at: pin?.createdAt || pin?.startAt || new Date().toISOString(),
-  }));
-
-  const recent = pinActivity.value.map((item) => ({
-    ...item,
-    id: item?.id || `${item?.action || "event"}-${item?.pinId || item?.at || Date.now()}`,
-  }));
-
-  return [...current, ...recent]
-    .sort((a, b) => (new Date(b?.at || 0).getTime() || 0) - (new Date(a?.at || 0).getTime() || 0))
-    .slice(0, 12);
-});
-
-const visibleConversationActionHistory = computed(() => {
-  const filter = historyFilter.value;
-  if (filter === "CURRENT") return conversationActionHistory.value.filter((item) => item?.action === "CURRENT");
-  if (filter === "RECENT") return conversationActionHistory.value.filter((item) => item?.action !== "CURRENT");
-  return conversationActionHistory.value;
-});
-
-function actionHistoryLabel(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CURRENT") return pinTimelineState(item).label;
-  if (action === "CREATED") return "생성";
-  if (action === "DONE") return "완료";
-  if (action === "CANCELED") return "취소";
-  if (action === "DISMISSED") return "숨김";
-  if (action === "SHARED") return "공유";
-  return "이력";
-}
-
-function actionHistoryTone(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CURRENT") return pinTimelineState(item).tone;
-  if (action === "CREATED") return "create";
-  if (action === "DONE") return "done";
-  if (action === "CANCELED") return "cancel";
-  if (action === "DISMISSED") return "hide";
-  if (action === "SHARED") return "share";
-  return "soft";
-}
-
-function actionHistoryKindLabel(item) {
-  const kind = String(item?.type || classifyPin(item) || "").toUpperCase();
-  if (kind === "PROMISE") return "약속";
-  if (kind === "TODO") return "할일";
-  if (kind === "PLACE") return "장소";
-  return "액션";
-}
-
-function actionHistoryTimeText(value) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).replace("T", " ").slice(0, 16);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${mm}.${dd} ${hh}:${mi}`;
-}
-
-function actionHistoryMeta(item) {
-  const parts = [actionHistoryKindLabel(item)];
-  if (item?.startAt) parts.push(pinTimeText(item));
-  if (item?.placeText) parts.push(item.placeText);
-  if (item?.remindAt) parts.push(reminderTimeText(item));
-  return parts.join(" · ");
-}
-
-function actionHistoryDescription(item) {
-  const action = String(item?.action || "").toUpperCase();
-  if (action === "CURRENT") return "이 대화에서 아직 이어지고 있는 액션이에요.";
-  if (action === "CREATED") return "대화에서 새 액션으로 저장된 순간이에요.";
-  if (action === "DONE") return "처리가 끝난 액션이라 피드 공유나 기록 확인으로 이어갈 수 있어요.";
-  if (action === "CANCELED") return "취소로 정리된 액션이에요. 필요하면 새 흐름으로 다시 만들 수 있어요.";
-  if (action === "DISMISSED") return "내 화면에서 숨긴 액션이에요.";
-  if (action === "SHARED") return "홈 피드로 이어지도록 공유 초안을 만든 이력이에요.";
-  return "이 대화에서 이어진 액션 기록이에요.";
 }
 
 const timelinePrimaryMeta = computed(() => {
@@ -1430,29 +1226,6 @@ function guessRemindMinutesFromPin(pin) {
 
 const pinEditLoading = ref(false);
 
-const feedComposerOpen = ref(false);
-const feedComposerDraft = ref(null);
-
-function openFeedComposerForPin(pin) {
-  feedComposerDraft.value = {
-    content: feedShareTextForPin(pin),
-    visibility: "ALL",
-    sourceMeta: feedShareMetaForPin(pin),
-  };
-  feedComposerOpen.value = true;
-}
-
-function closeFeedComposer() {
-  feedComposerOpen.value = false;
-  feedComposerDraft.value = null;
-}
-
-function onFeedComposerCreated() {
-  closeFeedComposer();
-  toast.success?.("피드 공유 완료", "대화를 벗어나지 않고 바로 피드에 올렸어요.");
-  router.push({ path: "/home", query: { refreshFeed: "1" } });
-}
-
 function toLocalInput(dt) {
   if (!dt) return "";
   const s = String(dt);
@@ -1523,33 +1296,18 @@ function feedShareMetaForPin(pin) {
 
 function sharePinToFeed(pin) {
   try {
-    rememberPinAction("SHARED", pin);
-    openFeedComposerForPin(pin);
+    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
+      content: feedShareTextForPin(pin),
+      visibility: "ALL",
+      source: "action-pin",
+      pinId: pin?.pinId || null,
+      sourceMeta: feedShareMetaForPin(pin),
+    }));
+    toast.success?.("피드 공유 준비", "홈에서 바로 게시할 수 있게 초안을 채워뒀어요.");
+    router.push({ path: "/home", query: { compose: "1" } });
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
-}
-
-function scrollDockToCreatedPin(pinId) {
-  if (!pinId) return;
-  nextTick(() => {
-    try {
-      const el = document.querySelector(`[data-pin-id="${String(pinId)}"]`);
-      el?.scrollIntoView?.({ behavior: "smooth", block: "nearest", inline: "nearest" });
-    } catch {}
-  });
-}
-
-function sharePinActivityToFeed(item) {
-  sharePinToFeed({
-    pinId: item?.pinId || null,
-    title: item?.title || "액션",
-    placeText: item?.placeText || "",
-    startAt: item?.startAt || "",
-    remindAt: item?.remindAt || "",
-    status: item?.status || (String(item?.action || "").toUpperCase() === "DONE" ? "DONE" : String(item?.action || "").toUpperCase() === "CANCELED" ? "CANCELED" : "ACTIVE"),
-    type: item?.type || classifyPin(item),
-  });
 }
 
 function openPinEdit(pin) {
@@ -1609,6 +1367,11 @@ const hasNext = ref(false);
 
 const content = ref("");
 const sending = ref(false);
+const attachedFiles = ref([]);
+const attachmentUploading = ref(false);
+const attachmentProgress = ref(0);
+const attachmentError = ref("");
+const fileInputRef = ref(null);
 
 const scrollerRef = ref(null);
 const newMsgCount = ref(0);
@@ -1626,7 +1389,6 @@ const pendingAction = ref(null);
 const pendingActionPrimed = ref(false);
 const pendingActionTempId = ref(null);
 const pendingHighlight = ref(false);
-const relayAutoMode = ref(false);
 function bumpPendingHighlight() {
   pendingHighlight.value = true;
   setTimeout(() => { pendingHighlight.value = false; }, 1400);
@@ -1645,7 +1407,6 @@ function clearPendingAction() {
   pendingAction.value = null;
   pendingActionPrimed.value = false;
   pendingActionTempId.value = null;
-  relayAutoMode.value = false;
 }
 function pendingKindLabel(kind) {
   if (kind === "PROMISE") return "📅 약속";
@@ -2263,6 +2024,56 @@ function upsertServerMessage(tempId, serverMsg) {
   replaceMessageById(tempId, { ...serverMsg });
 }
 
+
+function attachmentKind(file) {
+  const type = String(file?.type || file?.contentType || "").toLowerCase();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  return "file";
+}
+function previewUrlFor(file) {
+  try {
+    if (!file) return "";
+    if (file.previewUrl) return file.previewUrl;
+    if (file.url) return file.url;
+    return URL.createObjectURL(file);
+  } catch { return ""; }
+}
+function normalizePickedFiles(fileList) {
+  return Array.from(fileList || []).map((file) => ({
+    file,
+    name: file.name || "첨부파일",
+    size: Number(file.size || 0),
+    type: file.type || "",
+    kind: attachmentKind(file),
+    previewUrl: previewUrlFor(file),
+  }));
+}
+function openAttachmentPicker() { fileInputRef.value?.click?.(); }
+function removeAttachedFile(index) {
+  const item = attachedFiles.value[index];
+  if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) {
+    try { URL.revokeObjectURL(item.previewUrl); } catch {}
+  }
+  attachedFiles.value.splice(index, 1);
+}
+function clearAttachments() {
+  for (const item of attachedFiles.value) {
+    if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) {
+      try { URL.revokeObjectURL(item.previewUrl); } catch {}
+    }
+  }
+  attachedFiles.value = [];
+  attachmentError.value = "";
+  attachmentProgress.value = 0;
+}
+function onPickFiles(e) {
+  const list = e?.target?.files;
+  if (!list || !list.length) return;
+  attachedFiles.value = [...attachedFiles.value, ...normalizePickedFiles(list)];
+  if (e?.target) e.target.value = "";
+}
+
 async function onSend() {
   const text = String(content.value || "").trim();
   const hasAttachments = attachedFiles.value.length > 0;
@@ -2288,7 +2099,7 @@ async function onSend() {
     senderId: myId.value, // ✅ 핵심: 내 메시지로 즉시 판별되게
     content: text,
     createdAt: new Date().toISOString(),
-    attachments: attachedFiles.value.map((x,idx)=>({ attachmentId:`local-${idx}`, url:x.previewUrl, thumbnailUrl:x.previewUrl, originalFilename:x.name, contentType:x.type })),
+    attachments: attachedFiles.value.map((x, idx) => ({ attachmentId: `local-${idx}`, url: x.previewUrl, thumbnailUrl: x.previewUrl, originalFilename: x.name, contentType: x.type })),
     pinCandidates: [],
     _status: "sending",
   };
@@ -2303,17 +2114,20 @@ async function onSend() {
     let attachmentIds = [];
     if (hasAttachments) {
       attachmentUploading.value = true;
-      attachmentError.value = "";
       attachmentProgress.value = 0;
+      attachmentError.value = "";
       try {
-        attachmentIds = await uploadFiles(attachedFiles.value.map((x) => x.file), { onProgress: (pct) => { attachmentProgress.value = Number(pct || 0); } });
-      } catch (e) {
-        attachmentError.value = e?.response?.data?.message || "첨부 업로드에 실패했어요.";
-        throw e;
+        attachmentIds = await uploadFiles(attachedFiles.value.map((x) => x.file), {
+          onProgress: (pct) => { attachmentProgress.value = Number(pct || 0); },
+        });
+      } catch (err) {
+        attachmentError.value = err?.response?.data?.message || "첨부 업로드에 실패했어요.";
+        throw err;
       } finally {
         attachmentUploading.value = false;
       }
     }
+
     const msg = await sendMessage({
       conversationId: conversationId.value,
       content: text,
@@ -2323,6 +2137,7 @@ async function onSend() {
 
     // ✅ 성공: SSE가 먼저 왔을 수도 있으니 "중복 방지 upsert"
     upsertServerMessage(tempId, msg);
+    clearAttachments();
 
     // ✅ v3.6 Bridge: pending action으로 보낸 메시지면, 곧바로 Dock ✨ 제안으로 열어준다.
     if (isPendingSend) {
@@ -2332,28 +2147,15 @@ async function onSend() {
       // 서버 응답에 pinCandidates가 있으면 즉시 Dock 오픈
       const hasCandidates = msg && Array.isArray(msg.pinCandidates) && msg.pinCandidates.length > 0;
       if (hasCandidates) {
+        openSuggestionsDock(msg);
         triggerDockPulse();
-
-        if (relayAutoMode.value) {
-          const candidate = msg.pinCandidates[0];
-          if (candidate) {
-            await onConfirmCandidate(msg, candidate, { autoShare: true, fromRelay: true });
-            clearPendingAction();
-          } else {
-            openSuggestionsDock(msg);
-            clearPendingAction();
-          }
-        } else {
-          openSuggestionsDock(msg);
-          clearPendingAction();
-        }
+        clearPendingAction();
       } else {
         // 후보가 안 생기면 pendingAction은 유지하고, 사용자가 문장을 조금 더 구체화해서 다시 전송할 수 있게 한다.
         toast.info?.("제안이 생성되지 않았어요", "메시지를 조금 더 구체적으로 적고 다시 전송해보세요.");
       }
     }
 
-    clearAttachments();
     convStore.ingestMessageCreated?.({
       messageId: msg?.messageId,
       conversationId: conversationId.value,
@@ -2491,7 +2293,7 @@ function setConfirmBusy(messageId, v) {
   else delete confirmBusyByMessageId.value[key];
 }
 
-async function onConfirmCandidate(message, payload, options = {}) {
+async function onConfirmCandidate(message, payload) {
   if (!conversationId.value) return;
   if (!message?.messageId) return;
   if (isConfirmBusy(message.messageId)) return;
@@ -2546,15 +2348,10 @@ if (_cid) {
         if (dockJustMovedPinId.value === String(created.pinId)) dockJustMovedPinId.value = null;
       }, 900);
 
-      rememberPinAction("CREATED", created);
-      toast.success?.("핀 생성", options?.autoShare ? "액션을 만들고 바로 피드 공유까지 이어가요." : "Pinned에 저장했어요.");
+      toast.success?.("핀 생성", "Pinned에 저장했어요.");
       await nextTick();
       if (flyDraft) enqueueDockToActiveFly({ ...flyDraft, createdPinId: created.pinId });
       showSavedBadge(message.messageId);
-
-      if (options?.autoShare) {
-        openFeedComposerForPin(created);
-      }
     }
 
     if (Array.isArray(message.pinCandidates)) message.pinCandidates = [];
@@ -2854,7 +2651,8 @@ onBeforeUnmount(() => {
         <div class="peerAva" aria-hidden="true">{{ peerInitial() }}</div>
         <div class="peerMeta">
           <div class="peerName">{{ peerName }}</div>
-          <div class="peerHandle" v-if="peerHandle">@{{ peerHandle }}</div>
+          <div class="peerHandle" v-if="isGroupConversation">그룹 관리</div>
+          <div class="peerHandle" v-else-if="peerHandle">@{{ peerHandle }}</div>
           <div class="peerHandle" v-else>프로필</div>
         </div>
       </button>
@@ -2871,14 +2669,6 @@ onBeforeUnmount(() => {
     </div>
 
     <SseStatusBanner />
-
-    <ConversationCapsulePanel
-      v-if="canViewConversation"
-      :items="capsuleItems"
-      :loading="capsuleLoading"
-      @refresh="refreshCapsules"
-      @relay="relayFromCapsule"
-    />
 
     
 <!-- ✅ RealLife v2: Active Actions Dock -->
@@ -3031,46 +2821,6 @@ onBeforeUnmount(() => {
                 <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
               </div>
               <button class="timelineRecentShare" type="button" @click="sharePinActivityToFeed(item)">피드 공유</button>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="conversationActionHistory.length" class="timelineHistory">
-          <div class="timelineHistoryHead">
-            <div>
-              <div class="timelineHistoryEyebrow">Conversation → Action history</div>
-              <div class="timelineHistoryTitle">이 대화에서 만든 액션 기록</div>
-            </div>
-            <div class="timelineHistorySummary">
-              <span>진행중 {{ actionHistorySummary.active }}</span>
-              <span>최근 처리 {{ actionHistorySummary.recent }}</span>
-              <span>생성 {{ actionHistorySummary.created }}</span>
-            </div>
-          </div>
-          <div class="timelineHistoryFilters">
-            <button class="timelineHistoryFilter" :class="{ on: historyFilter === 'ALL' }" type="button" @click="historyFilter = 'ALL'">전체</button>
-            <button class="timelineHistoryFilter" :class="{ on: historyFilter === 'CURRENT' }" type="button" @click="historyFilter = 'CURRENT'">진행중</button>
-            <button class="timelineHistoryFilter" :class="{ on: historyFilter === 'RECENT' }" type="button" @click="historyFilter = 'RECENT'">최근 처리</button>
-          </div>
-          <div class="timelineHistoryList">
-            <div v-for="item in visibleConversationActionHistory" :key="item.id" class="timelineHistoryItem">
-              <span class="timelineHistoryBadge" :data-tone="actionHistoryTone(item)">{{ actionHistoryLabel(item) }}</span>
-              <div class="timelineHistoryBody">
-                <div class="timelineHistoryRow">
-                  <div class="timelineHistoryItemTitle">{{ item.title }}</div>
-                  <div class="timelineHistoryTime">{{ actionHistoryTimeText(item.at) }}</div>
-                </div>
-                <div class="timelineHistoryMeta">{{ actionHistoryMeta(item) }}</div>
-                <div class="timelineHistoryDesc">{{ actionHistoryDescription(item) }}</div>
-              </div>
-              <button
-                v-if="item.pinId && actionHistoryTone(item) !== 'cancel' && actionHistoryTone(item) !== 'hide'"
-                class="timelineHistoryShare"
-                type="button"
-                @click="sharePinActivityToFeed(item)"
-              >
-                피드 공유
-              </button>
             </div>
           </div>
         </div>
@@ -3281,11 +3031,7 @@ onBeforeUnmount(() => {
               </template>
             </div>
 
-            <MessageAttachmentPreview
-              v-if="Array.isArray(m.attachments) && m.attachments.length"
-              :items="m.attachments"
-              class="messageAttachmentBlock"
-            />
+            <MessageAttachmentPreview v-if="Array.isArray(m.attachments) && m.attachments.length" :items="m.attachments" class="messageAttachmentBlock" />
 
             <!-- ✅ optimistic send 상태 -->
             <div v-if="m._status" class="sendState" :data-status="m._status">
@@ -3336,31 +3082,13 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="composerInner composerInner--stack">
-        <input ref="fileInputRef" type="file" class="hiddenFileInput" multiple @change="onPickFiles" />
-        <MessageAttachmentPreview v-if="attachedFiles.length" :items="attachedFiles" removable @remove="removeAttachedFile" />
-        <div v-if="attachmentUploading" class="uploadState">첨부 업로드 중… {{ attachmentProgress }}%</div>
-        <div v-else-if="attachmentError" class="uploadError">{{ attachmentError }}</div>
-        <div class="composerRow">
-          <MessageAttachmentPicker :disabled="sending || attachmentUploading" :has-items="attachedFiles.length>0" @pick="openAttachmentPicker" @clear="clearAttachments" />
-          <button class="miniBtn" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
-          <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
-          <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading">{{ sending || attachmentUploading ? "..." : "전송" }}</button>
-        </div>
+    <div class="composerInner">
+        <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
+        <button class="btn" type="button" @click="onSend" :disabled="sending">
+          {{ sending ? "..." : "전송" }}
+        </button>
       </div>
-      <div class="composerHint">파일 첨부는 📎, 캡슐은 메시지를 입력한 뒤 ⏳ 버튼으로 만들 수 있어요.</div>
     </div>
-
-    <CapsuleComposerModal
-      :open="capsuleModalOpen"
-      :title-text="capsuleTitle"
-      :unlock-at="capsuleUnlockAt"
-      :saving="capsuleSaving"
-      @close="closeCapsuleModal"
-      @update:title-text="capsuleTitle = $event"
-      @update:unlock-at="capsuleUnlockAt = $event"
-      @save="createTimeCapsuleFromDraft"
-    />
 
     <!-- ✅ 핀 액션 모달 -->
     <RlModal
@@ -3530,13 +3258,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </Teleport>
-
-    <PostComposer
-      v-if="feedComposerOpen"
-      :initial-draft="feedComposerDraft"
-      @close="closeFeedComposer"
-      @created="onFeedComposerCreated"
-    />
 </template>
 
 <style scoped>
@@ -3545,9 +3266,15 @@ onBeforeUnmount(() => {
    ========================= */
 .page{
   /* ✅ window(바디) 스크롤이 생기지 않게, 화면을 고정 */
-  position: relative;
-  height: calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));
-  max-height: calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));
+  position: fixed;
+  left: 0;
+  right: 0;
+
+  /* ✅ AppHeader에 가리지 않게 */
+  top: var(--app-header-h, 64px);
+
+  /* ✅ 하단 탭바가 있다면 이 값만큼 비워둠(기본 72px) */
+  bottom: var(--app-bottombar-h, 72px);
 
   display:flex;
   flex-direction:column;
@@ -3668,7 +3395,7 @@ onBeforeUnmount(() => {
   padding: 0 12px;
 
   /* ✅ composer가 sticky로 떠도 마지막 메시지가 가려지지 않게 */
-  padding-bottom: calc(var(--composer-h, 120px) + 28px);
+  padding-bottom: calc(var(--composer-h, 82px) + 18px);
 }
 .inner{
   max-width: 760px;
@@ -4437,13 +4164,13 @@ onBeforeUnmount(() => {
 
 /* ✅ Teleport 메뉴 */
 .msgMenuOverlay{
-  position: relative;
+  position: fixed;
   inset: 0;
   z-index: 9999;
 }
 
 .msgMenuPopover{
-  position: relative;
+  position: fixed;
   min-width: 140px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,.10);
@@ -4537,7 +4264,7 @@ onBeforeUnmount(() => {
    ========================= */
 .dockWrap{
   position: sticky;
-  top: 6px;
+  top: 54px; /* topbar 높이에 맞춤 (필요하면 52~60 조정) */
   z-index: 20;
   padding: 10px 12px 0;
 }
@@ -4732,7 +4459,7 @@ onBeforeUnmount(() => {
    ========================= */
 .dockWrap{
   position: sticky;
-  top: 6px;
+  top: 54px; /* topbar 높이에 맞춤 (필요하면 52~60 조정) */
   z-index: 20;
   padding: 10px 12px 0;
 }
@@ -4799,9 +4526,6 @@ onBeforeUnmount(() => {
   background: rgba(18,22,30,.64);
   backdrop-filter: blur(14px);
   padding: 10px;
-  max-height: min(44vh, 420px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .dockGrid{
@@ -5027,7 +4751,7 @@ onBeforeUnmount(() => {
 
 /* fly animation ghost */
 .flyGhost{
-  position: relative;
+  position: fixed;
   z-index: 99999;
   border-radius: 18px;
   border: 1px solid rgba(255,255,255,.14);
@@ -5074,7 +4798,7 @@ onBeforeUnmount(() => {
 
 /* ===== v2.12 cinematic enhancements ===== */
 .flyGhost{
-  position: relative;
+  position: fixed;
   pointer-events: none;
   opacity: 0.98;
   transition:
@@ -5103,7 +4827,7 @@ onBeforeUnmount(() => {
 
 /* subtle sparks */
 .spark{
-  position: relative;
+  position: fixed;
   width: 4px;
   height: 4px;
   border-radius: 999px;
@@ -5252,42 +4976,15 @@ onBeforeUnmount(() => {
 .timelineFocusLabel{font-size:11px;color:var(--muted);font-weight:800;}
 .timelineFocusCard strong{font-size:24px;line-height:1;font-weight:950;}
 .timelineFocusMeta{font-size:11px;color:rgba(255,255,255,.68);}
-.timelineRecent{margin-top:14px;display:grid;gap:10px;padding:16px;border-radius:22px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.018));box-shadow:inset 0 1px 0 rgba(255,255,255,.04);}
-.timelineRecentHead{font-size:11px;color:var(--muted);font-weight:900;letter-spacing:.08em;text-transform:uppercase;}
-.timelineRecentList{display:grid;gap:10px;}
-.timelineRecentItem{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:18px;border:1px solid color-mix(in oklab, var(--border) 80%, transparent);background:color-mix(in oklab, var(--surface) 88%, white 12%);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);}
-.timelineRecentBadge{display:inline-flex;align-items:center;justify-content:center;min-width:56px;height:28px;padding:0 11px;border-radius:999px;font-size:11px;font-weight:900;border:1px solid color-mix(in oklab, var(--border) 84%, transparent);background:rgba(255,255,255,.03);}
+.timelineRecent{margin-top:12px;display:grid;gap:8px;}
+.timelineRecentHead{font-size:11px;color:var(--muted);font-weight:900;}
+.timelineRecentList{display:grid;gap:8px;}
+.timelineRecentItem{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in oklab, var(--border) 80%, transparent);background: color-mix(in oklab, var(--surface) 78%, transparent);}
+.timelineRecentBadge{display:inline-flex;align-items:center;justify-content:center;min-width:48px;height:26px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:900;border:1px solid color-mix(in oklab, var(--border) 84%, transparent);}
 .timelineRecentBadge[data-tone="done"]{background: color-mix(in oklab, var(--success) 18%, transparent);border-color: color-mix(in oklab, var(--success) 34%, var(--border));}
 .timelineRecentBadge[data-tone="cancel"]{background: color-mix(in oklab, var(--danger) 14%, transparent);border-color: color-mix(in oklab, var(--danger) 34%, var(--border));}
-.timelineRecentBadge[data-tone="create"]{background: color-mix(in oklab, var(--accent) 16%, transparent);border-color: color-mix(in oklab, var(--accent) 34%, var(--border));}
-.timelineRecentBadge[data-tone="share"]{background: color-mix(in oklab, #7dd3fc 14%, transparent);border-color: color-mix(in oklab, #7dd3fc 34%, var(--border));}
 .timelineRecentBadge[data-tone="hide"]{background: color-mix(in oklab, var(--surface-2) 76%, transparent);}
 .timelineRecentBody{min-width:0;display:grid;gap:3px;}
-.timelineHistory{margin-top:14px;display:grid;gap:12px;padding:18px;border-radius:22px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.018));box-shadow:inset 0 1px 0 rgba(255,255,255,.04);}
-.timelineHistoryHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;}
-.timelineHistoryEyebrow{font-size:11px;font-weight:900;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;}
-.timelineHistoryTitle{font-size:16px;font-weight:950;color:var(--text);margin-top:4px;}
-.timelineHistorySummary{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;font-weight:800;color:rgba(255,255,255,.72);}
-.timelineHistorySummary span{padding:7px 11px;border-radius:999px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:color-mix(in oklab, var(--surface) 88%, white 12%);}
-.timelineHistoryFilters{display:flex;gap:8px;flex-wrap:wrap;padding-top:2px;}
-.timelineHistoryFilter{min-height:32px;padding:0 13px;border-radius:999px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:color-mix(in oklab, var(--surface) 86%, white 10%);color:rgba(255,255,255,.76);font-size:12px;font-weight:900;}
-.timelineHistoryFilter.on{border-color: color-mix(in oklab, var(--accent) 34%, var(--border));background: color-mix(in oklab, var(--accent) 14%, transparent);color: var(--text);}
-.timelineHistoryList{display:grid;gap:10px;}
-.timelineHistoryItem{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:18px;border:1px solid color-mix(in oklab, var(--border) 84%, transparent);background:color-mix(in oklab, var(--surface) 88%, white 12%);box-shadow:inset 0 1px 0 rgba(255,255,255,.035);}
-.timelineHistoryBadge{min-width:52px;height:26px;padding:0 10px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:rgba(255,255,255,.05);}
-.timelineHistoryBadge[data-tone="pending"],.timelineHistoryBadge[data-tone="upcoming"]{border-color: color-mix(in oklab, var(--warning) 34%, var(--border));background: color-mix(in oklab, var(--warning) 14%, transparent);}
-.timelineHistoryBadge[data-tone="done"]{border-color: color-mix(in oklab, var(--success) 34%, var(--border));background: color-mix(in oklab, var(--success) 14%, transparent);}
-.timelineHistoryBadge[data-tone="cancel"]{border-color: color-mix(in oklab, var(--danger) 34%, var(--border));background: color-mix(in oklab, var(--danger) 14%, transparent);}
-.timelineHistoryBadge[data-tone="create"]{border-color: color-mix(in oklab, var(--accent) 34%, var(--border));background: color-mix(in oklab, var(--accent) 14%, transparent);}
-.timelineHistoryBadge[data-tone="share"]{border-color: color-mix(in oklab, #7dd3fc 34%, var(--border));background: color-mix(in oklab, #7dd3fc 14%, transparent);}
-.timelineHistoryBadge[data-tone="hide"]{background: color-mix(in oklab, var(--surface-2) 76%, transparent);}
-.timelineHistoryBody{min-width:0;flex:1;display:grid;gap:4px;}
-.timelineHistoryRow{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
-.timelineHistoryItemTitle{font-size:13px;font-weight:900;color:var(--text);word-break:break-word;}
-.timelineHistoryTime{font-size:11px;color:var(--muted);white-space:nowrap;}
-.timelineHistoryMeta{font-size:11px;color:rgba(255,255,255,.72);line-height:1.45;}
-.timelineHistoryDesc{font-size:12px;color:rgba(255,255,255,.8);line-height:1.5;}
-.timelineHistoryShare{min-height:30px;padding:0 12px;border-radius:999px;border:1px solid color-mix(in oklab, var(--accent) 34%, var(--border));background: color-mix(in oklab, var(--accent) 12%, transparent);color:var(--text);font-size:11px;font-weight:900;white-space:nowrap;}
 .timelineRecentTitle{font-size:13px;font-weight:900;color:var(--text);}
 .timelineRecentMeta{font-size:11px;color:var(--muted);}
 .stateCardInline{max-width:760px;margin:0 auto;width:100%;padding:0 12px 12px;}
@@ -5393,9 +5090,133 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
+
+
+/* Final Conversation Layout UX Override */
+.hiddenFileInput{display:none}
+.messageAttachmentBlock{margin-top:8px}
+.page{position:relative;top:auto;left:auto;right:auto;bottom:auto;height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));overflow:hidden}
+.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 12px calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px);overscroll-behavior:contain}
+.dockWrap{position:sticky;top:6px;z-index:20;padding:8px 12px 0}
+.dockPanel{max-height:min(34dvh,320px)!important;overflow-y:auto!important;overflow-x:hidden!important}
+.dockRow{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
+.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 12px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.86) 24%, rgba(4,8,18,.97) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
+.composerInner--stack{display:grid;gap:8px}
+.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 90%, transparent)}
+.miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
+.composerHint{margin-top:8px;font-size:11px;line-height:1.35;color:var(--muted)}
+.uploadState,.uploadError{font-size:12px;font-weight:800}
+.uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
+@media (max-width:860px){.dockRow{grid-template-columns:1fr!important}}
+@media (max-width:720px){
+  .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
+  .topbar{grid-template-columns:auto 1fr;gap:8px}
+  .right{grid-column:1 / -1;justify-content:flex-start}
+  .dockBar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .dockSpacer{display:none}
+  .dockMore{grid-column:1 / -1;width:100%}
+  .dockPanel{max-height:min(30dvh,220px)!important}
+}
+
 </style>
 
 
+<style scoped>
+.timelineRecentShare{
+  flex:0 0 auto;
+  height:32px;
+  padding:0 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.04);
+  color:rgba(255,255,255,.92);
+  font-size:12px;
+  font-weight:800;
+}
+.timelineRecentShare:hover{
+  border-color:rgba(255,255,255,.22);
+  background:rgba(255,255,255,.08);
+}
 
-.dockPanel,.scroller{overflow-anchor:none}
-.dockCard{align-self:start}
+.dockCardTimeline{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+}
+.dockCardTimelineHead{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.dockCardTimelineList{
+  display:grid;
+  gap: 8px;
+}
+.dockCardTimelineItem{
+  display:grid;
+  grid-template-columns: auto auto 1fr;
+  align-items:center;
+  gap: 8px;
+  font-size: 12px;
+  color: color-mix(in oklab, var(--text) 86%, var(--muted));
+}
+.dockCardTimelineDot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 70%, white);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+.dockCardTimelineItem[data-tone="done"] .dockCardTimelineDot{
+  background: var(--success);
+  box-shadow: 0 0 0 6px rgba(85, 227, 160, .14);
+}
+.dockCardTimelineItem[data-tone="cancel"] .dockCardTimelineDot{
+  background: var(--danger);
+  box-shadow: 0 0 0 6px rgba(255, 107, 125, .12);
+}
+.dockCardTimelineTime{
+  min-width: 38px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.dockCardTimelineLabel{
+  font-weight: 700;
+  color: var(--text);
+}
+
+
+
+/* Final Conversation Layout UX Override */
+.hiddenFileInput{display:none}
+.messageAttachmentBlock{margin-top:8px}
+.page{position:relative;top:auto;left:auto;right:auto;bottom:auto;height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));overflow:hidden}
+.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 12px calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px);overscroll-behavior:contain}
+.dockWrap{position:sticky;top:6px;z-index:20;padding:8px 12px 0}
+.dockPanel{max-height:min(34dvh,320px)!important;overflow-y:auto!important;overflow-x:hidden!important}
+.dockRow{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
+.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 12px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.86) 24%, rgba(4,8,18,.97) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
+.composerInner--stack{display:grid;gap:8px}
+.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 90%, transparent)}
+.miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
+.composerHint{margin-top:8px;font-size:11px;line-height:1.35;color:var(--muted)}
+.uploadState,.uploadError{font-size:12px;font-weight:800}
+.uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
+@media (max-width:860px){.dockRow{grid-template-columns:1fr!important}}
+@media (max-width:720px){
+  .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
+  .topbar{grid-template-columns:auto 1fr;gap:8px}
+  .right{grid-column:1 / -1;justify-content:flex-start}
+  .dockBar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .dockSpacer{display:none}
+  .dockMore{grid-column:1 / -1;width:100%}
+  .dockPanel{max-height:min(30dvh,220px)!important}
+}
+
+</style>

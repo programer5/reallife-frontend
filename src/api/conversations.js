@@ -45,7 +45,23 @@ export async function createGroupConversation({ title, participantIds = [], cove
 }
 
 
+export async function updateGroupConversation(conversationId, { title, coverImageFileId = null }) {
+  const res = await api.patch(`/api/conversations/${conversationId}/group`, { title, coverImageFileId });
+  return res.data;
+}
+
+export async function inviteGroupMembers(conversationId, participantIds = []) {
+  const res = await api.post(`/api/conversations/${conversationId}/members`, { participantIds });
+  return res.data;
+}
+
+export async function removeGroupMember(conversationId, userId) {
+  const res = await api.delete(`/api/conversations/${conversationId}/members/${userId}`);
+  return res.data;
+}
+
 export async function fetchConversationMembers(conversationId) {
     const res = await api.get(`/api/conversations/${conversationId}/members`);
     return res.data; // { conversationId, items: [...] }
 }
+

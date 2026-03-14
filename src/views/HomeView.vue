@@ -389,6 +389,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page">
+    <div v-if="relayNotice" class="relayNotice cardSurface">🔔 {{ relayNotice.source || "대화" }}에서 이어진 액션이 피드에 반영됐어요 · {{ relayNotice.title || "새 액션" }}</div>
+
     <section class="desktopHero cardSurface">
       <div class="heroCopyBlock">
         <div class="heroEyebrow">TODAY · REALIFE FLOW</div>
@@ -705,4 +707,16 @@ onBeforeUnmount(() => {
   .page{padding:12px 10px calc(100px + env(safe-area-inset-bottom))}
   .toolbarTop{align-items:flex-start;gap:8px}
 }
+
+
+.relayNotice{
+  padding: 12px 14px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(255,255,255,.94);
+  border: 1px solid color-mix(in oklab, var(--accent) 38%, transparent);
+  background: color-mix(in oklab, var(--accent) 12%, rgba(255,255,255,.03));
+}
+
 </style>
