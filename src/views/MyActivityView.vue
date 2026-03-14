@@ -119,7 +119,7 @@ const filteredItems = computed(() => {
 
 function setTab(tab) {
   filter.value = "all";
-  router.replace({ path: "/me/activity", query: { tab } });
+  router.replace({ name: "my-activity", query: { tab } });
 }
 
 function openItem(item) {

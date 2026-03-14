@@ -46,7 +46,7 @@
       </div>
     </section>
 
-    <section class="flowCard toneHistoryCard">
+    <section class="flowCard">
       <div class="flowHead">
         <div>
           <div class="title">오늘의 내 흐름</div>
@@ -68,7 +68,7 @@
         </div>
 
         <div class="flowItem">
-          <div class="flowLabel">어디로 이어질까</div>
+          <div class="flowLabel">어디로 이어갈까</div>
           <div class="flowValue">{{ flowDestinationTitle }}</div>
           <div class="flowHint">{{ flowDestinationHint }}</div>
         </div>
@@ -248,7 +248,7 @@
         <div class="priorityActions">
           <button v-if="completionPercent < 100" class="primaryBtn" type="button" @click="focusProfileEditor">프로필 바로 다듬기</button>
           <button v-else-if="reminderEnabledCount === 0" class="primaryBtn" type="button" @click="toggleBrowserNotify">브라우저 알림 켜기</button>
-          <button v-else class="primaryBtn" type="button" @click="router.push('/inbox')">Connect로 이어가기</button>
+          <button v-else class="primaryBtn" type="button" @click="router.push({ name: 'inbox' })">Connect로 이어가기</button>
           <button class="ghostBtn" type="button" @click="goMyPublicProfile" :disabled="!me?.handle">공개 프로필 보기</button>
         </div>
       </div>
@@ -433,7 +433,7 @@
             <span>피드에서 순간을 보고 댓글에서 액션을 시작해보세요.</span>
           </button>
 
-          <button class="nextItem" type="button" @click="router.push('/inbox')">
+          <button class="nextItem" type="button" @click="router.push({ name: 'inbox' })">
             <strong>Connect 열기</strong>
             <span>리마인더와 대화 흐름을 보고 실제 행동으로 이어갈 수 있어요.</span>
           </button>
@@ -446,6 +446,35 @@
       </div>
     </section>
   </div>
+
+
+    <section class="flowCard toneHistoryCard vaultCard">
+      <div class="flowHead">
+        <div>
+          <div class="title">내 활동 보관함</div>
+          <div class="sub">내 액션, 내 캡슐, 내가 공유한 흐름을 한곳에서 다시 보고 자연스럽게 이어갈 수 있어요.</div>
+        </div>
+        <button class="softBtn" type="button" @click="router.push({ name: 'my-activity' })">열기</button>
+      </div>
+
+      <div class="flowGrid flowGrid--vault">
+        <button class="flowItem flowItem--button" type="button" @click="router.push({ name: 'my-activity', query: { tab: 'actions' } })">
+          <div class="flowLabel">내 액션</div>
+          <div class="flowValue">약속 · 할일 · 장소</div>
+          <div class="flowHint">지금 진행 중인 액션과 완료/취소 흐름을 다시 살펴봐요.</div>
+        </button>
+        <button class="flowItem flowItem--button" type="button" @click="router.push({ name: 'my-activity', query: { tab: 'capsules' } })">
+          <div class="flowLabel">내 캡슐</div>
+          <div class="flowValue">열린 캡슐 · 대기 중</div>
+          <div class="flowHint">어떤 캡슐이 열렸고, 어떤 대화에서 만들었는지 한 번에 확인해요.</div>
+        </button>
+        <button class="flowItem flowItem--button" type="button" @click="router.push({ name: 'my-activity', query: { tab: 'shares' } })">
+          <div class="flowLabel">내 공유 목록</div>
+          <div class="flowValue">피드로 보낸 흐름</div>
+          <div class="flowHint">액션 공유가 피드에서 어떻게 보이는지 다시 확인해요.</div>
+        </button>
+      </div>
+    </section>
 </template>
 
 <script setup>
@@ -919,27 +948,18 @@ onMounted(async () => {
   display:grid;
   gap:16px;
 }
-.toneHistoryCard{
-  border:1px solid color-mix(in oklab, var(--border) 84%, transparent);
-  background:linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.018));
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
-}
 .flowGrid{
   display:grid;
   grid-template-columns:repeat(3, minmax(0,1fr));
   gap:12px;
-  align-items:stretch;
 }
 .flowItem{
   padding:16px;
   border-radius:18px;
-  border:1px solid rgba(255,255,255,.07);
+  border:1px solid var(--border);
   background:color-mix(in oklab, var(--surface) 90%, white 10%);
   display:grid;
   gap:6px;
-  min-height:126px;
-  align-content:start;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.035);
 }
 .flowLabel{
   font-size:12px;
@@ -1465,9 +1485,14 @@ onMounted(async () => {
   }
 }
 
+
 .flowGrid--vault{grid-template-columns:repeat(3,minmax(0,1fr))}
 .flowItem--button{text-align:left;cursor:pointer}
-@media (max-width: 860px){.flowGrid--vault{grid-template-columns:1fr}}
+.vaultCard{margin-top:4px}
+@media (max-width: 860px){
+  .flowGrid--vault{grid-template-columns:1fr}
+}
+
 </style>
 @media (max-width: 860px){
   .heroTop,

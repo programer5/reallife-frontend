@@ -1,33 +1,42 @@
 
-<!-- src/components/chat/MessageAttachmentPreview.vue -->
 <script setup>
-defineProps({ items: { type: Array, default: () => [] }, removable: { type: Boolean, default: false } });
-const emit = defineEmits(["remove"]);
-function itemKey(item, idx) { return item?.attachmentId || item?.id || item?.fileId || item?.url || `${idx}`; }
-function kindOf(item) {
-  const type = String(item?.type || item?.contentType || "").toLowerCase();
-  if (item?.kind) return item.kind;
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("video/")) return "video";
-  return "file";
+defineProps({
+  items: { type: Array, default: () => [] },
+  removable: { type: Boolean, default: false },
+});
+defineEmits(["remove"]);
+function fmtSize(v){
+  const n=Number(v||0);
+  if (!n) return "";
+  if (n < 1024) return `${n}B`;
+  if (n < 1024*1024) return `${Math.round(n/102.4)/10}KB`;
+  return `${Math.round(n/1024/102.4)/10}MB`;
 }
-function urlOf(item) { return item?.previewUrl || item?.thumbnailUrl || item?.url || ""; }
-function nameOf(item) { return item?.name || item?.originalFilename || "첨부파일"; }
 </script>
 
 <template>
-  <div class="list">
-    <article v-for="(item, idx) in items" :key="itemKey(item, idx)" class="card">
-      <div v-if="kindOf(item)==='image' && urlOf(item)" class="thumbWrap"><img :src="urlOf(item)" class="thumb" alt="" /></div>
-      <div v-else-if="kindOf(item)==='video' && urlOf(item)" class="thumbWrap"><video class="thumb" :src="urlOf(item)" muted playsinline preload="metadata" /></div>
-      <div v-else class="fileIcon">📎</div>
-      <div class="meta"><div class="name">{{ nameOf(item) }}</div><div class="sub">{{ kindOf(item)==='video' ? '비디오' : kindOf(item)==='image' ? '이미지' : '파일' }}</div></div>
-      <button v-if="removable" class="remove" type="button" @click="emit('remove', idx)">×</button>
-      <a v-else-if="item?.url" class="open" :href="item.url" target="_blank" rel="noreferrer">열기</a>
+  <div class="previewList">
+    <article v-for="(item, idx) in items" :key="item.previewUrl || item.url || item.name || idx" class="previewCard">
+      <div class="thumb" :data-kind="item.kind || 'file'">
+        <img v-if="(item.kind==='image' || item.kind==='video') && (item.previewUrl || item.url)" :src="item.previewUrl || item.url" alt="" />
+        <span v-else>FILE</span>
+      </div>
+      <div class="meta">
+        <div class="name">{{ item.name || item.originalFilename || '첨부파일' }}</div>
+        <div class="sub">{{ fmtSize(item.size) || item.contentType || '' }}</div>
+      </div>
+      <button v-if="removable" class="removeBtn" type="button" @click="$emit('remove', idx)">제거</button>
     </article>
   </div>
 </template>
 
 <style scoped>
-.list{display:grid;gap:8px}.card{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 84%, transparent);background:color-mix(in oklab,var(--surface) 84%, transparent)}.thumbWrap{width:44px;height:44px;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.06)}.thumb{width:100%;height:100%;object-fit:cover;display:block}.fileIcon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:color-mix(in oklab,var(--accent) 12%, transparent);font-size:20px}.meta{min-width:0}.name{font-size:12px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:11px;color:var(--muted)}.remove,.open{width:28px;height:28px;border-radius:999px;border:none;display:grid;place-items:center;background:rgba(255,255,255,.08);color:var(--text);text-decoration:none}
+.previewList{display:grid;gap:8px}
+.previewCard{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
+.thumb{width:48px;height:48px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.08);display:grid;place-items:center;background:rgba(255,255,255,.04);font-size:10px;font-weight:900}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.meta{min-width:0}
+.name{font-size:13px;font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub{margin-top:4px;font-size:11px;color:rgba(255,255,255,.62)}
+.removeBtn{height:34px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#fff;font-weight:900}
 </style>

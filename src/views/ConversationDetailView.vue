@@ -7,6 +7,10 @@ import RlModal from "@/components/ui/RlModal.vue";
 import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
+import ConversationCapsulePanel from "@/components/chat/ConversationCapsulePanel.vue";
+import MessageAttachmentPicker from "@/components/chat/MessageAttachmentPicker.vue";
+import MessageAttachmentPreview from "@/components/chat/MessageAttachmentPreview.vue";
+import CapsuleComposerModal from "@/components/chat/CapsuleComposerModal.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -29,6 +33,7 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
 import { updateMessage } from "@/api/messages";
 import { uploadFiles } from "@/api/files";
+import { createCapsule, fetchConversationCapsules } from "@/api/capsules";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -38,6 +43,12 @@ const convStore = useConversationsStore();
 const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
+const capsuleItems = ref([]);
+const capsuleLoading = ref(false);
+const capsuleModalOpen = ref(false);
+const capsuleTitle = ref("");
+const capsuleUnlockAt = ref("");
+const capsuleSaving = ref(false);
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
@@ -615,51 +626,145 @@ onBeforeUnmount(() => {
 });
 const myId = computed(() => auth.me?.id || null);
 
-/** 상대(목록 데이터 기반) */
-
-const currentConversationRow = computed(() => {
+const currentConversation = computed(() => {
   const cid = conversationId.value;
-  return convStore.items?.find(c => String(c.conversationId) === String(cid)) || null;
+  return (convStore.items || []).find((c) => String(c.conversationId) === String(cid)) || null;
 });
 
-const conversationType = computed(() =>
-  String(currentConversationRow.value?.conversationType || "DIRECT")
-);
+const isGroupConversation = computed(() => {
+  return String(currentConversation.value?.conversationType || "DIRECT").toUpperCase() === "GROUP";
+});
 
-const conversationTitle = computed(() =>
-  currentConversationRow.value?.conversationTitle || ""
-);
-
-const isGroupConversation = computed(() =>
-  conversationType.value === "GROUP"
-);
-
+/** 상대(목록 데이터 기반) */
 const peer = computed(() => {
-  const cid = conversationId.value;
-  const row = convStore.items?.find((c) => String(c.conversationId) === String(cid));
-  return row?.peerUser || null;
+  return currentConversation.value?.peerUser || null;
 });
 
 const peerName = computed(() => {
-  if (isGroupConversation.value) return currentConversationRow.value?.conversationTitle || "그룹 대화";
+  if (isGroupConversation.value) {
+    return currentConversation.value?.conversationTitle || "그룹 대화";
+  }
   return peer.value?.nickname || peer.value?.name || "대화";
 });
 const peerHandle = computed(() => {
-  if (isGroupConversation.value) return "그룹 관리";
+  if (isGroupConversation.value) {
+    const count = currentConversation.value?.memberCount;
+    return count ? `멤버 ${count}명` : "그룹 정보";
+  }
   return peer.value?.handle || "";
 });
-const hasPeer = computed(() => !!peer.value);
+const hasPeer = computed(() => {
+  if (isGroupConversation.value) return true;
+  return !!peer.value;
+});
 
 function peerInitial() {
+  if (isGroupConversation.value) return "G";
   const s = String(peer.value?.nickname || peer.value?.name || peer.value?.handle || "").trim();
   return s ? s[0].toUpperCase() : "U";
 }
 function openPeerProfile() {
-  if (isGroupConversation.value) return router.push(`/inbox/conversations/${conversationId.value}/group`);
+  if (isGroupConversation.value) return router.push({ name: "conversation-group-manage", params: { conversationId: conversationId.value } });
   const h = peer.value?.handle;
   const id = peer.value?.userId || peer.value?.id;
   if (h) return router.push(`/u/${h}`);
   if (id) return router.push(`/u/id/${id}`);
+}
+
+
+async function refreshCapsules() {
+  if (!conversationId.value) { capsuleItems.value = []; return; }
+  capsuleLoading.value = true;
+  try {
+    const res = await fetchConversationCapsules(conversationId.value);
+    capsuleItems.value = Array.isArray(res?.items) ? res.items : [];
+  } catch {
+    capsuleItems.value = [];
+  } finally {
+    capsuleLoading.value = false;
+  }
+}
+
+function relayFromCapsule(payload) {
+  try { sessionStorage.setItem("reallife:pendingAction", JSON.stringify(payload)); } catch {}
+  pendingAction.value = payload;
+  pendingActionPrimed.value = false;
+  primePendingAction(true, true);
+  bumpPendingHighlight();
+  toast.success?.("액션 릴레이 준비", "캡슐 내용을 액션 제안으로 이어가고 있어요.");
+}
+
+function openCapsuleModal() {
+  const base = String(content.value || "").trim();
+  if (!base) {
+    toast.info?.("타임 캡슐", "먼저 메시지를 입력한 뒤 ⏳ 버튼을 눌러 주세요.");
+    return;
+  }
+  const dt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  capsuleTitle.value = base.slice(0, 30) || "나중에 열 메시지";
+  capsuleUnlockAt.value = dt.toISOString().slice(0, 16);
+  capsuleModalOpen.value = true;
+}
+function closeCapsuleModal() { capsuleModalOpen.value = false; }
+async function createTimeCapsuleFromDraft() {
+  const text = String(content.value || "").trim();
+  const hasAttachments = attachedFiles.value.length > 0;
+  if (!text) return;
+  capsuleSaving.value = true;
+  try {
+    const sent = await sendMessage({
+      conversationId: conversationId.value,
+      content: text,
+      attachmentIds: [],
+      unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
+    });
+    await createCapsule({
+      messageId: sent.messageId || sent.id,
+      conversationId: conversationId.value,
+      title: capsuleTitle.value || text.slice(0, 30),
+      unlockAt: new Date(capsuleUnlockAt.value).toISOString(),
+      userId: myId.value,
+    });
+    content.value = "";
+    capsuleModalOpen.value = false;
+    await refreshCapsules();
+    toast.success?.("타임 캡슐 생성", "입력한 메시지를 나중에 열릴 캡슐로 저장했어요.");
+  } catch (e) {
+    toast.error?.("타임 캡슐 실패", e?.response?.data?.message || "타임 캡슐을 만들지 못했어요.");
+  } finally {
+    capsuleSaving.value = false;
+  }
+}
+
+function attachmentKind(file) {
+  const type = String(file?.type || file?.contentType || "").toLowerCase();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  return "file";
+}
+function previewUrlFor(file) { try { return URL.createObjectURL(file); } catch { return ""; } }
+function normalizePickedFiles(fileList) {
+  return Array.from(fileList || []).map((file) => ({ file, name: file.name || "첨부파일", size: Number(file.size || 0), type: file.type || "", kind: attachmentKind(file), previewUrl: previewUrlFor(file) }));
+}
+function openAttachmentPicker() { fileInputRef.value?.click?.(); }
+function removeAttachedFile(index) {
+  const item = attachedFiles.value[index];
+  if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) { try { URL.revokeObjectURL(item.previewUrl); } catch {} }
+  attachedFiles.value.splice(index, 1);
+}
+function clearAttachments() {
+  for (const item of attachedFiles.value) {
+    if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) { try { URL.revokeObjectURL(item.previewUrl); } catch {} }
+  }
+  attachedFiles.value = [];
+  attachmentError.value = "";
+  attachmentProgress.value = 0;
+}
+function onPickFiles(e) {
+  const list = e?.target?.files;
+  if (!list || !list.length) return;
+  attachedFiles.value = [...attachedFiles.value, ...normalizePickedFiles(list)];
+  if (e?.target) e.target.value = "";
 }
 
 /** ====== DM 잠금 ====== */
@@ -1303,11 +1408,19 @@ function sharePinToFeed(pin) {
       pinId: pin?.pinId || null,
       sourceMeta: feedShareMetaForPin(pin),
     }));
-    toast.success?.("피드 공유 준비", "홈에서 바로 게시할 수 있게 초안을 채워뒀어요.");
-    router.push({ path: "/home", query: { compose: "1" } });
+    toast.success?.("피드 공유 준비", "홈에서 게시창을 열면 초안이 바로 채워져요.");
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
+}
+
+function sharePinActivityToFeed(item) {
+  const pin = item?.pin || item?.rawPin || item;
+  if (!pin) {
+    toast.error?.("공유 준비 실패", "공유할 액션 정보를 찾지 못했어요.");
+    return;
+  }
+  sharePinToFeed(pin);
 }
 
 function openPinEdit(pin) {
@@ -2024,56 +2137,6 @@ function upsertServerMessage(tempId, serverMsg) {
   replaceMessageById(tempId, { ...serverMsg });
 }
 
-
-function attachmentKind(file) {
-  const type = String(file?.type || file?.contentType || "").toLowerCase();
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("video/")) return "video";
-  return "file";
-}
-function previewUrlFor(file) {
-  try {
-    if (!file) return "";
-    if (file.previewUrl) return file.previewUrl;
-    if (file.url) return file.url;
-    return URL.createObjectURL(file);
-  } catch { return ""; }
-}
-function normalizePickedFiles(fileList) {
-  return Array.from(fileList || []).map((file) => ({
-    file,
-    name: file.name || "첨부파일",
-    size: Number(file.size || 0),
-    type: file.type || "",
-    kind: attachmentKind(file),
-    previewUrl: previewUrlFor(file),
-  }));
-}
-function openAttachmentPicker() { fileInputRef.value?.click?.(); }
-function removeAttachedFile(index) {
-  const item = attachedFiles.value[index];
-  if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) {
-    try { URL.revokeObjectURL(item.previewUrl); } catch {}
-  }
-  attachedFiles.value.splice(index, 1);
-}
-function clearAttachments() {
-  for (const item of attachedFiles.value) {
-    if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) {
-      try { URL.revokeObjectURL(item.previewUrl); } catch {}
-    }
-  }
-  attachedFiles.value = [];
-  attachmentError.value = "";
-  attachmentProgress.value = 0;
-}
-function onPickFiles(e) {
-  const list = e?.target?.files;
-  if (!list || !list.length) return;
-  attachedFiles.value = [...attachedFiles.value, ...normalizePickedFiles(list)];
-  if (e?.target) e.target.value = "";
-}
-
 async function onSend() {
   const text = String(content.value || "").trim();
   const hasAttachments = attachedFiles.value.length > 0;
@@ -2117,9 +2180,7 @@ async function onSend() {
       attachmentProgress.value = 0;
       attachmentError.value = "";
       try {
-        attachmentIds = await uploadFiles(attachedFiles.value.map((x) => x.file), {
-          onProgress: (pct) => { attachmentProgress.value = Number(pct || 0); },
-        });
+        attachmentIds = await uploadFiles(attachedFiles.value.map((x) => x.file), { onProgress: (pct) => { attachmentProgress.value = Number(pct || 0); } });
       } catch (err) {
         attachmentError.value = err?.response?.data?.message || "첨부 업로드에 실패했어요.";
         throw err;
@@ -2127,7 +2188,6 @@ async function onSend() {
         attachmentUploading.value = false;
       }
     }
-
     const msg = await sendMessage({
       conversationId: conversationId.value,
       content: text,
@@ -2651,9 +2711,8 @@ onBeforeUnmount(() => {
         <div class="peerAva" aria-hidden="true">{{ peerInitial() }}</div>
         <div class="peerMeta">
           <div class="peerName">{{ peerName }}</div>
-          <div class="peerHandle" v-if="isGroupConversation">그룹 관리</div>
-          <div class="peerHandle" v-else-if="peerHandle">@{{ peerHandle }}</div>
-          <div class="peerHandle" v-else>프로필</div>
+          <div class="peerHandle" v-if="peerHandle">{{ isGroupConversation ? peerHandle : `@${peerHandle}` }}</div>
+          <div class="peerHandle" v-else>{{ isGroupConversation ? "그룹 정보" : "프로필" }}</div>
         </div>
       </button>
 
@@ -2669,6 +2728,9 @@ onBeforeUnmount(() => {
     </div>
 
     <SseStatusBanner />
+
+    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" />
+
 
     
 <!-- ✅ RealLife v2: Active Actions Dock -->
@@ -3082,13 +3144,32 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="composerInner">
+    <div class="composerInner composerInner--stack">
+      <input ref="fileInputRef" type="file" class="hiddenFileInput" multiple @change="onPickFiles" />
+      <MessageAttachmentPreview v-if="attachedFiles.length" :items="attachedFiles" removable @remove="removeAttachedFile" />
+      <div v-if="attachmentUploading" class="uploadState">첨부 업로드 중… {{ attachmentProgress }}%</div>
+      <div v-else-if="attachmentError" class="uploadError">{{ attachmentError }}</div>
+      <div class="composerRow">
+        <MessageAttachmentPicker :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
+        <button class="miniBtn" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
         <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
-        <button class="btn" type="button" @click="onSend" :disabled="sending">
-          {{ sending ? "..." : "전송" }}
+        <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading">
+          {{ sending || attachmentUploading ? "..." : "전송" }}
         </button>
       </div>
+      <div class="composerHint">파일 첨부는 📎, 캡슐은 메시지를 입력한 뒤 ⏳ 버튼으로 만들 수 있어요.</div>
     </div>
+
+    <CapsuleComposerModal
+      :open="capsuleModalOpen"
+      :title-text="capsuleTitle"
+      :unlock-at="capsuleUnlockAt"
+      :saving="capsuleSaving"
+      @close="closeCapsuleModal"
+      @update:title-text="capsuleTitle = $event"
+      @update:unlock-at="capsuleUnlockAt = $event"
+      @save="createTimeCapsuleFromDraft"
+    />
 
     <!-- ✅ 핀 액션 모달 -->
     <RlModal
@@ -3228,6 +3309,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+  </div>
   </div>
   <Teleport to="body">
     <div v-if="menu.open" class="msgMenuOverlay" @mousedown="closeMsgMenu">
@@ -5092,31 +5174,37 @@ onBeforeUnmount(() => {
 
 
 
-/* Final Conversation Layout UX Override */
+/* Final Creative Conversation Polish */
 .hiddenFileInput{display:none}
 .messageAttachmentBlock{margin-top:8px}
 .page{position:relative;top:auto;left:auto;right:auto;bottom:auto;height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));overflow:hidden}
-.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 12px calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px);overscroll-behavior:contain}
-.dockWrap{position:sticky;top:6px;z-index:20;padding:8px 12px 0}
-.dockPanel{max-height:min(34dvh,320px)!important;overflow-y:auto!important;overflow-x:hidden!important}
+.topbar,.dockWrap,.composerWrap,.capsulePanel{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
+.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 14px calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 24px);overscroll-behavior:contain}
+.thread{max-width:760px;margin:0 auto}
+.dockWrap{position:sticky;top:8px;z-index:20;padding-top:8px}
+.dockBar{gap:8px;padding:8px;border-radius:18px}
+.dockMore{min-width:76px}
+.dockPanel{margin-top:8px;max-height:min(32dvh,300px)!important;overflow-y:auto!important;overflow-x:hidden!important;border-radius:18px}
 .dockRow{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
-.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 12px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.86) 24%, rgba(4,8,18,.97) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
+.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 14px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.82) 22%, rgba(4,8,18,.96) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
 .composerInner--stack{display:grid;gap:8px}
-.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center}
-.input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 90%, transparent)}
+.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border-radius:20px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));box-shadow:0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.03)}
+.input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent)}
 .miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
-.composerHint{margin-top:8px;font-size:11px;line-height:1.35;color:var(--muted)}
+.composerHint{font-size:11px;line-height:1.35;color:var(--muted);padding:0 4px}
 .uploadState,.uploadError{font-size:12px;font-weight:800}
 .uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
-@media (max-width:860px){.dockRow{grid-template-columns:1fr!important}}
+@media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
 @media (max-width:720px){
   .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
+  .topbar,.dockWrap,.composerWrap,.capsulePanel,.thread{max-width:none}
   .topbar{grid-template-columns:auto 1fr;gap:8px}
   .right{grid-column:1 / -1;justify-content:flex-start}
   .dockBar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .dockSpacer{display:none}
   .dockMore{grid-column:1 / -1;width:100%}
-  .dockPanel{max-height:min(30dvh,220px)!important}
+  .dockPanel{max-height:min(26dvh,180px)!important}
+  .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
 }
 
 </style>
@@ -5192,31 +5280,37 @@ onBeforeUnmount(() => {
 
 
 
-/* Final Conversation Layout UX Override */
+/* Final Creative Conversation Polish */
 .hiddenFileInput{display:none}
 .messageAttachmentBlock{margin-top:8px}
 .page{position:relative;top:auto;left:auto;right:auto;bottom:auto;height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));overflow:hidden}
-.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 12px calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px);overscroll-behavior:contain}
-.dockWrap{position:sticky;top:6px;z-index:20;padding:8px 12px 0}
-.dockPanel{max-height:min(34dvh,320px)!important;overflow-y:auto!important;overflow-x:hidden!important}
+.topbar,.dockWrap,.composerWrap,.capsulePanel{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
+.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 14px calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 24px);overscroll-behavior:contain}
+.thread{max-width:760px;margin:0 auto}
+.dockWrap{position:sticky;top:8px;z-index:20;padding-top:8px}
+.dockBar{gap:8px;padding:8px;border-radius:18px}
+.dockMore{min-width:76px}
+.dockPanel{margin-top:8px;max-height:min(32dvh,300px)!important;overflow-y:auto!important;overflow-x:hidden!important;border-radius:18px}
 .dockRow{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
-.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 12px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.86) 24%, rgba(4,8,18,.97) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
+.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 14px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.82) 22%, rgba(4,8,18,.96) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
 .composerInner--stack{display:grid;gap:8px}
-.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center}
-.input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 90%, transparent)}
+.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border-radius:20px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));box-shadow:0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.03)}
+.input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent)}
 .miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
-.composerHint{margin-top:8px;font-size:11px;line-height:1.35;color:var(--muted)}
+.composerHint{font-size:11px;line-height:1.35;color:var(--muted);padding:0 4px}
 .uploadState,.uploadError{font-size:12px;font-weight:800}
 .uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
-@media (max-width:860px){.dockRow{grid-template-columns:1fr!important}}
+@media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
 @media (max-width:720px){
   .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
+  .topbar,.dockWrap,.composerWrap,.capsulePanel,.thread{max-width:none}
   .topbar{grid-template-columns:auto 1fr;gap:8px}
   .right{grid-column:1 / -1;justify-content:flex-start}
   .dockBar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .dockSpacer{display:none}
   .dockMore{grid-column:1 / -1;width:100%}
-  .dockPanel{max-height:min(30dvh,220px)!important}
+  .dockPanel{max-height:min(26dvh,180px)!important}
+  .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
 }
 
 </style>
