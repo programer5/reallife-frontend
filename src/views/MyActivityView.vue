@@ -60,6 +60,7 @@
           <div v-if="item.sub" class="activitySub">{{ item.sub }}</div>
           <div class="activityFooter">
             <button class="detailBtn" type="button" @click="openItem(item)">상세 / 수정</button>
+            <button class="ghostBtn small" type="button" @click="goToOrigin(item)">원본으로 이동</button>
             <button class="ghostBtn small" type="button" @click="duplicateToClipboard(item)">텍스트 복사</button>
           </div>
         </article>
@@ -142,6 +143,7 @@
           </div>
 
           <div class="sheetActions">
+            <button class="ghostBtn" type="button" @click="goToOrigin(selected)" :disabled="saving || deleting">원본으로 이동</button>
             <button class="ghostBtn" type="button" @click="closeSheet" :disabled="saving">닫기</button>
             <button class="dangerBtn" type="button" @click="removeSelected" :disabled="saving || deleting">{{ deleting ? '삭제 중…' : '삭제' }}</button>
             <button class="primaryBtn" type="button" @click="saveSelected" :disabled="saving || deleting">{{ saving ? '저장 중…' : '수정 저장' }}</button>
@@ -328,6 +330,49 @@ function resetEditForm(item) {
 function openItem(item) {
   selected.value = item;
   resetEditForm(item);
+}
+
+function buildOriginTarget(item) {
+  const raw = item?.raw || {};
+  if (item?.sectionLabel === "ACTION") {
+    if (!raw.conversationId) return null;
+    const query = raw.pinId || item?.id ? { pinId: String(raw.pinId || item.id) } : undefined;
+    return {
+      name: "conversation-pins",
+      params: { conversationId: String(raw.conversationId) },
+      query,
+    };
+  }
+  if (item?.sectionLabel === "CAPSULE") {
+    if (!raw.conversationId) return null;
+    const query = {};
+    if (raw.messageId) query.mid = String(raw.messageId);
+    if (raw.capsuleId || item?.id) query.capsuleId = String(raw.capsuleId || item.id);
+    return {
+      name: "conversation-detail",
+      params: { conversationId: String(raw.conversationId) },
+      query,
+    };
+  }
+  if (item?.sectionLabel === "SHARE") {
+    if (!raw.postId && !item?.id) return null;
+    return { path: `/posts/${encodeURIComponent(String(raw.postId || item.id))}` };
+  }
+  return null;
+}
+
+async function goToOrigin(item) {
+  const target = buildOriginTarget(item);
+  if (!target) {
+    toast.error("원본 이동 불가", "원본 화면으로 이동할 수 있는 정보가 아직 없어요.");
+    return;
+  }
+  try {
+    selected.value = null;
+    await router.push(target);
+  } catch {
+    toast.error("이동 실패", "원본 화면으로 이동하지 못했어요.");
+  }
 }
 
 function closeSheet() {

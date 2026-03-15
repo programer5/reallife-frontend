@@ -2889,106 +2889,138 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="pins && pins.length" class="dockTimelineHero">
-        <div class="timelineHeroHead">
-          <div>
-            <div class="timelineHeroEyebrow">Action Timeline</div>
-            <div class="timelineHeroTitle">이 대화에서 바로 이어갈 액션</div>
+      <div v-if="pins && pins.length" class="dockTimelineHero" :class="{ dockTimelineHeroCompact: useDockSheet }">
+        <template v-if="useDockSheet">
+          <div class="dockHeroCompactHead">
+            <div>
+              <div class="timelineHeroEyebrow">액션 허브</div>
+              <div class="timelineHeroTitle">진행 중 액션 {{ dockTimelineSummary.total }}개를 빠르게 볼 수 있어요.</div>
+            </div>
+            <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}</div>
           </div>
-          <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}개</div>
-        </div>
-
-        <div class="timelineHeroStats">
-          <div class="timelineStat">
-            <span class="timelineStatK">📅 약속</span>
-            <strong>{{ dockTimelineSummary.promises }}</strong>
-            <span class="timelineStatSub">시간이 있는 액션</span>
-          </div>
-          <div class="timelineStat">
-            <span class="timelineStatK">✅ 할일</span>
-            <strong>{{ dockTimelineSummary.todos }}</strong>
-            <span class="timelineStatSub">바로 체크 가능한 항목</span>
-          </div>
-          <div class="timelineStat">
-            <span class="timelineStatK">📍 장소</span>
-            <strong>{{ dockTimelineSummary.places }}</strong>
-            <span class="timelineStatSub">나중에 다시 꺼낼 위치</span>
-          </div>
-        </div>
-
-        <div class="timelineScanStrip">
-          <div class="timelineScanCard" data-tone="accent">
-            <span class="timelineScanLabel">지금 먼저 볼 것</span>
-            <strong>{{ dockTimelineSummary.nextTitle || (dockStatusSummary.overdue ? '시간 지난 액션 확인' : '바로 할 일 점검') }}</strong>
-            <span class="timelineScanMeta">{{ dockTimelineSummary.nextTitle ? dockTimelineSummary.nextLabel : timelinePrimaryMeta }}</span>
-          </div>
-          <div class="timelineScanCard" data-tone="warn">
-            <span class="timelineScanLabel">왜 지금 봐야 하나</span>
-            <strong>{{ timelinePriorityReason.title }}</strong>
-            <span class="timelineScanMeta">{{ timelinePriorityReason.description }}</span>
-          </div>
-          <div class="timelineScanCard" data-tone="soft">
-            <span class="timelineScanLabel">어디서 바로 처리하나</span>
-            <strong>{{ timelineActionPath.title }}</strong>
-            <span class="timelineScanMeta">{{ timelineActionPath.description }}</span>
-          </div>
-        </div>
-
-        <div class="timelineFocusRow">
-          <div class="timelineFocusCard" data-tone="upcoming">
-            <span class="timelineFocusLabel">다가오는 일정</span>
-            <strong>{{ dockStatusSummary.upcoming }}</strong>
-            <span class="timelineFocusMeta">예정된 약속</span>
-          </div>
-          <div class="timelineFocusCard" data-tone="warn">
-            <span class="timelineFocusLabel">시간 지난 액션</span>
-            <strong>{{ dockStatusSummary.overdue }}</strong>
-            <span class="timelineFocusMeta">시간 확인 필요</span>
-          </div>
-          <div class="timelineFocusCard" data-tone="todo">
-            <span class="timelineFocusLabel">바로 할 일</span>
-            <strong>{{ dockStatusSummary.todoReady }}</strong>
-            <span class="timelineFocusMeta">체크 가능한 항목</span>
-          </div>
-        </div>
-
-        <div v-if="nextReminderPin" class="timelineReminderCard">
-          <div>
-            <div class="timelineReminderEyebrow">Action Reminder</div>
-            <div class="timelineReminderTitle">다음 리마인더는 “{{ nextReminderPin.title || '액션' }}”예요</div>
-            <div class="timelineReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
-          </div>
-          <div class="timelineReminderActions">
-            <span class="timelineReminderCount">오늘 {{ reminderTodayCount }}개 · 24시간 내 {{ reminderDueSoonCount }}개</span>
-            <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더 보기</button>
-          </div>
-        </div>
-
-        <div v-if="dockTimelineSummary.nextTitle" class="timelineHeroNext">
-          <span class="timelineHeroNextLabel">다음 약속</span>
-          <span class="timelineHeroNextTitle">{{ dockTimelineSummary.nextTitle }}</span>
-          <span class="timelineHeroNextTime">{{ dockTimelineSummary.nextLabel }}</span>
-        </div>
-
-        <div v-if="recentPinActivity.length" class="timelineRecent">
-          <div class="timelineRecentHead">최근 처리</div>
-          <div class="timelineRecentList">
-            <div v-for="item in recentPinActivity" :key="item.id" class="timelineRecentItem">
-              <span class="timelineRecentBadge" :data-tone="pinActivityTone(item)">{{ pinActivityLabel(item) }}</span>
-              <div class="timelineRecentBody">
-                <div class="timelineRecentTitle">{{ item.title }}</div>
-                <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
-              </div>
-              <button class="timelineRecentShare" type="button" @click="sharePinActivityToFeed(item)">피드 공유</button>
+          <div class="dockHeroCompactStats">
+            <div class="dockHeroCompactStat">
+              <strong>{{ dockStatusSummary.todoReady }}</strong>
+              <span>체크 가능한 항목</span>
+            </div>
+            <div class="dockHeroCompactStat">
+              <strong>{{ dockStatusSummary.upcoming }}</strong>
+              <span>다가오는 일정</span>
+            </div>
+            <div class="dockHeroCompactStat">
+              <strong>{{ dockStatusSummary.overdue }}</strong>
+              <span>시간 확인 필요</span>
             </div>
           </div>
-        </div>
+          <div v-if="nextReminderPin" class="dockHeroReminderInline">
+            <div>
+              <div class="dockHeroReminderTitle">다음 리마인더 · {{ nextReminderPin.title || '액션' }}</div>
+              <div class="dockHeroReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
+            </div>
+            <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더</button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="timelineHeroHead">
+            <div>
+              <div class="timelineHeroEyebrow">Action Timeline</div>
+              <div class="timelineHeroTitle">이 대화에서 바로 이어갈 액션</div>
+            </div>
+            <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}개</div>
+          </div>
+
+          <div class="timelineHeroStats">
+            <div class="timelineStat">
+              <span class="timelineStatK">📅 약속</span>
+              <strong>{{ dockTimelineSummary.promises }}</strong>
+              <span class="timelineStatSub">시간이 있는 액션</span>
+            </div>
+            <div class="timelineStat">
+              <span class="timelineStatK">✅ 할일</span>
+              <strong>{{ dockTimelineSummary.todos }}</strong>
+              <span class="timelineStatSub">바로 체크 가능한 항목</span>
+            </div>
+            <div class="timelineStat">
+              <span class="timelineStatK">📍 장소</span>
+              <strong>{{ dockTimelineSummary.places }}</strong>
+              <span class="timelineStatSub">나중에 다시 꺼낼 위치</span>
+            </div>
+          </div>
+
+          <div class="timelineScanStrip">
+            <div class="timelineScanCard" data-tone="accent">
+              <span class="timelineScanLabel">지금 먼저 볼 것</span>
+              <strong>{{ dockTimelineSummary.nextTitle || (dockStatusSummary.overdue ? '시간 지난 액션 확인' : '바로 할 일 점검') }}</strong>
+              <span class="timelineScanMeta">{{ dockTimelineSummary.nextTitle ? dockTimelineSummary.nextLabel : timelinePrimaryMeta }}</span>
+            </div>
+            <div class="timelineScanCard" data-tone="warn">
+              <span class="timelineScanLabel">왜 지금 봐야 하나</span>
+              <strong>{{ timelinePriorityReason.title }}</strong>
+              <span class="timelineScanMeta">{{ timelinePriorityReason.description }}</span>
+            </div>
+            <div class="timelineScanCard" data-tone="soft">
+              <span class="timelineScanLabel">어디서 바로 처리하나</span>
+              <strong>{{ timelineActionPath.title }}</strong>
+              <span class="timelineScanMeta">{{ timelineActionPath.description }}</span>
+            </div>
+          </div>
+
+          <div class="timelineFocusRow">
+            <div class="timelineFocusCard" data-tone="upcoming">
+              <span class="timelineFocusLabel">다가오는 일정</span>
+              <strong>{{ dockStatusSummary.upcoming }}</strong>
+              <span class="timelineFocusMeta">예정된 약속</span>
+            </div>
+            <div class="timelineFocusCard" data-tone="warn">
+              <span class="timelineFocusLabel">시간 지난 액션</span>
+              <strong>{{ dockStatusSummary.overdue }}</strong>
+              <span class="timelineFocusMeta">시간 확인 필요</span>
+            </div>
+            <div class="timelineFocusCard" data-tone="todo">
+              <span class="timelineFocusLabel">바로 할 일</span>
+              <strong>{{ dockStatusSummary.todoReady }}</strong>
+              <span class="timelineFocusMeta">체크 가능한 항목</span>
+            </div>
+          </div>
+
+          <div v-if="nextReminderPin" class="timelineReminderCard">
+            <div>
+              <div class="timelineReminderEyebrow">Action Reminder</div>
+              <div class="timelineReminderTitle">다음 리마인더는 “{{ nextReminderPin.title || '액션' }}”예요</div>
+              <div class="timelineReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
+            </div>
+            <div class="timelineReminderActions">
+              <span class="timelineReminderCount">오늘 {{ reminderTodayCount }}개 · 24시간 내 {{ reminderDueSoonCount }}개</span>
+              <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더 보기</button>
+            </div>
+          </div>
+
+          <div v-if="dockTimelineSummary.nextTitle" class="timelineHeroNext">
+            <span class="timelineHeroNextLabel">다음 약속</span>
+            <span class="timelineHeroNextTitle">{{ dockTimelineSummary.nextTitle }}</span>
+            <span class="timelineHeroNextTime">{{ dockTimelineSummary.nextLabel }}</span>
+          </div>
+
+          <div v-if="recentPinActivity.length" class="timelineRecent">
+            <div class="timelineRecentHead">최근 처리</div>
+            <div class="timelineRecentList">
+              <div v-for="item in recentPinActivity" :key="item.id" class="timelineRecentItem">
+                <span class="timelineRecentBadge" :data-tone="pinActivityTone(item)">{{ pinActivityLabel(item) }}</span>
+                <div class="timelineRecentBody">
+                  <div class="timelineRecentTitle">{{ item.title }}</div>
+                  <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
+                </div>
+                <button class="timelineRecentShare" type="button" @click="sharePinActivityToFeed(item)">피드 공유</button>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
 
       <div v-if="pins && pins.length" class="dockRowWrap">
         <div v-if="dockVisibleSummary.hasMany" class="dockBrowseHint">아래 카드에서 이어지는 액션을 계속 볼 수 있어요.</div>
         <div class="dockRow">
-        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder }" @click="p.__placeholder ? null : openPinEdit(p)">
+        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :class="[{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder }, useDockSheet ? 'dockCard--sheet' : '']" :data-pin-id="String(p.pinId)"  @click="p.__placeholder ? null : openPinEdit(p)">
           <div class="dockCardTopline">
             <span class="dockTypePill">{{ pinKindMeta(p).emoji }} {{ pinKindMeta(p).label }}</span>
             <span class="dockStatePill" :data-tone="pinTimelineState(p).tone">{{ pinTimelineState(p).label }}</span>
@@ -2999,6 +3031,12 @@ onBeforeUnmount(() => {
             <span v-else class="muted">🕒 시간 미정</span>
             <span v-if="p.placeText" class="sep">·</span>
             <span v-if="p.placeText">📍 {{ p.placeText }}</span>
+          </div>
+          <div v-if="useDockSheet && !p.__placeholder" class="dockCardQuickActions dockCardQuickActions--mobile" @click.stop>
+            <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
+            <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
+            <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
+            <button class="dockShareBtn dockShareBtn--mobileInline" type="button" @click.stop="sharePinToFeed(p)">피드 공유</button>
           </div>
           <div class="dockCardSummary">
             <div class="dockCardSummaryLine">
@@ -3015,22 +3053,22 @@ onBeforeUnmount(() => {
             <div class="dockProgressFill" :style="{ width: pinTimelineState(p).progress + '%' }"></div>
           </div>
           <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
-          <div v-if="pinTimelineEvents(p).length" class="dockCardTimeline">
+          <div v-if="pinTimelineEvents(p).length" class="dockCardTimeline" :class="{ dockCardTimelineCompact: useDockSheet }">
             <div class="dockCardTimelineHead">Action Timeline</div>
             <div class="dockCardTimelineList">
-              <div v-for="event in pinTimelineEvents(p)" :key="event.key" class="dockCardTimelineItem" :data-tone="event.tone">
+              <div v-for="event in (useDockSheet ? pinTimelineEvents(p).slice(0, 2) : pinTimelineEvents(p))" :key="event.key" class="dockCardTimelineItem" :data-tone="event.tone">
                 <span class="dockCardTimelineDot" aria-hidden="true"></span>
                 <span class="dockCardTimelineTime">{{ pinTimelineTimeText(event.time) }}</span>
                 <span class="dockCardTimelineLabel">{{ event.label }}</span>
               </div>
             </div>
           </div>
-          <div v-if="!p.__placeholder" class="dockCardActions" @click.stop>
+          <div v-if="!useDockSheet && !p.__placeholder" class="dockCardActions" @click.stop>
             <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
             <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
             <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
           </div>
-          <button v-if="!p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
+          <button v-if="!useDockSheet && !p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
         </div>
         </div>
       </div>
@@ -5191,6 +5229,20 @@ onBeforeUnmount(() => {
   position:static;
   padding:14px;
 }
+.dockTimelineHeroCompact{padding:12px;display:grid;gap:10px;}
+.dockHeroCompactHead{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;}
+.dockHeroCompactStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+.dockHeroCompactStat{padding:10px 12px;border-radius:14px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:color-mix(in oklab, var(--surface-2) 80%, transparent);display:grid;gap:4px;}
+.dockHeroCompactStat strong{font-size:22px;line-height:1;font-weight:950;}
+.dockHeroCompactStat span{font-size:11px;color:var(--muted);line-height:1.35;}
+.dockHeroReminderInline{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in oklab, var(--accent) 30%, var(--border));background:color-mix(in oklab, var(--accent) 10%, transparent);}
+.dockHeroReminderTitle{font-size:13px;font-weight:900;color:var(--text);}
+.dockHeroReminderMeta{margin-top:4px;font-size:11px;color:var(--muted);line-height:1.35;}
+.dockCardQuickActions{margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
+.dockShareBtn--mobile{margin-top:6px;}
+.dockCardTimelineCompact{margin-top:8px;padding:9px 10px;}
+.dockCardTimelineCompact .dockCardTimelineList{gap:6px;}
+
 .timelineFocusCard{
   border:1px solid color-mix(in oklab, var(--border) 82%, transparent);
   background: color-mix(in oklab, var(--surface-2) 78%, transparent);
@@ -5478,6 +5530,10 @@ onBeforeUnmount(() => {
 .shareSheetChip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);font-size:11px;font-weight:800;color:rgba(255,255,255,.82)}
 .shareSheetPreview{white-space:pre-wrap;line-height:1.55;font-size:13px;color:rgba(255,255,255,.9)}
 .shareSheetActions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.dockCard--sheet{padding-top:12px}
+.dockCardQuickActions--mobile{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0 12px;position:sticky;top:0;z-index:2;padding:10px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(18,25,48,.98), rgba(12,18,34,.96));box-shadow:0 12px 24px rgba(0,0,0,.18)}
+.dockShareBtn--mobileInline{width:100%;min-height:40px;padding:0 12px;border-radius:12px;border:1px dashed rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;font-weight:900}
+.dockShareBtn--mobileInline:hover{background:rgba(255,255,255,.08)}
 @media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
 @media (max-width:720px){
   .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
@@ -5489,12 +5545,42 @@ onBeforeUnmount(() => {
   .dockSpacer{display:none}
   .dockMore{grid-column:1 / -1;width:100%}
   .dockPanel{max-height:min(24dvh,176px)!important}
-  .dockPanelSheet{left:8px;right:8px;bottom:max(8px, calc(env(safe-area-inset-bottom) + 6px));max-height:min(72dvh, 680px)!important}
+  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineHeroStats,
+  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineScanStrip,
+  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineFocusRow,
+  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineRecent,
+  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineReminderCard,
+  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineHeroNext{display:none}
+  .dockPanelSheet{left:8px;right:8px;bottom:max(8px, calc(env(safe-area-inset-bottom) + 6px));max-height:min(82dvh, 760px)!important;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
   .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
   .shareSheetOverlay{padding:12px}
   .shareSheetCard{padding:16px;border-radius:22px 22px 18px 18px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
   .shareSheetActions{display:grid;grid-template-columns:1fr;gap:8px}
+  .dockHeroCompactStats{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+  .dockHeroReminderInline{align-items:flex-start;padding:10px 12px;border-radius:14px;}
+  .dockCardQuickActions{position:sticky;bottom:0;z-index:2;padding-top:8px;background:linear-gradient(180deg, rgba(11,16,30,0), rgba(11,16,30,.86) 28%, rgba(11,16,30,.98));}
+  .dockTimelineHeroCompact{padding:12px;gap:10px;}
+  .dockHeroCompactHead{align-items:center;gap:10px;}
+  .dockHeroCompactHead .timelineHeroTitle{font-size:15px;line-height:1.32;}
+  .dockHeroCompactStats strong{font-size:24px;}
+  .dockHeroCompactStat{padding:10px 8px;border-radius:14px;}
+  .dockCard--sheet{padding:12px;border-radius:18px;}
+  .dockCardMeta{gap:6px;row-gap:4px;flex-wrap:wrap;}
+  .dockCardSummary{padding:12px;border-radius:14px;}
+  .dockCardTimelineCompact .dockCardTimelineItem:nth-child(n+3){display:none;}
+}
+@media (max-width:520px){
+  .dockPanelSheet{left:6px;right:6px;bottom:max(6px, calc(env(safe-area-inset-bottom) + 4px));max-height:min(86dvh, 820px)!important;}
+  .dockTimelineHeroCompact{padding:10px;gap:8px;}
+  .dockHeroCompactHead .timelineHeroEyebrow{font-size:10px;}
+  .dockHeroCompactHead .timelineHeroTitle{font-size:14px;}
+  .dockHeroCompactStats{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .dockHeroCompactStat span{font-size:11px;line-height:1.25;}
+  .dockHeroCompactStat strong{font-size:22px;}
+  .dockCardQuickActions--mobile{grid-template-columns:repeat(2,minmax(0,1fr));padding:8px;border-radius:14px;}
+  .dockMiniBtn,.dockShareBtn--mobileInline{min-height:38px;font-size:13px;padding:0 10px;}
+  .dockCardTimelineHead{font-size:12px;}
 }
 </style>
 
