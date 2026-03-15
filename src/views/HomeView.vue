@@ -650,8 +650,8 @@ onBeforeUnmount(() => {
 .feedFocusPill__label{font-size:12px;color:rgba(255,255,255,.64);font-weight:800}
 .feedFocusPill__value{font-size:14px;font-weight:950;color:rgba(255,255,255,.95)}
 
-.feedGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;align-items:stretch;justify-content:center}
-.feedGrid :deep(.card){height:auto}
+.feedGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;align-items:start;justify-content:center}
+.feedGrid :deep(.card){height:auto;align-self:start}
 
 .newPostBanner{align-self:center;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 40%, rgba(255,255,255,.14));background:color-mix(in oklab,var(--accent) 20%, rgba(255,255,255,.05));color:rgba(255,255,255,.96);font-weight:900;box-shadow:0 10px 30px rgba(25,48,110,.22)}
 

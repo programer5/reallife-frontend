@@ -8,7 +8,7 @@ import { likePost, unlikePost } from "../api/likes";
 import { useToastStore } from "../stores/toast";
 import { useAuthStore } from "../stores/auth";
 import RlButton from "../components/ui/RlButton.vue";
-import Lightbox from "../components/media/Lightbox.vue";
+import MediaLightbox from "../components/media/MediaLightbox.vue";
 import sse from "../lib/sse";
 import AsyncStatePanel from "../components/ui/AsyncStatePanel.vue";
 
@@ -21,8 +21,8 @@ const loading = ref(false);
 const error = ref("");
 const post = ref(null);
 const likeBusy = ref(false);
-const lbOpen = ref(false);
-const lbIndex = ref(0);
+const mediaViewerOpen = ref(false);
+const mediaViewerIndex = ref(0);
 const commentsLoading = ref(false);
 const commentsError = ref("");
 const comments = ref([]);
@@ -73,11 +73,20 @@ const mediaItems = computed(() => {
   const fallback = Array.isArray(post.value?.imageUrls) ? post.value.imageUrls : [];
   return fallback.map((url) => ({ mediaType: "IMAGE", url, thumbnailUrl: url }));
 });
-const imageCount = computed(() => mediaItems.value.filter((m) => String(m?.mediaType || "IMAGE").toUpperCase() === "IMAGE").length);
-const videoItems = computed(() => mediaItems.value.filter((m) => String(m?.mediaType || "").toUpperCase() === "VIDEO"));
-const imageMediaItems = computed(() =>
-  mediaItems.value.filter((m) => String(m?.mediaType || "IMAGE").toUpperCase() === "IMAGE")
+const normalizedMediaItems = computed(() =>
+  mediaItems.value
+    .map((m, idx) => ({
+      idx,
+      kind: String(m?.mediaType || "IMAGE").toUpperCase() === "VIDEO" ? "video" : "image",
+      url: m?.url || "",
+      thumbnailUrl: m?.thumbnailUrl || m?.url || "",
+      name: m?.name || `미디어 ${idx + 1}`,
+    }))
+    .filter((m) => !!m.url)
 );
+const imageCount = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "image").length);
+const videoItems = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "video"));
+const imageMediaItems = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "image"));
 const imageUrls = computed(() => imageMediaItems.value.map((m) => m.url).filter(Boolean));
 const mediaLayout = computed(() => {
   const n = imageCount.value;
@@ -204,7 +213,20 @@ function myId() { return auth.me?.userId || auth.me?.id; }
 function canDeleteComment(c) { return !!myId() && c.userId === myId(); }
 function ts(t) { const d = new Date(t); return Number.isFinite(d.getTime()) ? d.getTime() : 0; }
 function fmtVisibility(v) { return v === "FOLLOWERS" ? "팔로워" : v === "PRIVATE" ? "나만" : "전체"; }
-function openLightbox(i) { lbIndex.value = i; lbOpen.value = true; }
+function openMediaViewerByIndex(i) {
+  mediaViewerIndex.value = Math.max(0, Math.min(i || 0, normalizedMediaItems.value.length - 1));
+  mediaViewerOpen.value = true;
+}
+function openImageViewer(imageIndex) {
+  const target = imageUrls.value[imageIndex];
+  const mediaIndex = normalizedMediaItems.value.findIndex((m) => m.kind === "image" && (m.url === target || m.thumbnailUrl === target));
+  openMediaViewerByIndex(mediaIndex >= 0 ? mediaIndex : 0);
+}
+function openVideoViewer(videoIndex = 0) {
+  const target = videoItems.value[videoIndex]?.url || "";
+  const mediaIndex = normalizedMediaItems.value.findIndex((m) => m.kind === "video" && m.url === target);
+  openMediaViewerByIndex(mediaIndex >= 0 ? mediaIndex : 0);
+}
 function closeActionSheet() { actionSheetFor.value = null; }
 function openActionSheet(c) { actionSheetFor.value = c; }
 function focusComposer() { document.getElementById("commentComposerInput")?.focus?.(); }
@@ -642,20 +664,33 @@ watch(sortMode, () => loadCommentsFirst());
           <div class="content">{{ detailBodyText }}</div>
         </div>
 
-        <div v-if="videoItems.length" class="videoList"><video v-for="(m,i) in videoItems" :key="m.url || i" class="videoPlayer" :src="m.url" controls playsinline preload="metadata"></video></div>
+        <div v-if="videoItems.length" class="videoList">
+          <video
+              v-for="(m,i) in videoItems"
+              :key="m.url || i"
+              class="videoPlayer"
+              :src="m.url || ''"
+              :poster="m.thumbnailUrl || ''"
+              controls
+              playsinline
+              muted
+              preload="metadata"
+              @click.stop="openVideoViewer(i)"
+          ></video>
+        </div>
 
         <div v-if="imageCount" class="media" :class="`media--${mediaLayout}`">
           <button
             v-if="mediaLayout === 'single'"
             class="heroShot"
             type="button"
-            @click="openLightbox(0)"
+            @click="openImageViewer(0)"
           >
             <img :src="imageUrls[0]" alt="" />
           </button>
 
           <div v-else-if="mediaLayout === 'double'" class="doubleGrid">
-            <button v-for="(url, i) in imageUrls" :key="url" class="gridShot" type="button" @click="openLightbox(i)">
+            <button v-for="(url, i) in imageUrls" :key="url" class="gridShot" type="button" @click="openImageViewer(i)">
               <img :src="url" alt="" />
             </button>
           </div>
@@ -668,7 +703,7 @@ watch(sortMode, () => loadCommentsFirst());
               @click="$refs.carousel?.scrollBy({ left: -320, behavior: 'smooth' })"
             >‹</button>
             <div ref="carousel" class="track">
-              <button v-for="(url, i) in imageUrls" :key="url" class="shot" type="button" @click="openLightbox(i)">
+              <button v-for="(url, i) in imageUrls" :key="url" class="shot" type="button" @click="openImageViewer(i)">
                 <img :src="url" alt="" />
               </button>
             </div>
@@ -823,7 +858,12 @@ watch(sortMode, () => loadCommentsFirst());
       </div>
     </div>
 
-    <Lightbox v-if="lbOpen" :images="imageUrls" :start-index="lbIndex" @close="lbOpen=false" />
+    <MediaLightbox
+      v-if="mediaViewerOpen && normalizedMediaItems.length"
+      :items="normalizedMediaItems"
+      :start-index="mediaViewerIndex"
+      @close="mediaViewerOpen = false"
+    />
   </div>
 </template>
 

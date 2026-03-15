@@ -3,7 +3,7 @@
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useToastStore } from "../../stores/toast";
-import Lightbox from "../media/Lightbox.vue";
+import MediaLightbox from "../media/MediaLightbox.vue";
 
 const props = defineProps({
   post: { type: Object, required: true },
@@ -21,8 +21,19 @@ const mediaItems = computed(() => {
   return Array.isArray(fallback) ? fallback.map((url) => ({ mediaType: "IMAGE", url, thumbnailUrl: url })) : [];
 });
 
-const images = computed(() => mediaItems.value.filter((m) => String(m?.mediaType || "IMAGE").toUpperCase() === "IMAGE").map((m) => m.url || m.thumbnailUrl).filter(Boolean));
-const firstVideo = computed(() => mediaItems.value.find((m) => String(m?.mediaType || "").toUpperCase() === "VIDEO") || null);
+const normalizedMediaItems = computed(() =>
+  mediaItems.value
+    .map((m, idx) => ({
+      idx,
+      kind: String(m?.mediaType || "IMAGE").toUpperCase() === "VIDEO" ? "video" : "image",
+      url: m?.url || "",
+      thumbnailUrl: m?.thumbnailUrl || m?.url || "",
+      name: m?.name || `미디어 ${idx + 1}`,
+    }))
+    .filter((m) => !!m.url)
+);
+const images = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "image").map((m) => m.url || m.thumbnailUrl).filter(Boolean));
+const firstVideo = computed(() => normalizedMediaItems.value.find((m) => m.kind === "video") || null);
 
 const previewComments = computed(() => {
   const p = props.post || {};
@@ -44,8 +55,8 @@ const mediaBadge = computed(() => {
   return `${count}장`;
 });
 
-const lightboxOpen = ref(false);
-const lightboxIndex = ref(0);
+const mediaViewerOpen = ref(false);
+const mediaViewerIndex = ref(0);
 const slide = ref(0);
 const dragging = ref(false);
 let startX = 0;
@@ -109,10 +120,21 @@ function onMediaTap(e) {
   lastTapAt = now;
 }
 
-function openLightbox(i, e) {
+function openMediaViewerByIndex(i, e) {
   e?.stopPropagation?.();
-  lightboxIndex.value = i;
-  lightboxOpen.value = true;
+  mediaViewerIndex.value = Math.max(0, Math.min(i || 0, normalizedMediaItems.value.length - 1));
+  mediaViewerOpen.value = true;
+}
+
+function openImageViewer(imageIndex, e) {
+  const target = images.value[imageIndex];
+  const mediaIndex = normalizedMediaItems.value.findIndex((m) => m.kind === "image" && (m.url === target || m.thumbnailUrl === target));
+  openMediaViewerByIndex(mediaIndex >= 0 ? mediaIndex : 0, e);
+}
+
+function openVideoViewer(e) {
+  const mediaIndex = normalizedMediaItems.value.findIndex((m) => m.kind === "video");
+  openMediaViewerByIndex(mediaIndex >= 0 ? mediaIndex : 0, e);
 }
 
 function onPointerDown(e) {
@@ -390,8 +412,17 @@ const detailActionLabel = computed(() => {
 
 <template>
   <article class="card" role="article" @click="openDetail">
-    <div v-if="firstVideo" class="videoHero" @click.stop="openDetail">
-      <video class="videoHero__player" :src="firstVideo.url" controls playsinline preload="metadata"></video>
+    <div v-if="firstVideo" class="videoHero" @click.stop="openVideoViewer">
+      <video
+          class="videoHero__player"
+          @click.stop="openVideoViewer"
+          :src="firstVideo?.url || ''"
+          :poster="firstVideo?.thumbnailUrl || ''"
+          controls
+          playsinline
+          muted
+          preload="metadata"
+      ></video>
       <div class="videoHero__badge">VIDEO</div>
     </div>
 
@@ -480,7 +511,7 @@ const detailActionLabel = computed(() => {
             :key="idx"
             class="slide"
             type="button"
-            @click.stop="openLightbox(idx, $event)"
+            @click.stop="openImageViewer(idx, $event)"
             :aria-label="`이미지 ${idx + 1} 확대`"
         >
           <img class="img" :src="u" alt="post image" loading="lazy" decoding="async" />
@@ -495,7 +526,7 @@ const detailActionLabel = computed(() => {
 
       <div class="mediaTopMeta">
         <span class="mediaPill">{{ slide + 1 }} / {{ visibleImages.length }}</span>
-        <button class="zoomBtn" type="button" @click.stop="openLightbox(slide, $event)" aria-label="이미지 크게 보기">⌕</button>
+        <button class="zoomBtn" type="button" @click.stop="openImageViewer(slide, $event)" aria-label="이미지 크게 보기">⌕</button>
         <span v-if="visibleImages.length > 1" class="mediaPill mediaPill--soft">스와이프</span>
       </div>
 
@@ -551,11 +582,11 @@ const detailActionLabel = computed(() => {
       </button>
     </div>
 
-    <Lightbox
-        v-if="lightboxOpen"
-        :images="visibleImages"
-        :start-index="lightboxIndex"
-        @close="lightboxOpen = false"
+    <MediaLightbox
+        v-if="mediaViewerOpen && normalizedMediaItems.length"
+        :items="normalizedMediaItems"
+        :start-index="mediaViewerIndex"
+        @close="mediaViewerOpen = false"
     />
   </article>
 </template>
@@ -868,6 +899,42 @@ const detailActionLabel = computed(() => {
   0%{ opacity: 0; transform: translate(-50%,-50%) scale(.2); }
   35%{ opacity: 1; transform: translate(-50%,-52%) scale(1.05); }
   100%{ opacity: 0; transform: translate(-50%,-58%) scale(1.22); }
+}
+
+.videoHero{
+  margin-top: 10px;
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.28);
+  isolation: isolate;
+}
+.videoHero__player{
+  display:block;
+  width:100%;
+  max-width:100%;
+  aspect-ratio: 9 / 16;
+  max-height: min(68dvh, 640px);
+  object-fit: cover;
+  background: #05070d;
+}
+.videoHero__badge{
+  position:absolute;
+  left:10px;
+  top:10px;
+  min-height:28px;
+  padding:0 10px;
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(0,0,0,.34);
+  color:rgba(255,255,255,.94);
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.06em;
+  backdrop-filter: blur(12px);
 }
 
 .flowBar{

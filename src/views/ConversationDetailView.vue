@@ -33,7 +33,7 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
 import { updateMessage } from "@/api/messages";
 import { uploadFiles } from "@/api/files";
-import { createCapsule, fetchConversationCapsules } from "@/api/capsules";
+import { createCapsule, fetchConversationCapsules, deleteCapsule } from "@/api/capsules";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -49,6 +49,9 @@ const capsuleModalOpen = ref(false);
 const capsuleTitle = ref("");
 const capsuleUnlockAt = ref("");
 const capsuleSaving = ref(false);
+const shareSheetOpen = ref(false);
+const shareSheetDraft = ref(null);
+const shareSheetSource = ref("");
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
@@ -63,6 +66,23 @@ const dockOpen = ref(false);
 const dockJustMovedPinId = ref(null);
 const savingCandidateId = ref(null);
 const lastCreatedPinId = ref(null);
+const isMobileViewport = ref(false);
+
+function syncMobileViewport(){
+  if (typeof window === "undefined") return;
+  isMobileViewport.value = window.innerWidth <= 720;
+}
+const useDockSheet = computed(() => isMobileViewport.value);
+const dockSheetTitle = computed(() => dockMode.value === "suggestions" ? "액션 제안" : "액션 허브");
+const dockSheetSubtitle = computed(() => {
+  if (dockMode.value === "suggestions") {
+    return suggestionCount.value > 0 ? `지금 확인할 제안 ${suggestionCount.value}개` : "현재 메시지에서 제안이 없어요.";
+  }
+  return activeCount.value > 0 ? `진행 중 액션 ${activeCount.value}개를 빠르게 볼 수 있어요.` : "아직 활성 액션이 없어요.";
+});
+function closeDockSheet(){
+  dockOpen.value = false;
+}
 
 // ✅ v2.10: placeholder slot for clearer FLIP destination
 const flipPlaceholder = ref(null); // { pinId, title, time, place, type }
@@ -682,6 +702,21 @@ async function refreshCapsules() {
     capsuleItems.value = [];
   } finally {
     capsuleLoading.value = false;
+  }
+}
+
+
+async function deleteCapsuleItem(item) {
+  const id = item?.capsuleId || item?.id;
+  if (!id) return;
+  const ok = window.confirm("이 타임 캡슐을 삭제할까요? 삭제 후 복구할 수 없어요.");
+  if (!ok) return;
+  try {
+    await deleteCapsule(id);
+    await refreshCapsules();
+    toast.success?.("캡슐 삭제", "타임 캡슐을 삭제했어요.");
+  } catch (e) {
+    toast.error?.("캡슐 삭제 실패", e?.response?.data?.message || "잠시 후 다시 시도해 주세요.");
   }
 }
 
@@ -1399,16 +1434,65 @@ function feedShareMetaForPin(pin) {
   };
 }
 
+function openFeedShareSheet(draft, sourceLabel = "액션 공유") {
+  shareSheetDraft.value = draft;
+  shareSheetSource.value = sourceLabel;
+  shareSheetOpen.value = true;
+}
+
+function closeFeedShareSheet() {
+  shareSheetOpen.value = false;
+}
+
+function persistFeedShareDraftAndOpenHome() {
+  if (!shareSheetDraft.value) return;
+  try {
+    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify(shareSheetDraft.value));
+    shareSheetOpen.value = false;
+    toast.success?.("피드 공유 준비", "홈 작성창에서 바로 이어서 올릴 수 있어요.");
+    router.push({ path: "/home", query: { compose: "1" } });
+  } catch {
+    toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
+  }
+}
+
+function capsuleShareMetaForItem(item) {
+  const title = String(item?.title || "타임 캡슐").trim() || "타임 캡슐";
+  const unlockAt = item?.unlockAt ? new Date(item.unlockAt) : null;
+  const openedAt = item?.openedAt ? new Date(item.openedAt) : null;
+  const chips = [];
+  if (unlockAt && !Number.isNaN(unlockAt.getTime())) chips.push(`⏳ ${unlockAt.toLocaleString()}`);
+  if (openedAt && !Number.isNaN(openedAt.getTime())) chips.push(`🔓 ${openedAt.toLocaleString()}`);
+  return {
+    badge: "타임 캡슐",
+    title,
+    subtitle: item?.opened ? "열린 캡슐에서 이어진 흐름" : "나중에 열릴 캡슐",
+    status: item?.opened ? "OPENED" : "LOCKED",
+    chips: chips.slice(0, 2),
+  };
+}
+
+function shareCapsuleToFeed(item) {
+  if (!item) return;
+  openFeedShareSheet({
+    content: `${String(item?.title || "타임 캡슐").trim()}
+#RealLife`,
+    visibility: "ALL",
+    source: "time-capsule",
+    capsuleId: item?.capsuleId || item?.id || null,
+    sourceMeta: capsuleShareMetaForItem(item),
+  }, "타임 캡슐 공유");
+}
+
 function sharePinToFeed(pin) {
   try {
-    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
+    openFeedShareSheet({
       content: feedShareTextForPin(pin),
       visibility: "ALL",
       source: "action-pin",
       pinId: pin?.pinId || null,
       sourceMeta: feedShareMetaForPin(pin),
-    }));
-    toast.success?.("피드 공유 준비", "홈에서 게시창을 열면 초안이 바로 채워져요.");
+    }, "액션 공유");
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
@@ -2562,6 +2646,7 @@ onMounted(async () => {
 
   // ✅ composer 높이 실측 → CSS 변수 동기화
   syncComposerHeightVar();
+  syncMobileViewport();
 
   // ✅ (알림 진입) mid가 있으면 그 메시지로, 없으면 마지막 메시지로
   if (fromNoti) {
@@ -2576,6 +2661,7 @@ onMounted(async () => {
 
   // ✅ 화면 크기/주소창 변화/키보드 등으로 높이 달라질 때 다시 측정
   window.addEventListener("resize", syncComposerHeightVar);
+  window.addEventListener("resize", syncMobileViewport);
 
   offEvent = sse.onEvent((evt) => {
     const type = evt?.type;
@@ -2682,6 +2768,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", syncComposerHeightVar); // ✅ 추가
+  window.removeEventListener("resize", syncMobileViewport);
 
   if (scrollerRef.value) scrollerRef.value.removeEventListener("scroll", onScroll);
   if (offEvent) offEvent();
@@ -2729,13 +2816,14 @@ onBeforeUnmount(() => {
 
     <SseStatusBanner />
 
-    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" />
+    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @share="shareCapsuleToFeed" @delete="deleteCapsuleItem" />
 
 
     
 <!-- ✅ RealLife v2: Active Actions Dock -->
-<div class="dockWrap" v-if="canViewConversation" :class="{ dockPulse: dockPulseOn }">
-  <div class="dockBar">
+<div class="dockWrap" v-if="canViewConversation" :class="{ dockPulse: dockPulseOn, dockWrapSheet: useDockSheet }">
+  <div v-if="useDockSheet && dockOpen" class="dockSheetBackdrop" @click="closeDockSheet"></div>
+  <div class="dockBar" :class="{ dockBarSheet: useDockSheet }">
     <button
       class="dockTab"
       :class="{ on: dockMode==='active' }"
@@ -2771,7 +2859,16 @@ onBeforeUnmount(() => {
     </RlButton>
   </div>
 
-  <div v-if="dockOpen" class="dockPanel" :class="{ enter: dockAnimating }">
+  <div v-if="dockOpen" class="dockPanel" :class="{ enter: dockAnimating, dockPanelSheet: useDockSheet }">
+    <div v-if="useDockSheet" class="dockSheetHead">
+      <div class="dockSheetGrab" aria-hidden="true"></div>
+      <div class="dockSheetMeta">
+        <div class="dockSheetTitle">{{ dockSheetTitle }}</div>
+        <div class="dockSheetSub">{{ dockSheetSubtitle }}</div>
+      </div>
+      <button class="dockSheetClose" type="button" @click="closeDockSheet">닫기</button>
+    </div>
+
     <!-- Active -->
     <div v-if="dockMode==='active'" class="dockGrid">
       <div class="dockFilterBar">
@@ -3270,11 +3367,63 @@ onBeforeUnmount(() => {
       </template>
     </RlModal>
 
-    <!-- ✅ 잠금 설정/해제 모달(기존 유지) -->
+  </div>
+  </div>
+  <Teleport to="body">
+    <div v-if="menu.open" class="msgMenuOverlay" @mousedown="closeMsgMenu">
+      <div
+          class="msgMenuPopover"
+          :style="{ top: menu.top + 'px', left: menu.left + 'px' }"
+          @mousedown.stop
+      >
+        <button class="msgMenuItem" type="button" @click="copyMessage(menu.msg)">복사</button>
+
+        <button
+            v-if="menu.msg && isMineMessage(menu.msg)"
+            class="msgMenuItem"
+            type="button"
+            @click="startEditFromMenu(menu.msg)"
+        >
+          수정
+        </button>
+
+        <button
+            v-if="menu.msg && menu.msg.pinCandidates && menu.msg.pinCandidates.length"
+            class="msgMenuItem"
+            type="button"
+            @click="toggleCandidatesFromMenu(menu.msg)"
+        >
+          후보 보기/닫기
+        </button>
+      </div>
+    </div>
+
+    <Teleport to="body">
+      <div v-if="shareSheetOpen && shareSheetDraft" class="shareSheetOverlay" @click.self="closeFeedShareSheet">
+        <div class="shareSheetCard rl-cardish">
+          <div class="shareSheetEyebrow">{{ shareSheetSource || "피드 공유" }}</div>
+          <div class="shareSheetTitle">홈 피드로 이어서 공유할까요?</div>
+          <div class="shareSheetBody">
+            <div v-if="shareSheetDraft?.sourceMeta?.title" class="shareSheetMetaTitle">{{ shareSheetDraft.sourceMeta.title }}</div>
+            <div v-if="shareSheetDraft?.sourceMeta?.subtitle" class="shareSheetMetaSub">{{ shareSheetDraft.sourceMeta.subtitle }}</div>
+            <div v-if="shareSheetDraft?.sourceMeta?.chips?.length" class="shareSheetChips">
+              <span v-for="chip in shareSheetDraft.sourceMeta.chips" :key="chip" class="shareSheetChip">{{ chip }}</span>
+            </div>
+            <div class="shareSheetPreview">{{ shareSheetDraft?.content }}</div>
+          </div>
+          <div class="shareSheetActions">
+            <RlButton size="sm" variant="ghost" @click="closeFeedShareSheet">취소</RlButton>
+            <RlButton size="sm" variant="primary" @click="persistFeedShareDraftAndOpenHome">홈에서 이어서 작성</RlButton>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <div v-if="lockModalOpen" class="modalBackdrop" @click.self="closeLockModal">
-      <div class="modal rl-cardish">
+      <div class="modal rl-cardish" :class="{ 'modal--sheet': isNarrow }" role="dialog" aria-modal="true">
+        <div class="modalGrab" v-if="isNarrow" aria-hidden="true"></div>
         <div class="mTitle">
-          {{ lockModalMode === "set" ? "🔓 대화 잠금 설정" : "🔒 대화 잠금 해제" }}
+          {{ lockModalMode === "set" ? "🔒 대화 잠금 설정" : "🔓 대화 잠금 해제" }}
         </div>
         <div class="mSub" v-if="lockModalMode === 'set'">
           이 DM에 들어갈 때마다 비밀번호를 입력해야 해요.
@@ -3307,36 +3456,6 @@ onBeforeUnmount(() => {
           </button>
           <button class="mBtn soft" type="button" @click="closeLockModal">취소</button>
         </div>
-      </div>
-    </div>
-  </div>
-  </div>
-  <Teleport to="body">
-    <div v-if="menu.open" class="msgMenuOverlay" @mousedown="closeMsgMenu">
-      <div
-          class="msgMenuPopover"
-          :style="{ top: menu.top + 'px', left: menu.left + 'px' }"
-          @mousedown.stop
-      >
-        <button class="msgMenuItem" type="button" @click="copyMessage(menu.msg)">복사</button>
-
-        <button
-            v-if="menu.msg && isMineMessage(menu.msg)"
-            class="msgMenuItem"
-            type="button"
-            @click="startEditFromMenu(menu.msg)"
-        >
-          수정
-        </button>
-
-        <button
-            v-if="menu.msg && menu.msg.pinCandidates && menu.msg.pinCandidates.length"
-            class="msgMenuItem"
-            type="button"
-            @click="toggleCandidatesFromMenu(menu.msg)"
-        >
-          후보 보기/닫기
-        </button>
       </div>
     </div>
   </Teleport>
@@ -3883,17 +4002,27 @@ onBeforeUnmount(() => {
 .modalBackdrop{
   position:fixed;
   inset:0;
-  background: rgba(0,0,0,.45);
+  background: rgba(0,0,0,.56);
+  backdrop-filter: blur(10px);
   display:grid;
   place-items:center;
-  z-index: 80;
+  padding: 20px;
+  z-index: 120;
 }
 .modal{
   width: min(520px, calc(100% - 24px));
-  border-radius: 18px;
+  border-radius: 22px;
   border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
-  padding: 14px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  box-shadow: 0 28px 80px rgba(0,0,0,.42);
+  padding: 16px;
+}
+.modalGrab{
+  width: 52px;
+  height: 5px;
+  border-radius: 999px;
+  margin: 0 auto 12px;
+  background: color-mix(in oklab, var(--text) 20%, transparent);
 }
 .mTitle{font-weight:950}
 .mSub{margin-top:6px;color:var(--muted);font-size:12px}
@@ -3903,7 +4032,7 @@ onBeforeUnmount(() => {
   background: color-mix(in oklab, var(--surface) 86%, transparent);
   color:var(--text);padding:0 12px;
 }
-.mActions{margin-top:10px;display:flex;gap:8px}
+.mActions{margin-top:12px;display:flex;gap:8px}
 .mBtn{
   flex:1;height:44px;border-radius:14px;border:1px solid var(--border);
   background: transparent;color:var(--text);font-weight:950;
@@ -3942,6 +4071,25 @@ onBeforeUnmount(() => {
 }
 .retryBtn:hover{
   border-color: color-mix(in oklab, var(--danger) 55%, var(--border));
+}
+
+@media (max-width: 640px){
+  .modalBackdrop{
+    place-items:end center;
+    padding: 12px 12px calc(env(safe-area-inset-bottom) + var(--app-bottombar-h, 56px) + 12px);
+  }
+  .modal,
+  .modal--sheet{
+    width: 100%;
+    border-radius: 22px;
+    padding: 16px 14px;
+  }
+  .mActions{
+    flex-direction: column;
+  }
+  .mBtn{
+    height: 48px;
+  }
 }
 
 /* ===== Mobile / Narrow ===== */
@@ -5177,40 +5325,136 @@ onBeforeUnmount(() => {
 /* Final Creative Conversation Polish */
 .hiddenFileInput{display:none}
 .messageAttachmentBlock{margin-top:8px}
-.page{position:relative;top:auto;left:auto;right:auto;bottom:auto;height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));overflow:hidden}
+.page{
+  position:relative;
+  top:auto;left:auto;right:auto;bottom:auto;
+  height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));
+  max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));
+  overflow:hidden;
+  isolation:isolate;
+}
 .topbar,.dockWrap,.composerWrap,.capsulePanel{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
-.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 14px calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 24px);overscroll-behavior:contain}
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:35;
+  padding-top:10px;
+  background:linear-gradient(180deg, rgba(4,8,18,.92), rgba(4,8,18,.78) 78%, rgba(4,8,18,0));
+  backdrop-filter:blur(16px);
+}
+.scroller{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:8px 14px calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 28px);
+  overscroll-behavior:contain;
+}
 .thread{max-width:760px;margin:0 auto}
-.dockWrap{position:sticky;top:8px;z-index:20;padding-top:8px}
-.dockBar{gap:8px;padding:8px;border-radius:18px}
+.dockWrap{
+  position:sticky;
+  top:0;
+  z-index:24;
+  padding:4px 0 0;
+}
+.dockBar{
+  gap:8px;
+  padding:8px;
+  border-radius:18px;
+  backdrop-filter:blur(14px);
+  background:color-mix(in oklab, var(--surface) 84%, transparent);
+}
 .dockMore{min-width:76px}
-.dockPanel{margin-top:8px;max-height:min(32dvh,300px)!important;overflow-y:auto!important;overflow-x:hidden!important;border-radius:18px}
+.dockPanel{
+  margin-top:8px;
+  max-height:min(30dvh,280px)!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  border-radius:18px;
+}
+.dockWrapSheet{z-index:40}
+.dockSheetBackdrop{
+  position:fixed;
+  inset:0;
+  z-index:79;
+  background:rgba(3,6,16,.52);
+  backdrop-filter:blur(8px);
+}
+.dockPanelSheet{
+  position:fixed !important;
+  left:max(10px, env(safe-area-inset-left));
+  right:max(10px, env(safe-area-inset-right));
+  bottom:max(10px, calc(env(safe-area-inset-bottom) + 8px));
+  top:auto !important;
+  z-index:80;
+  margin-top:0 !important;
+  max-height:min(68dvh, 640px) !important;
+  border-radius:24px 24px 20px 20px;
+  box-shadow:0 28px 80px rgba(0,0,0,.42);
+}
+.dockSheetHead{
+  position:sticky;
+  top:0;
+  z-index:2;
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:10px;
+  align-items:center;
+  padding:10px 12px 12px;
+  margin:-2px -2px 12px;
+  border-bottom:1px solid color-mix(in oklab, var(--border) 74%, transparent);
+  background:linear-gradient(180deg, rgba(9,13,26,.96), rgba(9,13,26,.9));
+  backdrop-filter:blur(14px);
+  border-radius:24px 24px 0 0;
+}
+.dockSheetGrab{
+  grid-column:1 / -1;
+  width:52px;
+  height:5px;
+  border-radius:999px;
+  margin:0 auto 2px;
+  background:rgba(255,255,255,.18);
+}
+.dockSheetMeta{min-width:0}
+.dockSheetTitle{font-size:14px;font-weight:900;color:var(--text)}
+.dockSheetSub{margin-top:3px;font-size:12px;color:var(--muted);line-height:1.35}
+.dockSheetClose{
+  height:34px;
+  padding:0 12px;
+  border-radius:999px;
+  border:1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  background:rgba(255,255,255,.05);
+  color:var(--text);
+  font-size:12px;
+  font-weight:900;
+}
 .dockRow{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
-.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 14px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.82) 22%, rgba(4,8,18,.96) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
+.composerWrap{
+  position:sticky;
+  bottom:0;
+  z-index:60;
+  padding:10px 14px calc(14px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.82) 18%, rgba(4,8,18,.96) 100%);
+  border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  box-shadow:0 -18px 40px rgba(0,0,0,.18);
+}
 .composerInner--stack{display:grid;gap:8px}
-.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border-radius:20px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));box-shadow:0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.03)}
+.composerRow{
+  display:grid;
+  grid-template-columns:auto auto minmax(0,1fr) auto;
+  gap:8px;
+  align-items:center;
+  padding:8px;
+  border-radius:20px;
+  border:1px solid color-mix(in oklab,var(--border) 82%, transparent);
+  background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
+  box-shadow:0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.03);
+}
 .input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent)}
 .miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
 .composerHint{font-size:11px;line-height:1.35;color:var(--muted);padding:0 4px}
 .uploadState,.uploadError{font-size:12px;font-weight:800}
 .uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
-@media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
-@media (max-width:720px){
-  .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
-  .topbar,.dockWrap,.composerWrap,.capsulePanel,.thread{max-width:none}
-  .topbar{grid-template-columns:auto 1fr;gap:8px}
-  .right{grid-column:1 / -1;justify-content:flex-start}
-  .dockBar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .dockSpacer{display:none}
-  .dockMore{grid-column:1 / -1;width:100%}
-  .dockPanel{max-height:min(26dvh,180px)!important}
-  .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
-}
-
-</style>
-
-
-<style scoped>
 .timelineRecentShare{
   flex:0 0 auto;
   height:32px;
@@ -5222,95 +5466,37 @@ onBeforeUnmount(() => {
   font-size:12px;
   font-weight:800;
 }
-.timelineRecentShare:hover{
-  border-color:rgba(255,255,255,.22);
-  background:rgba(255,255,255,.08);
-}
-
-.dockCardTimeline{
-  margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--surface) 80%, transparent);
-}
-.dockCardTimelineHead{
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: .02em;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.dockCardTimelineList{
-  display:grid;
-  gap: 8px;
-}
-.dockCardTimelineItem{
-  display:grid;
-  grid-template-columns: auto auto 1fr;
-  align-items:center;
-  gap: 8px;
-  font-size: 12px;
-  color: color-mix(in oklab, var(--text) 86%, var(--muted));
-}
-.dockCardTimelineDot{
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--accent) 70%, white);
-  box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent) 16%, transparent);
-}
-.dockCardTimelineItem[data-tone="done"] .dockCardTimelineDot{
-  background: var(--success);
-  box-shadow: 0 0 0 6px rgba(85, 227, 160, .14);
-}
-.dockCardTimelineItem[data-tone="cancel"] .dockCardTimelineDot{
-  background: var(--danger);
-  box-shadow: 0 0 0 6px rgba(255, 107, 125, .12);
-}
-.dockCardTimelineTime{
-  min-width: 38px;
-  font-weight: 800;
-  color: var(--muted);
-}
-.dockCardTimelineLabel{
-  font-weight: 700;
-  color: var(--text);
-}
-
-
-
-/* Final Creative Conversation Polish */
-.hiddenFileInput{display:none}
-.messageAttachmentBlock{margin-top:8px}
-.page{position:relative;top:auto;left:auto;right:auto;bottom:auto;height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 72px));overflow:hidden}
-.topbar,.dockWrap,.composerWrap,.capsulePanel{max-width:760px;margin-left:auto;margin-right:auto;width:100%}
-.scroller{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 14px calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 24px);overscroll-behavior:contain}
-.thread{max-width:760px;margin:0 auto}
-.dockWrap{position:sticky;top:8px;z-index:20;padding-top:8px}
-.dockBar{gap:8px;padding:8px;border-radius:18px}
-.dockMore{min-width:76px}
-.dockPanel{margin-top:8px;max-height:min(32dvh,300px)!important;overflow-y:auto!important;overflow-x:hidden!important;border-radius:18px}
-.dockRow{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
-.composerWrap{position:sticky;bottom:0;z-index:60;padding:10px 14px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.82) 22%, rgba(4,8,18,.96) 100%);border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent)}
-.composerInner--stack{display:grid;gap:8px}
-.composerRow{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border-radius:20px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));box-shadow:0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.03)}
-.input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent)}
-.miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
-.composerHint{font-size:11px;line-height:1.35;color:var(--muted);padding:0 4px}
-.uploadState,.uploadError{font-size:12px;font-weight:800}
-.uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
+.timelineRecentShare:hover{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.08)}
+ .shareSheetOverlay{position:fixed;inset:0;z-index:130;display:grid;place-items:end center;padding:18px;background:rgba(3,6,16,.58);backdrop-filter:blur(10px)}
+.shareSheetCard{width:min(560px,100%);padding:18px;border-radius:24px 24px 18px 18px;display:grid;gap:12px;background:linear-gradient(180deg, rgba(17,22,40,.98), rgba(11,16,30,.98));border:1px solid rgba(255,255,255,.12);box-shadow:0 24px 80px rgba(0,0,0,.42)}
+.shareSheetEyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:rgba(255,255,255,.56)}
+.shareSheetTitle{font-size:20px;font-weight:950;line-height:1.2}
+.shareSheetBody{display:grid;gap:10px;padding:12px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)}
+.shareSheetMetaTitle{font-size:15px;font-weight:900;color:rgba(255,255,255,.96)}
+.shareSheetMetaSub{font-size:13px;color:rgba(255,255,255,.72)}
+.shareSheetChips{display:flex;gap:6px;flex-wrap:wrap}
+.shareSheetChip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);font-size:11px;font-weight:800;color:rgba(255,255,255,.82)}
+.shareSheetPreview{white-space:pre-wrap;line-height:1.55;font-size:13px;color:rgba(255,255,255,.9)}
+.shareSheetActions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 @media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
 @media (max-width:720px){
   .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
   .topbar,.dockWrap,.composerWrap,.capsulePanel,.thread{max-width:none}
-  .topbar{grid-template-columns:auto 1fr;gap:8px}
+  .topbar{grid-template-columns:auto 1fr;gap:8px;padding-left:12px;padding-right:12px}
   .right{grid-column:1 / -1;justify-content:flex-start}
   .dockBar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .dockBarSheet{grid-template-columns:1fr 1fr;gap:8px}
   .dockSpacer{display:none}
   .dockMore{grid-column:1 / -1;width:100%}
-  .dockPanel{max-height:min(26dvh,180px)!important}
+  .dockPanel{max-height:min(24dvh,176px)!important}
+  .dockPanelSheet{left:8px;right:8px;bottom:max(8px, calc(env(safe-area-inset-bottom) + 6px));max-height:min(72dvh, 680px)!important}
+  .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
+  .shareSheetOverlay{padding:12px}
+  .shareSheetCard{padding:16px;border-radius:22px 22px 18px 18px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+  .shareSheetActions{display:grid;grid-template-columns:1fr;gap:8px}
 }
-
 </style>
+
+
+
