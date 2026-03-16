@@ -262,16 +262,16 @@ onMounted(loadMembers);
 .pickerBtn,.searchBtn{height:44px;padding:0 14px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));color:#fff;font-weight:900;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
 .pickerBtn{min-width:164px;justify-content:center;display:inline-flex;align-items:center;gap:8px}
 .pickerHint{font-size:12px;color:rgba(255,255,255,.72)}
-.searchFieldWrap{position:relative;flex:1 1 280px;min-width:0}
-.searchFieldWrap--invite{max-width:460px}
-.inviteRow--search{margin-top:12px;justify-content:flex-start;align-items:flex-end;gap:12px}
-.searchIcon{position:absolute;left:16px;top:50%;transform:translateY(-50%);width:15px;height:15px;pointer-events:none;opacity:.78}
+.searchFieldWrap{position:relative;flex:1 1 360px;min-width:0}
+.searchFieldWrap--invite{flex:1 1 520px;max-width:none}
+.inviteRow--search{margin-top:16px;justify-content:flex-start;align-items:flex-end;gap:12px}
+.searchIcon{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:15px;height:15px;pointer-events:none;opacity:.78}
 .searchIcon::before{content:"";position:absolute;left:0;top:0;width:9px;height:9px;border:2px solid rgba(255,255,255,.68);border-radius:999px}
 .searchIcon::after{content:"";position:absolute;right:0;bottom:0;width:6px;height:2px;border-radius:999px;background:rgba(255,255,255,.68);transform:rotate(45deg);transform-origin:center}
 .input--withIcon{padding-left:48px}
-.inviteSearchInput{height:46px;line-height:46px}
+.inviteSearchInput{height:46px;line-height:46px;padding-top:0;padding-bottom:0}
 .inviteSearchInput::placeholder{color:rgba(255,255,255,.44)}
-.searchBtn{min-width:96px}
+.searchBtn{min-width:108px;height:46px;align-self:flex-end}
 .input{height:44px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#fff;padding:0 12px}
 .coverPreview{margin-top:12px;width:120px;height:120px;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
 .coverPreview img{width:100%;height:100%;object-fit:cover}
