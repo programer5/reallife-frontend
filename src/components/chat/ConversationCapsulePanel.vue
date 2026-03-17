@@ -127,14 +127,20 @@ function requestShare(item) {
     </template>
 
     <template v-else>
-      <div class="capsuleCompactState">
-        <template v-if="loading && !items.length">캡슐 목록을 불러오는 중…</template>
-        <template v-else-if="!items.length">아직 타임 캡슐이 없어요. ⏳ 버튼으로 바로 만들 수 있어요.</template>
+      <div class="capsuleCompactState capsuleCompactState--mobile">
+        <template v-if="loading && !items.length">
+          <span class="capsuleCompactLine">캡슐 목록을 불러오는 중…</span>
+        </template>
+        <template v-else-if="!items.length">
+          <span class="capsuleCompactLine">아직 타임 캡슐이 없어요. ⏳ 버튼으로 바로 만들 수 있어요.</span>
+        </template>
         <template v-else>
-          <span class="capsuleCompactTitle">{{ latestItem?.title || "최근 캡슐" }}</span>
-          <span class="capsuleCompactMeta">
-            {{ latestItem?.opened ? '열린 캡슐' : '다음 열림' }} · {{ fmt(latestItem?.opened ? latestItem?.openedAt : latestItem?.unlockAt) }}
-          </span>
+          <div class="capsuleCompactSummary">
+            <span class="capsuleCompactTitle">{{ latestItem?.title || "최근 캡슐" }}</span>
+            <span class="capsuleCompactMeta">
+              {{ latestItem?.opened ? '열림' : '다음 열림' }} · {{ fmt(latestItem?.opened ? latestItem?.openedAt : latestItem?.unlockAt) }}
+            </span>
+          </div>
         </template>
       </div>
     </template>
@@ -201,8 +207,8 @@ function requestShare(item) {
 </template>
 
 <style scoped>
-.capsulePanel{margin-top:6px;padding:12px 14px;border-radius:20px;display:grid;gap:10px;background:linear-gradient(180deg,color-mix(in oklab,var(--surface) 88%, transparent),color-mix(in oklab,var(--surface-2) 86%, transparent));border:1px solid color-mix(in oklab,var(--border) 86%, transparent)}
-.capsulePanel.mobile{gap:8px;padding:10px 12px}
+.capsulePanel{margin-top:4px;padding:12px 14px;border-radius:20px;display:grid;gap:10px;background:linear-gradient(180deg,color-mix(in oklab,var(--surface) 88%, transparent),color-mix(in oklab,var(--surface-2) 86%, transparent));border:1px solid color-mix(in oklab,var(--border) 86%, transparent)}
+.capsulePanel.mobile{gap:6px;padding:8px 10px}
 .capsuleTopline{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center}
 .capsuleTopline.compact{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
 .capsuleHeadMain{display:grid;gap:4px;min-width:0}
@@ -214,6 +220,9 @@ function requestShare(item) {
 .capsuleHeadActions{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
 .capsuleHint{font-size:12px;color:var(--muted)}
 .capsuleCompactState{display:grid;gap:2px;padding:8px 10px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 80%, transparent);background:color-mix(in oklab,var(--surface) 80%, transparent);font-size:12px;color:var(--muted)}
+.capsuleCompactState--mobile{padding:6px 8px;border-radius:12px;font-size:11px}
+.capsuleCompactSummary{display:grid;gap:1px;min-width:0}
+.capsuleCompactLine{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .capsuleCompactTitle{font-size:13px;font-weight:900;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .capsuleCompactMeta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .state{padding:10px 8px;text-align:center;color:var(--muted)}
@@ -233,5 +242,5 @@ function requestShare(item) {
 .relayBox{margin-top:8px;padding:14px;border-radius:18px;border:1px solid color-mix(in oklab,var(--accent) 28%, transparent);background:color-mix(in oklab,var(--accent) 10%, transparent)}
 .relayTitle{font-size:13px;font-weight:900}.relayActions{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}.sheetFoot{display:flex;justify-content:flex-end}
 @media (max-width:900px){.capsuleTopline{grid-template-columns:1fr}.capsuleHeadActions{justify-content:flex-start}}
-@media (max-width:720px){.capsulePanel{padding:10px 12px}.capsuleTopline{grid-template-columns:minmax(0,1fr) auto}.capsuleQuick{grid-column:1 / -1;gap:6px}.summaryPill{padding:6px 8px}.mobileSheet{padding:16px 14px calc(14px + env(safe-area-inset-bottom))}}
+@media (max-width:720px){.capsulePanel{padding:8px 10px}.capsuleTopline{grid-template-columns:minmax(0,1fr) auto;gap:8px}.capsuleHeadMain{gap:2px}.capsuleEyebrow{font-size:10px}.capsuleTitle{font-size:14px}.capsuleQuick{grid-column:1 / -1;gap:4px}.summaryPill{padding:5px 7px;gap:6px}.summaryPill strong{font-size:12px}.summaryPill span{font-size:11px}.capsuleHeadActions{gap:6px}.capsuleCompactMeta{font-size:11px}.mobileSheet{padding:16px 14px calc(14px + env(safe-area-inset-bottom))}}
 </style>

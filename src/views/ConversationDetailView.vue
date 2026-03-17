@@ -33,7 +33,7 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
 import { updateMessage } from "@/api/messages";
 import { uploadFiles } from "@/api/files";
-import { createCapsule, fetchConversationCapsules, deleteCapsule } from "@/api/capsules";
+import { createCapsule, fetchConversationCapsules } from "@/api/capsules";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -49,9 +49,6 @@ const capsuleModalOpen = ref(false);
 const capsuleTitle = ref("");
 const capsuleUnlockAt = ref("");
 const capsuleSaving = ref(false);
-const shareSheetOpen = ref(false);
-const shareSheetDraft = ref(null);
-const shareSheetSource = ref("");
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
@@ -83,6 +80,11 @@ const dockSheetSubtitle = computed(() => {
 function closeDockSheet(){
   dockOpen.value = false;
 }
+
+watch([dockOpen, useDockSheet], ([open, sheet]) => {
+  if (typeof document === "undefined") return;
+  document.body.style.overflow = open && sheet ? "hidden" : "";
+});
 
 // ✅ v2.10: placeholder slot for clearer FLIP destination
 const flipPlaceholder = ref(null); // { pinId, title, time, place, type }
@@ -1434,65 +1436,16 @@ function feedShareMetaForPin(pin) {
   };
 }
 
-function openFeedShareSheet(draft, sourceLabel = "액션 공유") {
-  shareSheetDraft.value = draft;
-  shareSheetSource.value = sourceLabel;
-  shareSheetOpen.value = true;
-}
-
-function closeFeedShareSheet() {
-  shareSheetOpen.value = false;
-}
-
-function persistFeedShareDraftAndOpenHome() {
-  if (!shareSheetDraft.value) return;
-  try {
-    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify(shareSheetDraft.value));
-    shareSheetOpen.value = false;
-    toast.success?.("피드 공유 준비", "홈 작성창에서 바로 이어서 올릴 수 있어요.");
-    router.push({ path: "/home", query: { compose: "1" } });
-  } catch {
-    toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
-  }
-}
-
-function capsuleShareMetaForItem(item) {
-  const title = String(item?.title || "타임 캡슐").trim() || "타임 캡슐";
-  const unlockAt = item?.unlockAt ? new Date(item.unlockAt) : null;
-  const openedAt = item?.openedAt ? new Date(item.openedAt) : null;
-  const chips = [];
-  if (unlockAt && !Number.isNaN(unlockAt.getTime())) chips.push(`⏳ ${unlockAt.toLocaleString()}`);
-  if (openedAt && !Number.isNaN(openedAt.getTime())) chips.push(`🔓 ${openedAt.toLocaleString()}`);
-  return {
-    badge: "타임 캡슐",
-    title,
-    subtitle: item?.opened ? "열린 캡슐에서 이어진 흐름" : "나중에 열릴 캡슐",
-    status: item?.opened ? "OPENED" : "LOCKED",
-    chips: chips.slice(0, 2),
-  };
-}
-
-function shareCapsuleToFeed(item) {
-  if (!item) return;
-  openFeedShareSheet({
-    content: `${String(item?.title || "타임 캡슐").trim()}
-#RealLife`,
-    visibility: "ALL",
-    source: "time-capsule",
-    capsuleId: item?.capsuleId || item?.id || null,
-    sourceMeta: capsuleShareMetaForItem(item),
-  }, "타임 캡슐 공유");
-}
-
 function sharePinToFeed(pin) {
   try {
-    openFeedShareSheet({
+    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
       content: feedShareTextForPin(pin),
       visibility: "ALL",
       source: "action-pin",
       pinId: pin?.pinId || null,
       sourceMeta: feedShareMetaForPin(pin),
-    }, "액션 공유");
+    }));
+    toast.success?.("피드 공유 준비", "홈에서 게시창을 열면 초안이 바로 채워져요.");
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
@@ -2816,13 +2769,12 @@ onBeforeUnmount(() => {
 
     <SseStatusBanner />
 
-    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @share="shareCapsuleToFeed" @delete="deleteCapsuleItem" />
+    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @delete="deleteCapsuleItem" />
 
 
     
 <!-- ✅ RealLife v2: Active Actions Dock -->
 <div class="dockWrap" v-if="canViewConversation" :class="{ dockPulse: dockPulseOn, dockWrapSheet: useDockSheet }">
-  <div v-if="useDockSheet && dockOpen" class="dockSheetBackdrop" @click="closeDockSheet"></div>
   <div class="dockBar" :class="{ dockBarSheet: useDockSheet }">
     <button
       class="dockTab"
@@ -2859,8 +2811,11 @@ onBeforeUnmount(() => {
     </RlButton>
   </div>
 
-  <div v-if="dockOpen" class="dockPanel" :class="{ enter: dockAnimating, dockPanelSheet: useDockSheet }">
-    <div v-if="useDockSheet" class="dockSheetHead">
+  <Teleport to="body" :disabled="!useDockSheet">
+    <template v-if="dockOpen">
+      <div v-if="useDockSheet" class="dockSheetBackdrop" @click="closeDockSheet"></div>
+      <div class="dockPanel" :class="{ enter: dockAnimating, dockPanelSheet: useDockSheet }">
+        <div v-if="useDockSheet" class="dockSheetHead">
       <div class="dockSheetGrab" aria-hidden="true"></div>
       <div class="dockSheetMeta">
         <div class="dockSheetTitle">{{ dockSheetTitle }}</div>
@@ -2889,138 +2844,106 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="pins && pins.length" class="dockTimelineHero" :class="{ dockTimelineHeroCompact: useDockSheet }">
-        <template v-if="useDockSheet">
-          <div class="dockHeroCompactHead">
-            <div>
-              <div class="timelineHeroEyebrow">액션 허브</div>
-              <div class="timelineHeroTitle">진행 중 액션 {{ dockTimelineSummary.total }}개를 빠르게 볼 수 있어요.</div>
-            </div>
-            <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}</div>
+      <div v-if="pins && pins.length" class="dockTimelineHero">
+        <div class="timelineHeroHead">
+          <div>
+            <div class="timelineHeroEyebrow">Action Timeline</div>
+            <div class="timelineHeroTitle">이 대화에서 바로 이어갈 액션</div>
           </div>
-          <div class="dockHeroCompactStats">
-            <div class="dockHeroCompactStat">
-              <strong>{{ dockStatusSummary.todoReady }}</strong>
-              <span>체크 가능한 항목</span>
-            </div>
-            <div class="dockHeroCompactStat">
-              <strong>{{ dockStatusSummary.upcoming }}</strong>
-              <span>다가오는 일정</span>
-            </div>
-            <div class="dockHeroCompactStat">
-              <strong>{{ dockStatusSummary.overdue }}</strong>
-              <span>시간 확인 필요</span>
-            </div>
-          </div>
-          <div v-if="nextReminderPin" class="dockHeroReminderInline">
-            <div>
-              <div class="dockHeroReminderTitle">다음 리마인더 · {{ nextReminderPin.title || '액션' }}</div>
-              <div class="dockHeroReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
-            </div>
-            <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더</button>
-          </div>
-        </template>
-        <template v-else>
-          <div class="timelineHeroHead">
-            <div>
-              <div class="timelineHeroEyebrow">Action Timeline</div>
-              <div class="timelineHeroTitle">이 대화에서 바로 이어갈 액션</div>
-            </div>
-            <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}개</div>
-          </div>
+          <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}개</div>
+        </div>
 
-          <div class="timelineHeroStats">
-            <div class="timelineStat">
-              <span class="timelineStatK">📅 약속</span>
-              <strong>{{ dockTimelineSummary.promises }}</strong>
-              <span class="timelineStatSub">시간이 있는 액션</span>
-            </div>
-            <div class="timelineStat">
-              <span class="timelineStatK">✅ 할일</span>
-              <strong>{{ dockTimelineSummary.todos }}</strong>
-              <span class="timelineStatSub">바로 체크 가능한 항목</span>
-            </div>
-            <div class="timelineStat">
-              <span class="timelineStatK">📍 장소</span>
-              <strong>{{ dockTimelineSummary.places }}</strong>
-              <span class="timelineStatSub">나중에 다시 꺼낼 위치</span>
-            </div>
+        <div class="timelineHeroStats">
+          <div class="timelineStat">
+            <span class="timelineStatK">📅 약속</span>
+            <strong>{{ dockTimelineSummary.promises }}</strong>
+            <span class="timelineStatSub">시간이 있는 액션</span>
           </div>
-
-          <div class="timelineScanStrip">
-            <div class="timelineScanCard" data-tone="accent">
-              <span class="timelineScanLabel">지금 먼저 볼 것</span>
-              <strong>{{ dockTimelineSummary.nextTitle || (dockStatusSummary.overdue ? '시간 지난 액션 확인' : '바로 할 일 점검') }}</strong>
-              <span class="timelineScanMeta">{{ dockTimelineSummary.nextTitle ? dockTimelineSummary.nextLabel : timelinePrimaryMeta }}</span>
-            </div>
-            <div class="timelineScanCard" data-tone="warn">
-              <span class="timelineScanLabel">왜 지금 봐야 하나</span>
-              <strong>{{ timelinePriorityReason.title }}</strong>
-              <span class="timelineScanMeta">{{ timelinePriorityReason.description }}</span>
-            </div>
-            <div class="timelineScanCard" data-tone="soft">
-              <span class="timelineScanLabel">어디서 바로 처리하나</span>
-              <strong>{{ timelineActionPath.title }}</strong>
-              <span class="timelineScanMeta">{{ timelineActionPath.description }}</span>
-            </div>
+          <div class="timelineStat">
+            <span class="timelineStatK">✅ 할일</span>
+            <strong>{{ dockTimelineSummary.todos }}</strong>
+            <span class="timelineStatSub">바로 체크 가능한 항목</span>
           </div>
-
-          <div class="timelineFocusRow">
-            <div class="timelineFocusCard" data-tone="upcoming">
-              <span class="timelineFocusLabel">다가오는 일정</span>
-              <strong>{{ dockStatusSummary.upcoming }}</strong>
-              <span class="timelineFocusMeta">예정된 약속</span>
-            </div>
-            <div class="timelineFocusCard" data-tone="warn">
-              <span class="timelineFocusLabel">시간 지난 액션</span>
-              <strong>{{ dockStatusSummary.overdue }}</strong>
-              <span class="timelineFocusMeta">시간 확인 필요</span>
-            </div>
-            <div class="timelineFocusCard" data-tone="todo">
-              <span class="timelineFocusLabel">바로 할 일</span>
-              <strong>{{ dockStatusSummary.todoReady }}</strong>
-              <span class="timelineFocusMeta">체크 가능한 항목</span>
-            </div>
+          <div class="timelineStat">
+            <span class="timelineStatK">📍 장소</span>
+            <strong>{{ dockTimelineSummary.places }}</strong>
+            <span class="timelineStatSub">나중에 다시 꺼낼 위치</span>
           </div>
+        </div>
 
-          <div v-if="nextReminderPin" class="timelineReminderCard">
-            <div>
-              <div class="timelineReminderEyebrow">Action Reminder</div>
-              <div class="timelineReminderTitle">다음 리마인더는 “{{ nextReminderPin.title || '액션' }}”예요</div>
-              <div class="timelineReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
-            </div>
-            <div class="timelineReminderActions">
-              <span class="timelineReminderCount">오늘 {{ reminderTodayCount }}개 · 24시간 내 {{ reminderDueSoonCount }}개</span>
-              <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더 보기</button>
-            </div>
+        <div class="timelineScanStrip">
+          <div class="timelineScanCard" data-tone="accent">
+            <span class="timelineScanLabel">지금 먼저 볼 것</span>
+            <strong>{{ dockTimelineSummary.nextTitle || (dockStatusSummary.overdue ? '시간 지난 액션 확인' : '바로 할 일 점검') }}</strong>
+            <span class="timelineScanMeta">{{ dockTimelineSummary.nextTitle ? dockTimelineSummary.nextLabel : timelinePrimaryMeta }}</span>
           </div>
-
-          <div v-if="dockTimelineSummary.nextTitle" class="timelineHeroNext">
-            <span class="timelineHeroNextLabel">다음 약속</span>
-            <span class="timelineHeroNextTitle">{{ dockTimelineSummary.nextTitle }}</span>
-            <span class="timelineHeroNextTime">{{ dockTimelineSummary.nextLabel }}</span>
+          <div class="timelineScanCard" data-tone="warn">
+            <span class="timelineScanLabel">왜 지금 봐야 하나</span>
+            <strong>{{ timelinePriorityReason.title }}</strong>
+            <span class="timelineScanMeta">{{ timelinePriorityReason.description }}</span>
           </div>
+          <div class="timelineScanCard" data-tone="soft">
+            <span class="timelineScanLabel">어디서 바로 처리하나</span>
+            <strong>{{ timelineActionPath.title }}</strong>
+            <span class="timelineScanMeta">{{ timelineActionPath.description }}</span>
+          </div>
+        </div>
 
-          <div v-if="recentPinActivity.length" class="timelineRecent">
-            <div class="timelineRecentHead">최근 처리</div>
-            <div class="timelineRecentList">
-              <div v-for="item in recentPinActivity" :key="item.id" class="timelineRecentItem">
-                <span class="timelineRecentBadge" :data-tone="pinActivityTone(item)">{{ pinActivityLabel(item) }}</span>
-                <div class="timelineRecentBody">
-                  <div class="timelineRecentTitle">{{ item.title }}</div>
-                  <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
-                </div>
-                <button class="timelineRecentShare" type="button" @click="sharePinActivityToFeed(item)">피드 공유</button>
+        <div class="timelineFocusRow">
+          <div class="timelineFocusCard" data-tone="upcoming">
+            <span class="timelineFocusLabel">다가오는 일정</span>
+            <strong>{{ dockStatusSummary.upcoming }}</strong>
+            <span class="timelineFocusMeta">예정된 약속</span>
+          </div>
+          <div class="timelineFocusCard" data-tone="warn">
+            <span class="timelineFocusLabel">시간 지난 액션</span>
+            <strong>{{ dockStatusSummary.overdue }}</strong>
+            <span class="timelineFocusMeta">시간 확인 필요</span>
+          </div>
+          <div class="timelineFocusCard" data-tone="todo">
+            <span class="timelineFocusLabel">바로 할 일</span>
+            <strong>{{ dockStatusSummary.todoReady }}</strong>
+            <span class="timelineFocusMeta">체크 가능한 항목</span>
+          </div>
+        </div>
+
+        <div v-if="nextReminderPin" class="timelineReminderCard">
+          <div>
+            <div class="timelineReminderEyebrow">Action Reminder</div>
+            <div class="timelineReminderTitle">다음 리마인더는 “{{ nextReminderPin.title || '액션' }}”예요</div>
+            <div class="timelineReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
+          </div>
+          <div class="timelineReminderActions">
+            <span class="timelineReminderCount">오늘 {{ reminderTodayCount }}개 · 24시간 내 {{ reminderDueSoonCount }}개</span>
+            <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더 보기</button>
+          </div>
+        </div>
+
+        <div v-if="dockTimelineSummary.nextTitle" class="timelineHeroNext">
+          <span class="timelineHeroNextLabel">다음 약속</span>
+          <span class="timelineHeroNextTitle">{{ dockTimelineSummary.nextTitle }}</span>
+          <span class="timelineHeroNextTime">{{ dockTimelineSummary.nextLabel }}</span>
+        </div>
+
+        <div v-if="recentPinActivity.length" class="timelineRecent">
+          <div class="timelineRecentHead">최근 처리</div>
+          <div class="timelineRecentList">
+            <div v-for="item in recentPinActivity" :key="item.id" class="timelineRecentItem">
+              <span class="timelineRecentBadge" :data-tone="pinActivityTone(item)">{{ pinActivityLabel(item) }}</span>
+              <div class="timelineRecentBody">
+                <div class="timelineRecentTitle">{{ item.title }}</div>
+                <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
               </div>
+              <button class="timelineRecentShare" type="button" @click="sharePinActivityToFeed(item)">피드 공유</button>
             </div>
           </div>
-        </template>
+        </div>
       </div>
 
       <div v-if="pins && pins.length" class="dockRowWrap">
         <div v-if="dockVisibleSummary.hasMany" class="dockBrowseHint">아래 카드에서 이어지는 액션을 계속 볼 수 있어요.</div>
         <div class="dockRow">
-        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :class="[{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder }, useDockSheet ? 'dockCard--sheet' : '']" :data-pin-id="String(p.pinId)"  @click="p.__placeholder ? null : openPinEdit(p)">
+        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder }" @click="p.__placeholder ? null : openPinEdit(p)">
           <div class="dockCardTopline">
             <span class="dockTypePill">{{ pinKindMeta(p).emoji }} {{ pinKindMeta(p).label }}</span>
             <span class="dockStatePill" :data-tone="pinTimelineState(p).tone">{{ pinTimelineState(p).label }}</span>
@@ -3031,12 +2954,6 @@ onBeforeUnmount(() => {
             <span v-else class="muted">🕒 시간 미정</span>
             <span v-if="p.placeText" class="sep">·</span>
             <span v-if="p.placeText">📍 {{ p.placeText }}</span>
-          </div>
-          <div v-if="useDockSheet && !p.__placeholder" class="dockCardQuickActions dockCardQuickActions--mobile" @click.stop>
-            <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
-            <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
-            <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
-            <button class="dockShareBtn dockShareBtn--mobileInline" type="button" @click.stop="sharePinToFeed(p)">피드 공유</button>
           </div>
           <div class="dockCardSummary">
             <div class="dockCardSummaryLine">
@@ -3053,22 +2970,22 @@ onBeforeUnmount(() => {
             <div class="dockProgressFill" :style="{ width: pinTimelineState(p).progress + '%' }"></div>
           </div>
           <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
-          <div v-if="pinTimelineEvents(p).length" class="dockCardTimeline" :class="{ dockCardTimelineCompact: useDockSheet }">
+          <div v-if="pinTimelineEvents(p).length" class="dockCardTimeline">
             <div class="dockCardTimelineHead">Action Timeline</div>
             <div class="dockCardTimelineList">
-              <div v-for="event in (useDockSheet ? pinTimelineEvents(p).slice(0, 2) : pinTimelineEvents(p))" :key="event.key" class="dockCardTimelineItem" :data-tone="event.tone">
+              <div v-for="event in pinTimelineEvents(p)" :key="event.key" class="dockCardTimelineItem" :data-tone="event.tone">
                 <span class="dockCardTimelineDot" aria-hidden="true"></span>
                 <span class="dockCardTimelineTime">{{ pinTimelineTimeText(event.time) }}</span>
                 <span class="dockCardTimelineLabel">{{ event.label }}</span>
               </div>
             </div>
           </div>
-          <div v-if="!useDockSheet && !p.__placeholder" class="dockCardActions" @click.stop>
+          <div v-if="!p.__placeholder" class="dockCardActions" @click.stop>
             <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
             <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
             <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
           </div>
-          <button v-if="!useDockSheet && !p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
+          <button v-if="!p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
         </div>
         </div>
       </div>
@@ -3096,7 +3013,9 @@ onBeforeUnmount(() => {
 
       <div v-else class="dockEmpty">표시할 제안이 없어요.</div>
     </div>
-  </div>
+      </div>
+    </template>
+  </Teleport>
 </div>
 <!-- ✅ 잠금 게이트 -->
     <div v-if="lockEnabled && !unlocked" class="lockGate">
@@ -3435,27 +3354,6 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
-
-    <Teleport to="body">
-      <div v-if="shareSheetOpen && shareSheetDraft" class="shareSheetOverlay" @click.self="closeFeedShareSheet">
-        <div class="shareSheetCard rl-cardish">
-          <div class="shareSheetEyebrow">{{ shareSheetSource || "피드 공유" }}</div>
-          <div class="shareSheetTitle">홈 피드로 이어서 공유할까요?</div>
-          <div class="shareSheetBody">
-            <div v-if="shareSheetDraft?.sourceMeta?.title" class="shareSheetMetaTitle">{{ shareSheetDraft.sourceMeta.title }}</div>
-            <div v-if="shareSheetDraft?.sourceMeta?.subtitle" class="shareSheetMetaSub">{{ shareSheetDraft.sourceMeta.subtitle }}</div>
-            <div v-if="shareSheetDraft?.sourceMeta?.chips?.length" class="shareSheetChips">
-              <span v-for="chip in shareSheetDraft.sourceMeta.chips" :key="chip" class="shareSheetChip">{{ chip }}</span>
-            </div>
-            <div class="shareSheetPreview">{{ shareSheetDraft?.content }}</div>
-          </div>
-          <div class="shareSheetActions">
-            <RlButton size="sm" variant="ghost" @click="closeFeedShareSheet">취소</RlButton>
-            <RlButton size="sm" variant="primary" @click="persistFeedShareDraftAndOpenHome">홈에서 이어서 작성</RlButton>
-          </div>
-        </div>
-      </div>
-    </Teleport>
 
     <div v-if="lockModalOpen" class="modalBackdrop" @click.self="closeLockModal">
       <div class="modal rl-cardish" :class="{ 'modal--sheet': isNarrow }" role="dialog" aria-modal="true">
@@ -5229,20 +5127,6 @@ onBeforeUnmount(() => {
   position:static;
   padding:14px;
 }
-.dockTimelineHeroCompact{padding:12px;display:grid;gap:10px;}
-.dockHeroCompactHead{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;}
-.dockHeroCompactStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
-.dockHeroCompactStat{padding:10px 12px;border-radius:14px;border:1px solid color-mix(in oklab, var(--border) 82%, transparent);background:color-mix(in oklab, var(--surface-2) 80%, transparent);display:grid;gap:4px;}
-.dockHeroCompactStat strong{font-size:22px;line-height:1;font-weight:950;}
-.dockHeroCompactStat span{font-size:11px;color:var(--muted);line-height:1.35;}
-.dockHeroReminderInline{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in oklab, var(--accent) 30%, var(--border));background:color-mix(in oklab, var(--accent) 10%, transparent);}
-.dockHeroReminderTitle{font-size:13px;font-weight:900;color:var(--text);}
-.dockHeroReminderMeta{margin-top:4px;font-size:11px;color:var(--muted);line-height:1.35;}
-.dockCardQuickActions{margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
-.dockShareBtn--mobile{margin-top:6px;}
-.dockCardTimelineCompact{margin-top:8px;padding:9px 10px;}
-.dockCardTimelineCompact .dockCardTimelineList{gap:6px;}
-
 .timelineFocusCard{
   border:1px solid color-mix(in oklab, var(--border) 82%, transparent);
   background: color-mix(in oklab, var(--surface-2) 78%, transparent);
@@ -5425,39 +5309,41 @@ onBeforeUnmount(() => {
   border-radius:18px;
 }
 .dockWrapSheet{z-index:40}
+.dockSheetPortal{position:fixed;inset:0;z-index:99999;background:linear-gradient(180deg, rgba(5,8,18,.98), rgba(4,7,16,.98));}
 .dockSheetBackdrop{
   position:fixed;
   inset:0;
-  z-index:79;
-  background:rgba(3,6,16,.52);
-  backdrop-filter:blur(8px);
+  z-index:99998;
+  background:rgba(3,6,16,.18);
+  backdrop-filter:blur(2px);
 }
 .dockPanelSheet{
   position:fixed !important;
-  left:max(10px, env(safe-area-inset-left));
-  right:max(10px, env(safe-area-inset-right));
-  bottom:max(108px, calc(env(safe-area-inset-bottom) + var(--app-bottombar-h, 64px) + 44px));
-  top:auto !important;
-  z-index:80;
+  inset:max(8px, calc(env(safe-area-inset-top) + 8px)) max(8px, env(safe-area-inset-right)) max(8px, calc(env(safe-area-inset-bottom) + 8px)) max(8px, env(safe-area-inset-left));
+  z-index:100000;
   margin-top:0 !important;
-  max-height:min(62dvh, 620px) !important;
-  border-radius:24px 24px 20px 20px;
-  box-shadow:0 28px 80px rgba(0,0,0,.42);
+  max-height:none !important;
+  min-height:0;
+  border-radius:28px;
+  box-shadow:0 32px 96px rgba(0,0,0,.48);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden !important;
+  background:linear-gradient(180deg, rgba(8,12,24,.995), rgba(7,11,22,.985));
 }
 .dockSheetHead{
   position:sticky;
   top:0;
-  z-index:2;
+  z-index:4;
   display:grid;
   grid-template-columns:1fr auto;
   gap:10px;
   align-items:center;
-  padding:10px 12px 12px;
-  margin:-2px -2px 12px;
+  padding:12px 14px;
+  margin:0 0 12px;
   border-bottom:1px solid color-mix(in oklab, var(--border) 74%, transparent);
-  background:linear-gradient(180deg, rgba(9,13,26,.96), rgba(9,13,26,.9));
+  background:linear-gradient(180deg, rgba(9,13,26,.98), rgba(9,13,26,.94));
   backdrop-filter:blur(14px);
-  border-radius:24px 24px 0 0;
 }
 .dockSheetGrab{
   grid-column:1 / -1;
@@ -5519,21 +5405,22 @@ onBeforeUnmount(() => {
   font-weight:800;
 }
 .timelineRecentShare:hover{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.08)}
- .shareSheetOverlay{position:fixed;inset:0;z-index:130;display:grid;place-items:end center;padding:18px;background:rgba(3,6,16,.58);backdrop-filter:blur(10px)}
-.shareSheetCard{width:min(560px,100%);padding:18px;border-radius:24px 24px 18px 18px;display:grid;gap:12px;background:linear-gradient(180deg, rgba(17,22,40,.98), rgba(11,16,30,.98));border:1px solid rgba(255,255,255,.12);box-shadow:0 24px 80px rgba(0,0,0,.42)}
-.shareSheetEyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:rgba(255,255,255,.56)}
-.shareSheetTitle{font-size:20px;font-weight:950;line-height:1.2}
-.shareSheetBody{display:grid;gap:10px;padding:12px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)}
-.shareSheetMetaTitle{font-size:15px;font-weight:900;color:rgba(255,255,255,.96)}
-.shareSheetMetaSub{font-size:13px;color:rgba(255,255,255,.72)}
-.shareSheetChips{display:flex;gap:6px;flex-wrap:wrap}
-.shareSheetChip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);font-size:11px;font-weight:800;color:rgba(255,255,255,.82)}
-.shareSheetPreview{white-space:pre-wrap;line-height:1.55;font-size:13px;color:rgba(255,255,255,.9)}
-.shareSheetActions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-.dockCard--sheet{padding-top:12px}
-.dockCardQuickActions--mobile{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:4px 0 12px;position:sticky;top:0;z-index:3;padding:10px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(18,25,48,.99), rgba(12,18,34,.97));box-shadow:0 12px 24px rgba(0,0,0,.18)}
-.dockShareBtn--mobileInline{width:100%;min-height:40px;padding:0 12px;border-radius:12px;border:1px dashed rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;font-weight:900}
-.dockShareBtn--mobileInline:hover{background:rgba(255,255,255,.08)}
+.dockPanelSheet .dockGrid{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  padding:0 12px calc(156px + env(safe-area-inset-bottom));
+}
+.dockPanelSheet .dockFilterBar{
+  position:sticky;
+  top:0;
+  z-index:3;
+  padding:4px 0 12px;
+  background:linear-gradient(180deg, rgba(8,12,24,1), rgba(8,12,24,.96) 72%, rgba(8,12,24,0));
+}
+.dockPanelSheet .dockEmpty{margin:12px 0 0}
 @media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
 @media (max-width:720px){
   .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
@@ -5545,45 +5432,31 @@ onBeforeUnmount(() => {
   .dockSpacer{display:none}
   .dockMore{grid-column:1 / -1;width:100%}
   .dockPanel{max-height:min(24dvh,176px)!important}
-  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineHeroStats,
-  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineScanStrip,
-  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineFocusRow,
-  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineRecent,
-  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineReminderCard,
-  .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineHeroNext{display:none}
-  .dockPanelSheet{left:8px;right:8px;bottom:max(116px, calc(env(safe-area-inset-bottom) + var(--app-bottombar-h, 64px) + 44px));max-height:min(70dvh, 760px)!important;padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+  .dockSheetBackdrop{display:none;}
+  .dockPanelSheet{
+    inset:0 !important;
+    max-height:none !important;
+    min-height:100dvh;
+    border-radius:0;
+    box-shadow:none;
+    padding-bottom:0;
+  }
+  .dockSheetHead{
+    padding:calc(10px + env(safe-area-inset-top)) 14px 12px;
+    border-radius:0;
+    background:linear-gradient(180deg, rgba(6,10,20,1), rgba(6,10,20,.96));
+  }
+  .dockTimelineHero, .timelineRecent{display:none !important;}
+  .dockPanelSheet .dockGrid{padding:0 12px calc(168px + env(safe-area-inset-bottom));}
+  .dockPanelSheet .dockFilterBar{top:0;padding-bottom:12px;}
+  .dockCard{scroll-margin-top:92px;}
+  .dockCardActions{position:sticky;bottom:0;z-index:2;padding-top:12px;background:linear-gradient(180deg, rgba(8,12,24,0), rgba(8,12,24,.94) 26%, rgba(8,12,24,1));margin-top:12px;}
+  .dockCardActionsRow{grid-template-columns:1fr 1fr !important;gap:10px;}
+  .dockCardShare{margin-top:10px;height:42px;}
   .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
-  .shareSheetOverlay{padding:12px}
-  .shareSheetCard{padding:16px;border-radius:22px 22px 18px 18px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
-  .shareSheetActions{display:grid;grid-template-columns:1fr;gap:8px}
-  .dockHeroCompactStats{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
-  .dockHeroReminderInline{align-items:flex-start;padding:10px 12px;border-radius:14px;}
-  .dockCardQuickActions{position:sticky;bottom:0;z-index:2;padding-top:8px;background:linear-gradient(180deg, rgba(11,16,30,0), rgba(11,16,30,.86) 28%, rgba(11,16,30,.98));}
-  .dockTimelineHeroCompact{padding:12px;gap:10px;}
-  .dockHeroCompactHead{align-items:center;gap:10px;}
-  .dockHeroCompactHead .timelineHeroTitle{font-size:15px;line-height:1.32;}
-  .dockHeroCompactStats strong{font-size:24px;}
-  .dockHeroCompactStat{padding:10px 8px;border-radius:14px;}
-  .dockCard--sheet{padding:12px;border-radius:18px;}
-  .dockCardMeta{gap:6px;row-gap:4px;flex-wrap:wrap;}
-  .dockCardSummary{padding:12px;border-radius:14px;}
-  .dockCardTimelineCompact .dockCardTimelineItem:nth-child(n+3){display:none;}
-}
-@media (max-width:520px){
-  .dockPanelSheet{left:6px;right:6px;bottom:max(118px, calc(env(safe-area-inset-bottom) + var(--app-bottombar-h, 64px) + 46px));max-height:min(72dvh, 820px)!important;}
-  .dockTimelineHeroCompact{padding:10px;gap:8px;}
-  .dockHeroCompactHead .timelineHeroEyebrow{font-size:10px;}
-  .dockHeroCompactHead .timelineHeroTitle{font-size:14px;}
-  .dockHeroCompactStats{grid-template-columns:repeat(3,minmax(0,1fr));}
-  .dockHeroCompactStat span{font-size:11px;line-height:1.25;}
-  .dockHeroCompactStat strong{font-size:22px;}
-  .dockCardQuickActions--mobile{grid-template-columns:repeat(2,minmax(0,1fr));padding:8px;border-radius:14px;}
-  .dockMiniBtn,.dockShareBtn--mobileInline{min-height:38px;font-size:13px;padding:0 10px;}
-  .dockCardTimelineHead{font-size:12px;}
 }
 </style>
-
 
 
 

@@ -1,7 +1,13 @@
 import api from "../lib/api";
 
-export async function createCapsule(payload) {
-  const res = await api.post("/api/capsules", payload);
+export async function createCapsule(payload = {}) {
+  const params = {};
+  if (payload.messageId !== undefined && payload.messageId !== null && payload.messageId !== "") params.messageId = payload.messageId;
+  if (payload.conversationId !== undefined && payload.conversationId !== null && payload.conversationId !== "") params.conversationId = payload.conversationId;
+  if (payload.title !== undefined && payload.title !== null) params.title = payload.title;
+  if (payload.unlockAt !== undefined && payload.unlockAt !== null && payload.unlockAt !== "") params.unlockAt = payload.unlockAt;
+  if (payload.userId !== undefined && payload.userId !== null && payload.userId !== "") params.userId = payload.userId;
+  const res = await api.post("/api/capsules", null, { params });
   return res.data;
 }
 
