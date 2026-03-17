@@ -6,7 +6,8 @@
         class="modalBackdrop"
         @click.self="handleBackdrop"
     >
-      <div class="modal rl-cardish" role="dialog" aria-modal="true">
+      <div class="modal rl-cardish" :class="{ 'modal--sheet': isMobileSheet }" role="dialog" aria-modal="true">
+        <div v-if="isMobileSheet" class="mGrab" aria-hidden="true"></div>
         <div class="mTitle" v-if="title">{{ title }}</div>
         <div class="mSub" v-if="subtitle">{{ subtitle }}</div>
 
@@ -23,7 +24,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -38,6 +39,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["close"]);
+const viewportWidth = ref(typeof window !== "undefined" ? window.innerWidth : 1024);
+const isMobileSheet = computed(() => viewportWidth.value <= 720);
 
 function tryClose() {
   if (props.blockClose) return;
@@ -57,8 +60,18 @@ function onKeydown(e) {
   }
 }
 
-onMounted(() => window.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+function onResize() {
+  viewportWidth.value = typeof window !== "undefined" ? window.innerWidth : 1024;
+}
+onMounted(() => {
+  window.addEventListener("keydown", onKeydown);
+  window.addEventListener("resize", onResize);
+  onResize();
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("resize", onResize);
+});
 </script>
 
 <style scoped>
@@ -84,9 +97,46 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   max-width: 420px;
   border-radius: var(--r-lg);
   padding: 16px;
+  max-height: min(86dvh, 720px);
+  overflow: auto;
+}
+.mGrab{
+  width: 54px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  margin: 0 auto 10px;
 }
 .mTitle{font-weight:950;font-size:16px}
-.mSub{margin-top:6px;color:var(--muted);font-size:12px}
+.mSub{margin-top:6px;color:var(--muted);font-size:12px;line-height:1.45}
 .mBody{margin-top:12px}
 .mActions{display:flex;gap:8px;margin-top:12px}
+@media (max-width: 720px){
+  .modalBackdrop{
+    place-items:end center;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(0,0,0,.62);
+    backdrop-filter: blur(8px);
+  }
+  .modal{
+    max-width: 100%;
+    border-radius: 24px 24px 18px 18px;
+    padding: 14px;
+    max-height: min(82dvh, 780px);
+    overflow: auto;
+    box-shadow: 0 24px 80px rgba(0,0,0,.38);
+  }
+  .modal--sheet{
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .mActions{
+    position: sticky;
+    bottom: calc(-14px - env(safe-area-inset-bottom));
+    margin: 14px -14px calc(-14px - env(safe-area-inset-bottom));
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(11,16,30,0), rgba(11,16,30,.88) 28%, rgba(11,16,30,.98));
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
 </style>

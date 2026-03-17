@@ -5436,11 +5436,11 @@ onBeforeUnmount(() => {
   position:fixed !important;
   left:max(10px, env(safe-area-inset-left));
   right:max(10px, env(safe-area-inset-right));
-  bottom:max(10px, calc(env(safe-area-inset-bottom) + 8px));
+  bottom:max(108px, calc(env(safe-area-inset-bottom) + var(--app-bottombar-h, 64px) + 44px));
   top:auto !important;
   z-index:80;
   margin-top:0 !important;
-  max-height:min(68dvh, 640px) !important;
+  max-height:min(62dvh, 620px) !important;
   border-radius:24px 24px 20px 20px;
   box-shadow:0 28px 80px rgba(0,0,0,.42);
 }
@@ -5531,7 +5531,7 @@ onBeforeUnmount(() => {
 .shareSheetPreview{white-space:pre-wrap;line-height:1.55;font-size:13px;color:rgba(255,255,255,.9)}
 .shareSheetActions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .dockCard--sheet{padding-top:12px}
-.dockCardQuickActions--mobile{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0 12px;position:sticky;top:0;z-index:2;padding:10px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(18,25,48,.98), rgba(12,18,34,.96));box-shadow:0 12px 24px rgba(0,0,0,.18)}
+.dockCardQuickActions--mobile{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:4px 0 12px;position:sticky;top:0;z-index:3;padding:10px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(18,25,48,.99), rgba(12,18,34,.97));box-shadow:0 12px 24px rgba(0,0,0,.18)}
 .dockShareBtn--mobileInline{width:100%;min-height:40px;padding:0 12px;border-radius:12px;border:1px dashed rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#fff;font-weight:900}
 .dockShareBtn--mobileInline:hover{background:rgba(255,255,255,.08)}
 @media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
@@ -5551,7 +5551,7 @@ onBeforeUnmount(() => {
   .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineRecent,
   .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineReminderCard,
   .dockTimelineHero:not(.dockTimelineHeroCompact) .timelineHeroNext{display:none}
-  .dockPanelSheet{left:8px;right:8px;bottom:max(8px, calc(env(safe-area-inset-bottom) + 6px));max-height:min(82dvh, 760px)!important;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+  .dockPanelSheet{left:8px;right:8px;bottom:max(116px, calc(env(safe-area-inset-bottom) + var(--app-bottombar-h, 64px) + 44px));max-height:min(70dvh, 760px)!important;padding-bottom:calc(22px + env(safe-area-inset-bottom))}
   .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
   .shareSheetOverlay{padding:12px}
@@ -5571,7 +5571,7 @@ onBeforeUnmount(() => {
   .dockCardTimelineCompact .dockCardTimelineItem:nth-child(n+3){display:none;}
 }
 @media (max-width:520px){
-  .dockPanelSheet{left:6px;right:6px;bottom:max(6px, calc(env(safe-area-inset-bottom) + 4px));max-height:min(86dvh, 820px)!important;}
+  .dockPanelSheet{left:6px;right:6px;bottom:max(118px, calc(env(safe-area-inset-bottom) + var(--app-bottombar-h, 64px) + 46px));max-height:min(72dvh, 820px)!important;}
   .dockTimelineHeroCompact{padding:10px;gap:8px;}
   .dockHeroCompactHead .timelineHeroEyebrow{font-size:10px;}
   .dockHeroCompactHead .timelineHeroTitle{font-size:14px;}
@@ -5583,6 +5583,7 @@ onBeforeUnmount(() => {
   .dockCardTimelineHead{font-size:12px;}
 }
 </style>
+
 
 
 
