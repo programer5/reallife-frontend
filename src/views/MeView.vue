@@ -304,7 +304,7 @@
           </span>
         </button>
 
-        <button class="settingItem" type="button" @click="settings.togglePinRemindSound()">
+        <button class="settingItem" type="button" @click="toggleSound">
           <div class="settingText">
             <strong>사운드</strong>
             <span>바로 확인이 필요할 때 소리로 존재감을 줘요.</span>
@@ -314,7 +314,7 @@
           </span>
         </button>
 
-        <button class="settingItem" type="button" @click="settings.togglePinRemindVibrate()">
+        <button class="settingItem" type="button" @click="toggleVibrate">
           <div class="settingText">
             <strong>진동</strong>
             <span>지원되는 기기에서 더 촉각적으로 알려줘요.</span>
@@ -483,6 +483,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useToastStore } from "@/stores/toast";
 import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
+import { fetchReminderSettings, updateReminderSettings } from "@/api/reminderSettings";
 import { uploadImages } from "@/api/files";
 import { fetchMe, updateProfile } from "@/api/me";
 import { fetchUserProfileByHandle } from "@/api/users";
@@ -687,6 +688,44 @@ const priorityBadge = computed(() => {
   return "READY";
 });
 
+const reminderSettingsLoading = ref(false);
+
+async function syncReminderSettingsFromServer() {
+  reminderSettingsLoading.value = true;
+  try {
+    const res = await fetchReminderSettings();
+    settings.applyReminderSettings?.(res);
+  } catch (e) {
+    console.warn("Failed to sync reminder settings", e);
+  } finally {
+    reminderSettingsLoading.value = false;
+  }
+}
+
+async function saveReminderSettings(partial = {}) {
+  try {
+    const res = await updateReminderSettings({
+      pinRemindBrowserNotify: settings.pinRemindBrowserNotify,
+      pinRemindSound: settings.pinRemindSound,
+      pinRemindVibrate: settings.pinRemindVibrate,
+      ...partial,
+    });
+    settings.applyReminderSettings?.(res);
+  } catch (e) {
+    toast.error("Reminder 설정 저장 실패", e?.response?.data?.message || "잠시 후 다시 시도해 주세요.");
+  }
+}
+
+async function toggleSound() {
+  settings.togglePinRemindSound();
+  await saveReminderSettings();
+}
+
+async function toggleVibrate() {
+  settings.togglePinRemindVibrate();
+  await saveReminderSettings();
+}
+
 function websiteUrl(v) {
   const s = String(v || "").trim();
   if (!s) return "";
@@ -698,6 +737,7 @@ async function toggleBrowserNotify() {
     try {
       const perm = await Notification.requestPermission();
       settings.setPinRemindBrowserNotify(perm === "granted");
+      await saveReminderSettings();
       if (perm !== "granted") {
         toast.info("알림 권한 필요", "브라우저 알림을 켜려면 알림 권한이 필요해요.");
       }
@@ -711,6 +751,7 @@ async function toggleBrowserNotify() {
   }
 
   settings.togglePinRemindBrowserNotify();
+  await saveReminderSettings();
 }
 
 async function focusProfileEditor() {
@@ -736,6 +777,7 @@ async function refreshAll() {
     form.website = publicProfile.value?.website || "";
     avatarUrl.value = publicProfile.value?.profileImageUrl || "";
     avatarFileId.value = undefined;
+    await syncReminderSettingsFromServer();
   } catch (e) {
     toast.error("불러오기 실패", e?.response?.data?.message || "내 프로필을 불러오지 못했어요.");
   } finally {

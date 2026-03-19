@@ -33,7 +33,7 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
 import { updateMessage } from "@/api/messages";
 import { uploadFiles } from "@/api/files";
-import { createCapsule, fetchConversationCapsules } from "@/api/capsules";
+import { createCapsule, fetchConversationCapsules, deleteCapsule } from "@/api/capsules";
 import sse from "@/lib/sse";
 
 const route = useRoute();
@@ -5427,11 +5427,19 @@ onBeforeUnmount(() => {
   .topbar,.dockWrap,.composerWrap,.capsulePanel,.thread{max-width:none}
   .topbar{grid-template-columns:auto 1fr;gap:8px;padding-left:12px;padding-right:12px}
   .right{grid-column:1 / -1;justify-content:flex-start}
-  .dockBar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .dockBarSheet{grid-template-columns:1fr 1fr;gap:8px}
+  .dockBar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center}
+  .dockBarSheet{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center}
+
+  .dockWrap{top:44px;padding:4px 8px 0;}
+  .dockBar{min-height:38px;padding:0;}
+  .dockTab{min-height:38px;padding:0 10px;border-radius:12px;font-size:13px;}
+  .dockCount{min-width:18px;height:18px;font-size:11px;}
+  .dockMore{border-radius:12px;font-size:12px;}
+  .dockFilterBar{display:flex;gap:6px;padding:2px 0 8px;overflow-x:auto;grid-template-columns:none;}
+  .dockPill{flex:0 0 auto;min-height:34px;padding:0 12px;border-radius:999px;font-size:12px;}
   .dockSpacer{display:none}
-  .dockMore{grid-column:1 / -1;width:100%}
-  .dockPanel{max-height:min(24dvh,176px)!important}
+  .dockMore{grid-column:auto;width:auto;min-height:36px;justify-self:end;padding-inline:12px}
+  .dockPanel{max-height:min(18dvh,132px)!important}
   .dockSheetBackdrop{display:none;}
   .dockPanelSheet{
     inset:0 !important;
@@ -5447,7 +5455,7 @@ onBeforeUnmount(() => {
     background:linear-gradient(180deg, rgba(6,10,20,1), rgba(6,10,20,.96));
   }
   .dockTimelineHero, .timelineRecent{display:none !important;}
-  .dockPanelSheet .dockGrid{padding:0 12px calc(168px + env(safe-area-inset-bottom));}
+  .dockPanelSheet .dockGrid{padding:0 12px calc(156px + env(safe-area-inset-bottom));}
   .dockPanelSheet .dockFilterBar{top:0;padding-bottom:12px;}
   .dockCard{scroll-margin-top:92px;}
   .dockCardActions{position:sticky;bottom:0;z-index:2;padding-top:12px;background:linear-gradient(180deg, rgba(8,12,24,0), rgba(8,12,24,.94) 26%, rgba(8,12,24,1));margin-top:12px;}

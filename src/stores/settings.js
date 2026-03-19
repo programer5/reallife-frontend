@@ -36,5 +36,16 @@ export const useSettingsStore = defineStore("settings", {
         togglePinRemindBrowserNotify() { // ✅ NEW
             this.setPinRemindBrowserNotify(!this.pinRemindBrowserNotify);
         },
+        applyReminderSettings(source = {}) {
+            if (Object.prototype.hasOwnProperty.call(source, "pinRemindSound")) {
+                this.setPinRemindSound(!!source.pinRemindSound);
+            }
+            if (Object.prototype.hasOwnProperty.call(source, "pinRemindVibrate")) {
+                this.setPinRemindVibrate(!!source.pinRemindVibrate);
+            }
+            if (Object.prototype.hasOwnProperty.call(source, "pinRemindBrowserNotify")) {
+                this.setPinRemindBrowserNotify(!!source.pinRemindBrowserNotify);
+            }
+        },
     },
 });
