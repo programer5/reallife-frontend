@@ -1,22 +1,20 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { useSettingsStore } from "@/stores/settings";
 import { fetchTodayWidget, fetchReminderSummary } from "../../api/home";
 
 const router = useRouter();
-const settings = useSettingsStore();
 
 const loading = ref(false);
 const reminderLoading = ref(false);
 const actions = ref([]);
 const summary = ref({ total: 0, upcoming: 0, done: 0 });
-const reminder = ref({ summary: { unreadCount: 0, unreadReminderCount: 0, todayReminderCount: 0 }, settings: { browserNotifyEnabled: false, settingsSource: 'CLIENT_SYNC' }, lead: null });
+const reminder = ref({ summary: { unreadCount: 0, unreadReminderCount: 0, todayReminderCount: 0 }, settings: { browserNotifyEnabled: false, soundEnabled: false, vibrateEnabled: false, settingsSource: 'SERVER' }, lead: null });
 const permission = ref(typeof Notification === "undefined" ? "unsupported" : (Notification.permission || "default"));
 
 const todayCards = computed(() => [...actions.value].slice(0, 6));
 const nextAction = computed(() => todayCards.value[0] || null);
-const hasBrowserToggleOn = computed(() => !!(reminder.value?.settings?.browserNotifyEnabled ?? settings.pinRemindBrowserNotify));
+const hasBrowserToggleOn = computed(() => !!(reminder.value?.settings?.browserNotifyEnabled));
 const permissionTone = computed(() => {
   if (permission.value === "granted" && hasBrowserToggleOn.value) return "ok";
   if (permission.value === "denied") return "danger";
@@ -31,12 +29,12 @@ const permissionLabel = computed(() => {
 });
 const reminderSettingLabel = computed(() => hasBrowserToggleOn.value ? "Me 리마인더 ON" : "Me 리마인더 OFF");
 const reminderSettingsSourceLabel = computed(() => {
-  const source = String(reminder.value?.settings?.settingsSource || 'CLIENT_SYNC').toUpperCase();
-  return source === 'CLIENT_SYNC' ? 'Me 설정 기준' : '동기화 상태';
+  const source = String(reminder.value?.settings?.settingsSource || 'SERVER').toUpperCase();
+  return source === 'SERVER' ? '서버 설정 기준' : '동기화 상태';
 });
 const reminderStateSummary = computed(() => {
   if (permission.value === "granted" && hasBrowserToggleOn.value) return "브라우저 권한과 Me 리마인더 설정이 모두 켜져 있어요.";
-  if (permission.value === "granted" && !hasBrowserToggleOn.value) return "브라우저 권한은 허용됐지만 Me 화면에서 브라우저 알림이 꺼져 있어요.";
+  if (permission.value === "granted" && !hasBrowserToggleOn.value) return "브라우저 권한은 허용됐지만 서버에 저장된 Me 리마인더 설정에서 브라우저 알림이 꺼져 있어요.";
   if (permission.value === "default") return "브라우저 권한을 아직 묻지 않았어요. Me 설정과 함께 켜두면 좋아요.";
   if (permission.value === "denied") return "브라우저가 알림을 차단하고 있어요. 브라우저 설정에서 허용이 필요해요.";
   return "이 환경에서는 브라우저 알림이 지원되지 않아요.";
@@ -48,7 +46,7 @@ const reminderLeadCaption = computed(() => {
   return `${reminderTypeLabel(lead.type)} · ${fmtDateTime(lead.createdAt)}`;
 });
 const reminderHint = computed(() => {
-  if (permission.value === "granted" && !hasBrowserToggleOn.value) return "브라우저 자체는 허용됐지만, Me > Reminder 설정에서 브라우저 알림이 꺼져 있어 홈에서는 OFF로 안내해요.";
+  if (permission.value === "granted" && !hasBrowserToggleOn.value) return "브라우저 자체는 허용됐지만 서버에 저장된 Me > Reminder 설정이 OFF라서 홈에서도 OFF로 안내해요.";
   if (permission.value === "denied") return "브라우저 설정에서 알림을 허용하면 캡슐 열림과 리마인더를 더 빨리 확인할 수 있어요.";
   if (permission.value === "default") return "브라우저 알림을 켜 두면 약속, 할일, 캡슐 열림 시점을 홈에서 더 빨리 확인할 수 있어요.";
   return "오늘 예정 액션과 알림 상태를 함께 보고 바로 대화로 이어가세요.";
@@ -156,17 +154,23 @@ async function loadToday() {
 async function loadReminder() {
   reminderLoading.value = true;
   try {
-    const res = await fetchReminderSummary({ browserNotifyEnabled: settings.pinRemindBrowserNotify });
+    const res = await fetchReminderSummary();
     reminder.value = {
       summary: {
         unreadCount: Number(res?.summary?.unreadCount || 0),
         unreadReminderCount: Number(res?.summary?.unreadReminderCount || 0),
         todayReminderCount: Number(res?.summary?.todayReminderCount || 0),
       },
+      settings: {
+        browserNotifyEnabled: !!(res?.settings?.browserNotifyEnabled),
+        soundEnabled: !!(res?.settings?.soundEnabled),
+        vibrateEnabled: !!(res?.settings?.vibrateEnabled),
+        settingsSource: String(res?.settings?.settingsSource || 'SERVER'),
+      },
       lead: res?.lead || null,
     };
   } catch {
-    reminder.value = { summary: { unreadCount: 0, unreadReminderCount: 0, todayReminderCount: 0 }, lead: null };
+    reminder.value = { summary: { unreadCount: 0, unreadReminderCount: 0, todayReminderCount: 0 }, settings: { browserNotifyEnabled: false, soundEnabled: false, vibrateEnabled: false, settingsSource: 'SERVER' }, lead: null };
   } finally {
     reminderLoading.value = false;
   }
@@ -254,6 +258,14 @@ onMounted(async () => {
           <div class="reminderStateRow">
             <span class="reminderStateKey">Me 설정</span>
             <span class="reminderStateValue">{{ reminderSettingLabel }}</span>
+          </div>
+          <div class="reminderStateRow">
+            <span class="reminderStateKey">사운드</span>
+            <span class="reminderStateValue">{{ reminder.value?.settings?.soundEnabled ? 'ON' : 'OFF' }}</span>
+          </div>
+          <div class="reminderStateRow">
+            <span class="reminderStateKey">진동</span>
+            <span class="reminderStateValue">{{ reminder.value?.settings?.vibrateEnabled ? 'ON' : 'OFF' }}</span>
           </div>
           <div class="reminderStateHint">{{ reminderStateSummary }}</div>
         </div>

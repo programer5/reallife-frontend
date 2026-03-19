@@ -1,3 +1,4 @@
+
 import api from "../lib/api";
 
 export async function fetchTodayWidget() {
@@ -5,12 +6,11 @@ export async function fetchTodayWidget() {
   return res.data || { summary: { total: 0, upcoming: 0, done: 0 }, items: [] };
 }
 
-export async function fetchReminderSummary(params = {}) {
-  const res = await api.get("/api/home/reminder-summary", { params });
+export async function fetchReminderSummary() {
+  const res = await api.get("/api/home/reminder-summary");
   return res.data || {
     summary: { unreadCount: 0, unreadReminderCount: 0, todayReminderCount: 0 },
-    settings: { browserNotifyEnabled: false, settingsSource: "CLIENT_SYNC" },
+    settings: { browserNotifyEnabled: false, soundEnabled: false, vibrateEnabled: false, settingsSource: "SERVER" },
     lead: null,
   };
 }
-
