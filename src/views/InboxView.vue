@@ -67,6 +67,27 @@ const inboxSummaryPills = computed(() => {
 const todayPriorityTitle = computed(() => priorityItems.value[0] ? `${formatType(priorityItems.value[0].type)} 알림부터 보는 게 가장 좋아요` : 'Inbox는 다음 행동으로 이어질 흐름을 가장 먼저 정리하는 공간이에요');
 const todayPriorityBody = computed(() => priorityItems.value[0] ? (priorityItems.value[0].actionHint || '원본 흐름을 확인하고 다음 행동으로 이어가세요.') : '새 알림이 많지 않아도 Inbox는 댓글, 메시지, 리마인더를 실제 행동으로 묶어 주는 허브예요.');
 
+const filterEmptyTitle = computed(() => {
+  switch (inboxFilter.value) {
+    case 'REMINDER': return '리마인더 알림이 아직 없어요';
+    case 'MESSAGE': return '새 메시지 알림이 아직 없어요';
+    case 'COMMENT': return '새 댓글 알림이 아직 없어요';
+    case 'REACTION': return '새 반응 알림이 아직 없어요';
+    case 'ACTION': return '액션 변경 알림이 아직 없어요';
+    default: return '지금 바로 볼 우선 알림이 없어요';
+  }
+});
+const filterEmptyBody = computed(() => {
+  switch (inboxFilter.value) {
+    case 'REMINDER': return '약속이나 할 일의 리마인더가 생기면 이곳에서 가장 먼저 보이게 정리돼요.';
+    case 'MESSAGE': return '새 대화나 답장 흐름이 생기면 여기에서 바로 확인할 수 있어요.';
+    case 'COMMENT': return '게시글에 새 댓글이 달리면 원본 게시글로 바로 이어갈 수 있어요.';
+    case 'REACTION': return '좋아요나 팔로우 같은 반응이 생기면 이곳에 모여 보여요.';
+    case 'ACTION': return '액션 생성/수정/완료/취소 흐름이 있으면 여기에서 바로 확인할 수 있어요.';
+    default: return '지금은 우선순위가 높은 알림이 없어요. 다른 필터로 최근 흐름을 확인해 보세요.';
+  }
+});
+
 function categoryOf(n) { return String(n?.category || '').toUpperCase() || fallbackCategory(n?.type); }
 function fallbackCategory(type) {
   const t = String(type || '').toUpperCase();
@@ -190,7 +211,14 @@ onBeforeUnmount(() => { if (io) io.disconnect(); });
       </div>
 
       <div class="filterRail"><button v-for="chip in filterChips" :key="chip.key" class="filterChip" :class="{ on: inboxFilter === chip.key }" type="button" @click="switchInboxFilter(chip.key)">{{ chip.label }}</button></div>
-      <div v-if="filteredItems.length === 0" class="filteredEmpty rl-cardish">선택한 필터에 맞는 알림이 아직 없어요. 다른 필터로 바꾸면 다른 흐름을 확인할 수 있어요.</div>
+      <div v-if="filteredItems.length === 0" class="filteredEmpty rl-cardish">
+        <div class="filteredEmptyTitle">{{ filterEmptyTitle }}</div>
+        <div class="filteredEmptyBody">{{ filterEmptyBody }}</div>
+        <div class="filteredEmptyActions">
+          <RlButton size="sm" variant="soft" @click="switchInboxFilter('PRIORITY')">우선 확인 보기</RlButton>
+          <RlButton size="sm" variant="soft" @click="goConversations">대화로 이동</RlButton>
+        </div>
+      </div>
       <div v-else class="list">
         <button v-for="n in filteredItems" :key="n.id" class="item rl-cardish" :class="[{ unread: !n.read }, `item--${itemPriorityTone(n)}`]" type="button" @click="openItem(n)">
           <div class="line1"><span class="typeWrap"><span class="type">{{ formatType(n.type) }}</span><span v-if="!n.read" class="newBadge">NEW</span><span class="categoryBadge">{{ categoryOf(n) }}</span></span><span class="time">{{ formatTime(n.createdAt) }}</span></div>
@@ -214,7 +242,7 @@ onBeforeUnmount(() => { if (io) io.disconnect(); });
 .hero{border-radius:24px;padding:16px;display:grid;grid-template-columns:1.15fr .85fr;gap:12px}.heroLabel{font-size:12px;font-weight:900;letter-spacing:.05em;color:color-mix(in oklab,var(--accent) 78%,white)}.heroTitle{margin-top:8px;font-size:22px;font-weight:950;line-height:1.22}.heroSub{margin-top:8px;color:var(--muted);line-height:1.55}.heroPills{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}.heroPill{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);font-size:12px;font-weight:900}.heroStats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.heroStat{padding:12px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);display:grid;gap:5px}.heroStat strong{font-size:22px;font-weight:950}.heroStat span{font-size:12px;color:var(--muted)}
 .priorityRail{border-radius:22px;padding:15px;display:grid;gap:10px}.priorityRail__head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.priorityRail__eyebrow{font-size:11px;font-weight:900;letter-spacing:.08em;color:var(--muted)}.priorityRail__title{margin-top:6px;font-size:18px;font-weight:950}.priorityRail__hint{max-width:360px;color:var(--muted);font-size:13px;line-height:1.5}.priorityRail__list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.priorityMini{padding:12px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);text-align:left;display:grid;gap:8px}.priorityMini--strong{background:linear-gradient(180deg,color-mix(in oklab,var(--accent) 10%,transparent),rgba(255,255,255,.04))}.priorityMini--warning{background:linear-gradient(180deg,color-mix(in oklab,var(--warning) 8%,transparent),rgba(255,255,255,.04))}.priorityMini__top{display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:900;color:var(--muted)}.priorityMini__body{font-size:13px;font-weight:900;line-height:1.5}.priorityMini__foot{font-size:12px;color:var(--muted);line-height:1.5}
 .summary{border-radius:20px;padding:14px 15px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center}.sumTitle{font-size:12px;color:var(--muted);font-weight:900}.sumValue{margin-top:4px;font-size:24px;font-weight:950}.sumMeta{display:flex;gap:8px;flex-wrap:wrap}.sumChip{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);font-size:12px;font-weight:900}.sumActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.listWrap{display:grid;gap:10px}.listHead{padding:2px 2px 0;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}.listTitle{font-size:18px;font-weight:950}.listSub{margin-top:4px;color:var(--muted);font-size:13px}.listGuide{font-size:12px;color:var(--muted);max-width:320px;text-align:right;line-height:1.5}.filterRail{display:flex;gap:8px;flex-wrap:wrap}.filterChip{min-height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);font-size:12px;font-weight:900}.filterChip.on{background:color-mix(in oklab,var(--accent) 18%,transparent);border-color:color-mix(in oklab,var(--accent) 35%,var(--border))}.filteredEmpty{padding:14px;border-radius:18px;color:var(--muted)}
+.listWrap{display:grid;gap:10px}.listHead{padding:2px 2px 0;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}.listTitle{font-size:18px;font-weight:950}.listSub{margin-top:4px;color:var(--muted);font-size:13px}.listGuide{font-size:12px;color:var(--muted);max-width:320px;text-align:right;line-height:1.5}.filterRail{display:flex;gap:8px;flex-wrap:wrap}.filterChip{min-height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);font-size:12px;font-weight:900}.filterChip.on{background:color-mix(in oklab,var(--accent) 18%,transparent);border-color:color-mix(in oklab,var(--accent) 35%,var(--border))}.filteredEmpty{padding:14px;border-radius:18px;color:var(--muted);display:grid;gap:8px}.filteredEmptyTitle{font-size:15px;font-weight:900;color:var(--text)}.filteredEmptyBody{font-size:13px;line-height:1.6}.filteredEmptyActions{display:flex;gap:8px;flex-wrap:wrap}
 .list{display:grid;gap:10px}.item{width:100%;text-align:left;border-radius:18px;padding:14px;cursor:pointer;transition:transform .14s ease,border-color .18s ease,background .18s ease}.item:hover{transform:translateY(-1px);border-color:color-mix(in oklab,var(--accent) 30%,var(--border))}.item.unread{border-color:color-mix(in oklab,var(--accent) 28%,var(--border));background:linear-gradient(180deg,color-mix(in oklab,var(--accent) 7%,transparent),color-mix(in oklab,var(--surface) 86%,transparent))}.item--strong{border-color:color-mix(in oklab,var(--accent) 30%,var(--border))}.item--warning{border-color:color-mix(in oklab,var(--warning) 22%,var(--border))}.line1,.line2{display:flex;align-items:center;justify-content:space-between;gap:10px}.typeWrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.type{font-size:12px;font-weight:900;color:color-mix(in oklab,var(--text) 92%,white)}.categoryBadge{height:20px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.07);font-size:11px;font-weight:900;display:inline-flex;align-items:center}.newBadge{height:20px;padding:0 8px;border-radius:999px;background:color-mix(in oklab,var(--accent) 72%,white);color:#0b1020;font-size:11px;font-weight:950;display:inline-flex;align-items:center}.time{font-size:12px;color:var(--muted)}.body{margin-top:9px;line-height:1.5;color:color-mix(in oklab,var(--text) 90%,white)}.statusBox{margin-top:11px;padding:11px 12px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);display:grid;gap:7px}.statusLine{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.statusLabel{font-size:11px;font-weight:900;letter-spacing:.06em;color:var(--muted);min-width:62px}.statusValue{font-size:12px;font-weight:900;line-height:1.45;text-align:right}.statusValue--muted{color:var(--muted);font-weight:800}.line2{margin-top:10px}.hint{font-size:12px;color:var(--muted);font-weight:800}.arrow{font-size:20px;opacity:.45}.sentinel{padding:8px 0 2px;text-align:center}.loadingMore,.end{font-size:12px;color:var(--muted)}
 @media (max-width:900px){.hero,.summary{grid-template-columns:1fr}.heroStats{grid-template-columns:1fr 1fr 1fr}.priorityRail__list{grid-template-columns:1fr 1fr}.sumActions{justify-content:flex-start}.listGuide{text-align:left;max-width:none}}
 @media (max-width:640px){.page{padding:14px 12px 96px}.title{font-size:22px}.heroTitle{font-size:20px}.heroStats,.priorityRail__list{grid-template-columns:1fr}.statusLine{grid-template-columns:1fr;display:grid}.statusValue{text-align:left}}

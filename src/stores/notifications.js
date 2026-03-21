@@ -1,6 +1,7 @@
 // src/stores/notifications.js
 import { defineStore } from "pinia";
 import { fetchNotifications } from "../api/notifications";
+import { normalizeNotificationCategory, resolvePriorityScore, shouldUseBrowserNotification } from "@/lib/notificationPriority";
 
 function normalizeNoti(payload) {
   if (!payload) return null;
@@ -18,8 +19,8 @@ function normalizeNoti(payload) {
     body: payload.body || "",
     createdAt: payload.createdAt || new Date().toISOString(),
     read: typeof payload.read === "boolean" ? payload.read : false,
-    category: payload.category || null,
-    priorityScore: Number(payload.priorityScore || 0),
+    category: normalizeNotificationCategory(payload),
+    priorityScore: resolvePriorityScore(payload),
     targetPath: payload.targetPath || null,
     targetLabel: payload.targetLabel || null,
     actionHint: payload.actionHint || "",
@@ -52,7 +53,7 @@ function countUnread(items) {
 }
 
 export const useNotificationsStore = defineStore("notifications", {
-  state: () => ({ items: [], nextCursor: null, hasNext: false, hasUnread: false, unreadCount: 0, loading: false, loadingMore: false, error: "", _refreshTimer: null, _seenIds: new Set(), }),
+  state: () => ({ items: [], nextCursor: null, hasNext: false, hasUnread: false, unreadCount: 0, loading: false, loadingMore: false, error: "", _refreshTimer: null, _seenIds: new Set(), _browserShownIds: new Set(), }),
   actions: {
     _syncUnreadMeta() { const unread = countUnread(this.items); this.unreadCount = unread; this.hasUnread = unread > 0; },
     ingestFromSse(raw) {
@@ -90,6 +91,26 @@ export const useNotificationsStore = defineStore("notifications", {
         this.items = uniqAppend(this.items, res.items).slice(0, 400); this.nextCursor = res.nextCursor; this.hasNext = res.hasNext; this._syncUnreadMeta(); if (res.hasUnread && this.unreadCount === 0) this.hasUnread = true; this._seenIds = new Set((this.items || []).slice(0, 200).map((x) => x.id));
       } catch (e) { this.error = e?.response?.data?.message || "알림을 더 불러오지 못했습니다."; }
       finally { this.loadingMore = false; }
+    },
+
+    pickBrowserCandidate(settings = {}) {
+      const items = (this.items || [])
+        .filter((item) => shouldUseBrowserNotification(item, settings))
+        .filter((item) => !this._browserShownIds.has(String(item.id)))
+        .sort((a, b) => {
+          const pb = resolvePriorityScore(b);
+          const pa = resolvePriorityScore(a);
+          if (pb !== pa) return pb - pa;
+          return String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""));
+        });
+      return items[0] || null;
+    },
+    markBrowserShown(id) {
+      if (!id) return;
+      this._browserShownIds.add(String(id));
+      if (this._browserShownIds.size > 300) {
+        this._browserShownIds = new Set([...this._browserShownIds].slice(-150));
+      }
     },
     markLocalRead(id) {
       const idx = (this.items || []).findIndex((n) => String(n.id) === String(id)); if (idx < 0 || this.items[idx]?.read) return false;

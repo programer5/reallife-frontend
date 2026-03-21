@@ -18,9 +18,11 @@ import sse from "@/lib/sse";
 
 // ✅ NEW
 import { getPin } from "@/api/pinsActions";
+import { buildBrowserNotificationPayload, shouldUseBrowserNotification } from "@/lib/notificationPriority";
 
 // ✅ 최근 처리한 notification 이벤트 중복 방지
 const processedNotificationIds = new Set();
+const processedBrowserNotificationIds = new Set();
 
 const app = createApp(App);
 const pinia = createPinia();
@@ -68,15 +70,24 @@ function fmtPin(p) {
     return `${title} · ${place} · ${when}`;
 }
 
-function showPinRemindBrowserNotification({ title, body, url }) {
+function showBrowserNotification({ title, body, url, id }) {
     try {
         if (!("Notification" in window)) return;
         if (Notification.permission !== "granted") return;
+        if (id && processedBrowserNotificationIds.has(String(id))) return;
 
         const n = new Notification(title, {
             body,
-            silent: true, // 이미 사운드/진동은 앱에서 처리하니까 알림 자체는 무음 추천
+            silent: true,
         });
+
+        if (id) {
+            processedBrowserNotificationIds.add(String(id));
+            if (processedBrowserNotificationIds.size > 300) {
+                processedBrowserNotificationIds.clear();
+                processedBrowserNotificationIds.add(String(id));
+            }
+        }
 
         n.onclick = () => {
             try {
@@ -89,6 +100,22 @@ function showPinRemindBrowserNotification({ title, body, url }) {
                 n.close?.();
             } catch {}
         };
+    } catch {}
+}
+
+function maybeShowPriorityBrowserNotification() {
+    try {
+        if (!(document.hidden || !document.hasFocus())) return;
+        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+        const candidate = noti.pickBrowserCandidate?.(settings);
+        if (!candidate || !shouldUseBrowserNotification(candidate, settings)) return;
+        const payload = buildBrowserNotificationPayload(candidate);
+        showBrowserNotification({
+            ...payload,
+            id: candidate.id,
+            url: candidate.targetPath || "/inbox",
+        });
+        noti.markBrowserShown?.(candidate.id);
     } catch {}
 }
 
@@ -122,24 +149,6 @@ async function handlePinRemindToastAndBadge(notiPayload) {
                 )}`
                 : "",
         });
-
-        // ✅ NEW: 사용자가 다른 탭/창 보고 있으면 브라우저 알림 띄우기
-        try {
-            const url = cid
-                ? `/inbox/conversations/${cid}/pins?pinId=${encodeURIComponent(pinId)}&notiId=${encodeURIComponent(
-                    notiPayload?.notificationId || ""
-                )}`
-                : "";
-
-            // 설정 ON + 권한 허용 + (현재 페이지가 숨김 상태일 때만)
-            if (settings.pinRemindBrowserNotify && (document.hidden || !document.hasFocus())) {
-                showPinRemindBrowserNotification({
-                    title: "⏰ 리마인드",
-                    body: `📌 ${fmtPin(pin)}`,
-                    url,
-                });
-            }
-        } catch {}
 
         // ✅ NEW: PIN_REMIND 진동 (모바일에서 체감 업)
         try {
@@ -213,6 +222,13 @@ sse.onEvent?.(async (evt) => {
 
         // ✅ 2) 서버와 동기화(커서/카운트 보정) - 디바운스로 묶어서 호출
         scheduleNotiRefresh(600);
+        setTimeout(() => {
+            try {
+                noti.softSync?.().finally?.(() => maybeShowPriorityBrowserNotification());
+            } catch {
+                maybeShowPriorityBrowserNotification();
+            }
+        }, 250);
 
         // ✅ 3) 타입별 후처리
         if (data?.type === "MESSAGE_RECEIVED") {

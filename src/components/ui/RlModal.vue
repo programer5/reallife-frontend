@@ -66,7 +66,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,.55);
-  z-index: 1000;
+  z-index: 100120;
   display:grid;
   place-items:center;
   padding: 14px;

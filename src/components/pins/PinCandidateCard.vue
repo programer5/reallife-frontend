@@ -274,9 +274,9 @@ watch(
         수정…
       </RlButton>
 
-      <button class="dismissLink" type="button" :disabled="busy" @click="emit('dismiss', candidate)">
+      <RlButton size="sm" variant="ghost" :disabled="busy" @click="emit('dismiss', candidate)">
         무시
-      </button>
+      </RlButton>
     </div>
 
     <RlModal

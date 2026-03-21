@@ -1285,6 +1285,9 @@ function openPinActionModal(action, pin) {
   pinModalAction.value = action;
   pinModalPin.value = pin;
   pinModalOpen.value = true;
+  if (useDockSheet.value) {
+    dockOpen.value = false;
+  }
 }
 function closePinActionModal() {
   pinModalOpen.value = false;
@@ -1445,7 +1448,11 @@ function sharePinToFeed(pin) {
       pinId: pin?.pinId || null,
       sourceMeta: feedShareMetaForPin(pin),
     }));
-    toast.success?.("피드 공유 준비", "홈에서 게시창을 열면 초안이 바로 채워져요.");
+    if (useDockSheet.value) {
+      dockOpen.value = false;
+    }
+    toast.success?.("피드 공유 준비", "홈 작성창으로 바로 이동해요.");
+    router.push({ path: "/home", query: { compose: "1" } });
   } catch {
     toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
   }
@@ -1469,6 +1476,9 @@ function openPinEdit(pin) {
   pinEditRemindMinutes.value = guessRemindMinutesFromPin(pin);
 
   pinEditOpen.value = true;
+  if (useDockSheet.value) {
+    dockOpen.value = false;
+  }
 }
 function closePinEdit() {
   if (pinEditLoading.value) return;
@@ -5455,12 +5465,11 @@ onBeforeUnmount(() => {
     background:linear-gradient(180deg, rgba(6,10,20,1), rgba(6,10,20,.96));
   }
   .dockTimelineHero, .timelineRecent{display:none !important;}
-  .dockPanelSheet .dockGrid{padding:0 12px calc(156px + env(safe-area-inset-bottom));}
-  .dockPanelSheet .dockFilterBar{top:0;padding-bottom:12px;}
-  .dockCard{scroll-margin-top:92px;}
-  .dockCardActions{position:sticky;bottom:0;z-index:2;padding-top:12px;background:linear-gradient(180deg, rgba(8,12,24,0), rgba(8,12,24,.94) 26%, rgba(8,12,24,1));margin-top:12px;}
-  .dockCardActionsRow{grid-template-columns:1fr 1fr !important;gap:10px;}
-  .dockCardShare{margin-top:10px;height:42px;}
+  .dockPanelSheet .dockGrid{padding:0 12px calc(28px + env(safe-area-inset-bottom));}
+  .dockPanelSheet .dockFilterBar{top:0;padding-bottom:10px;}
+  .dockCard{scroll-margin-top:92px;padding-bottom:12px;}
+  .dockCardActions{position:static;z-index:auto;padding-top:0;background:none;margin-top:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+  .dockShareBtn{margin-top:10px;height:42px;position:static;}
   .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
 }
