@@ -33,8 +33,9 @@ import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
 import { updateMessage } from "@/api/messages";
 import { uploadFiles } from "@/api/files";
-import { createCapsule, fetchConversationCapsules, deleteCapsule } from "@/api/capsules";
 import sse from "@/lib/sse";
+import { useConversationCapsules } from "@/lib/useConversationCapsules";
+import { useMessageContextMenu } from "@/lib/useMessageContextMenu";
 
 const route = useRoute();
 const router = useRouter();
@@ -43,12 +44,6 @@ const convStore = useConversationsStore();
 const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
-const capsuleItems = ref([]);
-const capsuleLoading = ref(false);
-const capsuleModalOpen = ref(false);
-const capsuleTitle = ref("");
-const capsuleUnlockAt = ref("");
-const capsuleSaving = ref(false);
 
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
@@ -518,6 +513,22 @@ const suggestionCount = computed(() => {
   const arr = items.value || [];
   return arr.reduce((acc, m) => acc + ((m?.pinCandidates && m.pinCandidates.length) ? m.pinCandidates.length : 0), 0);
 });
+const latestSuggestionMessage = computed(() => {
+  const arr = Array.isArray(items.value) ? items.value : [];
+  for (let i = arr.length - 1; i >= 0; i -= 1) {
+    const message = arr[i];
+    if (Array.isArray(message?.pinCandidates) && message.pinCandidates.length) return message;
+  }
+  return null;
+});
+
+const mobileComposerSummary = computed(() => {
+  if (suggestionCount.value > 0) return `제안 ${suggestionCount.value}개를 바로 확인할 수 있어요.`;
+  if (activeCount.value > 0) return `진행 중 액션 ${activeCount.value}개를 대화와 함께 관리할 수 있어요.`;
+  if (capsuleItems.value.length > 0) return `타임 캡슐 ${capsuleItems.value.length}개가 이 대화에 저장돼 있어요.`;
+  return '대화에서 바로 액션, 캡슐, 첨부를 이어갈 수 있어요.';
+});
+
 
 function openActiveDock() {
   dockAnimating.value = true;
@@ -542,6 +553,11 @@ function openSuggestionsDock(message) {
   dockOpen.value = true;
   dockSourceMsg.value = message;
   dockCandidates.value = Array.isArray(message.pinCandidates) ? message.pinCandidates : [];
+}
+
+function openLatestSuggestionsDock() {
+  if (!latestSuggestionMessage.value) return;
+  openSuggestionsDock(latestSuggestionMessage.value);
 }
 
 // hoverActions의 ✨ 버튼이 호출
@@ -693,85 +709,13 @@ function openPeerProfile() {
   if (id) return router.push(`/u/id/${id}`);
 }
 
-
-async function refreshCapsules() {
-  if (!conversationId.value) { capsuleItems.value = []; return; }
-  capsuleLoading.value = true;
-  try {
-    const res = await fetchConversationCapsules(conversationId.value);
-    capsuleItems.value = Array.isArray(res?.items) ? res.items : [];
-  } catch {
-    capsuleItems.value = [];
-  } finally {
-    capsuleLoading.value = false;
-  }
-}
+const {
+  menu,
+  closeMsgMenu,
+  openMsgMenu,
+} = useMessageContextMenu();
 
 
-async function deleteCapsuleItem(item) {
-  const id = item?.capsuleId || item?.id;
-  if (!id) return;
-  const ok = window.confirm("이 타임 캡슐을 삭제할까요? 삭제 후 복구할 수 없어요.");
-  if (!ok) return;
-  try {
-    await deleteCapsule(id);
-    await refreshCapsules();
-    toast.success?.("캡슐 삭제", "타임 캡슐을 삭제했어요.");
-  } catch (e) {
-    toast.error?.("캡슐 삭제 실패", e?.response?.data?.message || "잠시 후 다시 시도해 주세요.");
-  }
-}
-
-function relayFromCapsule(payload) {
-  try { sessionStorage.setItem("reallife:pendingAction", JSON.stringify(payload)); } catch {}
-  pendingAction.value = payload;
-  pendingActionPrimed.value = false;
-  primePendingAction(true, true);
-  bumpPendingHighlight();
-  toast.success?.("액션 릴레이 준비", "캡슐 내용을 액션 제안으로 이어가고 있어요.");
-}
-
-function openCapsuleModal() {
-  const base = String(content.value || "").trim();
-  if (!base) {
-    toast.info?.("타임 캡슐", "먼저 메시지를 입력한 뒤 ⏳ 버튼을 눌러 주세요.");
-    return;
-  }
-  const dt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  capsuleTitle.value = base.slice(0, 30) || "나중에 열 메시지";
-  capsuleUnlockAt.value = dt.toISOString().slice(0, 16);
-  capsuleModalOpen.value = true;
-}
-function closeCapsuleModal() { capsuleModalOpen.value = false; }
-async function createTimeCapsuleFromDraft() {
-  const text = String(content.value || "").trim();
-  const hasAttachments = attachedFiles.value.length > 0;
-  if (!text) return;
-  capsuleSaving.value = true;
-  try {
-    const sent = await sendMessage({
-      conversationId: conversationId.value,
-      content: text,
-      attachmentIds: [],
-      unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
-    });
-    await createCapsule({
-      messageId: sent.messageId || sent.id,
-      conversationId: conversationId.value,
-      title: capsuleTitle.value || text.slice(0, 30),
-      unlockAt: new Date(capsuleUnlockAt.value).toISOString(),
-      userId: myId.value,
-    });
-    content.value = "";
-    capsuleModalOpen.value = false;
-    await refreshCapsules();
-    toast.success?.("타임 캡슐 생성", "입력한 메시지를 나중에 열릴 캡슐로 저장했어요.");
-  } catch (e) {
-    toast.error?.("타임 캡슐 실패", e?.response?.data?.message || "타임 캡슐을 만들지 못했어요.");
-  } finally {
-    capsuleSaving.value = false;
-  }
-}
 
 function attachmentKind(file) {
   const type = String(file?.type || file?.contentType || "").toLowerCase();
@@ -814,54 +758,6 @@ const lockModalMode = ref("set"); // set | disable
 const lockPw1 = ref("");
 const lockPw2 = ref("");
 
-// ✅ Teleport 기반 메시지 메뉴 상태
-const menu = ref({
-  open: false,
-  top: 0,
-  left: 0,
-  msg: null,
-});
-
-function closeMsgMenu() {
-  menu.value.open = false;
-  menu.value.msg = null;
-}
-
-function openMsgMenu(e, m) {
-  if (!m) return;
-
-  const rect = e?.currentTarget?.getBoundingClientRect?.() || null;
-
-  const w = 140; // 팝오버 대략 폭
-  const h = 96;  // 팝오버 대략 높이(2개 메뉴)
-  const pad = 10;
-
-  let left = rect ? rect.right - w : (e?.clientX || 0);
-  let top = rect ? rect.bottom + 8 : (e?.clientY || 0);
-
-  // ✅ 화면 밖 보정
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  if (left + w + pad > vw) left = vw - w - pad;
-  if (left < pad) left = pad;
-  if (top + h + pad > vh) top = (rect ? rect.top - h - 8 : vh - h - pad);
-  if (top < pad) top = pad;
-
-  menu.value = { open: true, left, top, msg: m };
-}
-
-// ESC로 닫기
-function onKeydownForMenu(e) {
-  if (e.key === "Escape") closeMsgMenu();
-}
-
-onMounted(() => {
-  window.addEventListener("keydown", onKeydownForMenu);
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onKeydownForMenu);
-});
 
 function tokenKey() {
   return `conv_unlock_${conversationId.value}`;
@@ -1629,6 +1525,39 @@ async function quickSendPendingAction() {
   await nextTick();
   await onSend();
 }
+
+const {
+  capsuleItems,
+  capsuleLoading,
+  capsuleModalOpen,
+  capsuleTitle,
+  capsuleUnlockAt,
+  capsuleSaving,
+  refreshCapsules,
+  deleteCapsuleItem,
+  relayFromCapsule,
+  openCapsuleModal,
+  closeCapsuleModal,
+  createTimeCapsuleFromDraft,
+} = useConversationCapsules({
+  conversationId,
+  content,
+  attachedFiles,
+  attachmentUploading,
+  attachmentProgress,
+  attachmentError,
+  clearAttachments,
+  uploadFiles,
+  sendMessage,
+  lockEnabled,
+  unlocked,
+  unlockToken,
+  toast,
+  pendingAction,
+  pendingActionPrimed,
+  primePendingAction,
+  bumpPendingHighlight,
+});
 
 const flashMid = ref("");
 
@@ -3213,15 +3142,29 @@ onBeforeUnmount(() => {
       <MessageAttachmentPreview v-if="attachedFiles.length" :items="attachedFiles" removable @remove="removeAttachedFile" />
       <div v-if="attachmentUploading" class="uploadState">첨부 업로드 중… {{ attachmentProgress }}%</div>
       <div v-else-if="attachmentError" class="uploadError">{{ attachmentError }}</div>
+      <div v-if="isMobileViewport" class="composerUtilityRow">
+        <button class="composerUtilityBtn" type="button" @click="openActiveDock">
+          <span class="composerUtilityLabel">액션 허브</span>
+          <strong>{{ activeCount }}</strong>
+        </button>
+        <button class="composerUtilityBtn" type="button" :disabled="suggestionCount === 0" @click="openLatestSuggestionsDock">
+          <span class="composerUtilityLabel">제안 확인</span>
+          <strong>{{ suggestionCount }}</strong>
+        </button>
+        <button class="composerUtilityBtn" type="button" :disabled="newMsgCount === 0" @click="jumpToNewest">
+          <span class="composerUtilityLabel">최신 메시지</span>
+          <strong>{{ newMsgCount }}</strong>
+        </button>
+      </div>
       <div class="composerRow">
-        <MessageAttachmentPicker :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
-        <button class="miniBtn" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
-        <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
-        <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading">
+        <MessageAttachmentPicker class="composerAttach" :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
+        <button class="miniBtn miniBtn--capsule" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
+        <input v-model="content" class="input composerInput" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
+        <button class="btn composerSend" type="button" @click="onSend" :disabled="sending || attachmentUploading">
           {{ sending || attachmentUploading ? "..." : "전송" }}
         </button>
       </div>
-      <div class="composerHint">파일 첨부는 📎, 캡슐은 메시지를 입력한 뒤 ⏳ 버튼으로 만들 수 있어요.</div>
+      <div class="composerHint">{{ mobileComposerSummary }}</div>
     </div>
 
     <CapsuleComposerModal
@@ -5401,6 +5344,11 @@ onBeforeUnmount(() => {
 .input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent)}
 .miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
 .composerHint{font-size:11px;line-height:1.35;color:var(--muted);padding:0 4px}
+.composerUtilityRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.composerUtilityBtn{min-width:0;display:grid;gap:2px;justify-items:start;padding:10px 12px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 90%, transparent);color:var(--text);text-align:left;box-shadow:0 8px 20px rgba(0,0,0,.12)}
+.composerUtilityBtn:disabled{opacity:.5}
+.composerUtilityLabel{font-size:11px;font-weight:900;color:var(--muted)}
+.composerUtilityBtn strong{font-size:16px;line-height:1;font-weight:950;color:var(--text)}
 .uploadState,.uploadError{font-size:12px;font-weight:800}
 .uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
 .timelineRecentShare{
@@ -5470,8 +5418,20 @@ onBeforeUnmount(() => {
   .dockCard{scroll-margin-top:92px;padding-bottom:12px;}
   .dockCardActions{position:static;z-index:auto;padding-top:0;background:none;margin-top:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
   .dockShareBtn{margin-top:10px;height:42px;position:static;}
-  .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
+  .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 196px) + env(safe-area-inset-bottom) + 24px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
+  .composerUtilityRow{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .composerUtilityBtn{padding:9px 10px;border-radius:14px}
+  .composerUtilityLabel{font-size:10px}
+  .composerUtilityBtn strong{font-size:15px}
+  .composerRow{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:
+    "input input"
+    "attach capsule"
+    "send send";align-items:stretch;gap:8px;padding:10px}
+  .composerAttach{grid-area:attach}
+  .miniBtn--capsule{grid-area:capsule;width:100%;height:42px;border-radius:14px}
+  .composerInput{grid-area:input;height:48px}
+  .composerSend{grid-area:send;width:100%;min-height:44px;border-radius:14px}
 }
 </style>
 

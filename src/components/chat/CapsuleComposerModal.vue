@@ -1,17 +1,22 @@
 <!-- src/components/chat/CapsuleComposerModal.vue -->
 <script setup>
-defineProps({
+const props = defineProps({
   open: { type: Boolean, default: false },
   titleText: { type: String, default: "" },
   unlockAt: { type: String, default: "" },
   saving: { type: Boolean, default: false },
 });
+function toLocalInputValue(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+const minUnlockAt = toLocalInputValue(new Date(Date.now() + 60 * 1000));
 const emit = defineEmits(["close", "save", "update:title-text", "update:unlock-at"]);
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="overlay" @click.self="emit('close')">
+    <div v-if="props.open" class="overlay" @click.self="emit('close')">
       <div class="sheet rl-cardish">
         <div class="eyebrow">TIME CAPSULE</div>
         <div class="head">나중에 열 메시지로 저장</div>
@@ -19,18 +24,18 @@ const emit = defineEmits(["close", "save", "update:title-text", "update:unlock-a
 
         <label class="field">
           <span class="label">캡슐 제목</span>
-          <input :value="titleText" class="input" @input="emit('update:title-text', $event.target.value)" />
+          <input :value="props.titleText" maxlength="120" class="input" @input="emit('update:title-text', $event.target.value)" />
         </label>
 
         <label class="field">
           <span class="label">열릴 시간</span>
-          <input :value="unlockAt" type="datetime-local" class="input" @input="emit('update:unlock-at', $event.target.value)" />
+          <input :value="props.unlockAt" :min="minUnlockAt" type="datetime-local" class="input" @input="emit('update:unlock-at', $event.target.value)" />
         </label>
 
         <div class="actions">
-          <button class="btn ghost" type="button" :disabled="saving" @click="emit('close')">닫기</button>
-          <button class="btn primary" type="button" :disabled="saving || !unlockAt" @click="emit('save')">
-            {{ saving ? "저장 중…" : "타임 캡슐 만들기" }}
+          <button class="btn ghost" type="button" :disabled="props.saving" @click="emit('close')">닫기</button>
+          <button class="btn primary" type="button" :disabled="props.saving || !props.unlockAt" @click="emit('save')">
+            {{ props.saving ? "저장 중…" : "타임 캡슐 만들기" }}
           </button>
         </div>
       </div>
