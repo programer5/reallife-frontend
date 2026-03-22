@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { normalizeMediaItems } from "@/lib/mediaModel";
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -7,29 +8,7 @@ const props = defineProps({
 });
 const emit = defineEmits(["close"]);
 
-function detectKind(item) {
-  const explicit = String(item?.kind || item?.mediaType || "").toLowerCase();
-  if (explicit === "image" || explicit === "video") return explicit;
-  const type = String(item?.type || item?.contentType || "").toLowerCase();
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("video/")) return "video";
-  const url = String(item?.url || item?.src || item?.thumbnailUrl || "").toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/.test(url)) return "image";
-  if (/\.(mp4|webm|mov|m4v|ogg)(\?|$)/.test(url)) return "video";
-  return "image";
-}
-
-const normalizedItems = computed(() =>
-  (props.items || [])
-    .map((item, idx) => ({
-      idx,
-      kind: detectKind(item),
-      url: item?.url || item?.src || "",
-      thumbnailUrl: item?.thumbnailUrl || item?.url || item?.src || "",
-      name: item?.name || item?.originalFilename || `미디어 ${idx + 1}`,
-    }))
-    .filter((item) => !!item.url)
-);
+const normalizedItems = computed(() => normalizeMediaItems(props.items).filter((item) => !!item.url && item.kind !== "file"));
 
 const safeLen = computed(() => Math.max(1, normalizedItems.value.length || 1));
 const idx = ref(0);
@@ -106,11 +85,11 @@ onBeforeUnmount(() => {
           <a
             v-if="current?.url"
             class="btn btn--link"
-            :href="current.url"
+            :href="current.downloadUrl || current.url"
             target="_blank"
             rel="noopener noreferrer"
             @click.stop
-          >열기</a>
+          >다운로드</a>
           <button class="btn" type="button" @click="close">닫기</button>
         </div>
       </div>

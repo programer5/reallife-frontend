@@ -1,38 +1,18 @@
 <script setup>
 import { computed, ref } from "vue";
 import MediaLightbox from "@/components/media/MediaLightbox.vue";
+import { normalizeMessageAttachments } from "@/lib/mediaModel";
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
   removable: { type: Boolean, default: false },
+  mode: { type: String, default: "default" },
+  uploading: { type: Boolean, default: false },
+  uploadProgress: { type: Number, default: 0 },
 });
 const emit = defineEmits(["remove"]);
 
 const brokenThumbs = ref(new Set());
-
-function pickUrl(raw) {
-  return raw?.previewUrl || raw?.url || raw?.downloadUrl || raw?.src || "";
-}
-
-function normalizeKind(item) {
-  const kind = String(item?.kind || item?.mediaType || item?.type || "").toLowerCase();
-  const ct = String(item?.contentType || item?.type || "").toLowerCase();
-  const name = String(item?.originalName || item?.originalFilename || item?.name || "").toLowerCase();
-  const url = String(pickUrl(item)).toLowerCase();
-  if (
-    kind === "image" ||
-    ct.startsWith("image/") ||
-    /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/.test(name) ||
-    /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/.test(url)
-  ) return "image";
-  if (
-    kind === "video" ||
-    ct.startsWith("video/") ||
-    /\.(mp4|webm|mov|m4v|avi|ogg)(\?|$)/.test(name) ||
-    /\.(mp4|webm|mov|m4v|avi|ogg)(\?|$)/.test(url)
-  ) return "video";
-  return "file";
-}
 
 function prettyBytes(n) {
   const num = Number(n || 0);
@@ -46,57 +26,67 @@ function isImageLike(url = "") {
   return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(String(url));
 }
 
-const itemsNormalized = computed(() => (Array.isArray(props.items) ? props.items : []).map((raw, idx) => {
-  const src = pickUrl(raw);
-  const thumb = raw?.thumbnailUrl || raw?.thumb || "";
-  const name = raw?.originalName || raw?.originalFilename || raw?.name || `첨부 ${idx + 1}`;
-  const kind = normalizeKind(raw);
+function uploadStateLabel(state, progress) {
+  if (state === "failed") return "업로드 실패";
+  if (state === "uploaded") return "업로드 완료";
+  if (state === "uploading") return `업로드 중 ${Math.max(0, Math.min(100, Number(progress || 0)))}%`;
+  if (state === "queued") return "업로드 대기";
+  return "준비됨";
+}
+
+const itemsNormalized = computed(() => normalizeMessageAttachments(props.items).map((item, idx) => {
+  const raw = props.items?.[idx] || item.original || item;
+  const thumb = item.thumbnailUrl || "";
+  const src = item.url || item.previewUrl || item.downloadUrl || "";
   const thumbKey = String(thumb || src || `${idx}`);
-  const canRenderThumb = kind === "image"
+  const canRenderThumb = item.kind === "image"
     ? !!src
     : !!thumb && isImageLike(thumb) && !brokenThumbs.value.has(thumbKey);
+  const uploadState = String(raw?._uploadState || "").trim() || (props.uploading ? "uploading" : "ready");
+  const uploadProgress = Number(raw?._uploadProgress ?? props.uploadProgress ?? 0);
   return {
     idx,
     raw,
     src,
     thumb,
-    kind,
-    name,
+    kind: item.kind,
+    name: item.name,
     thumbKey,
     canRenderThumb,
-    sub: [prettyBytes(raw?.size), raw?.contentType || raw?.type].filter(Boolean).join(" · "),
+    sub: [prettyBytes(item.size), item.contentType].filter(Boolean).join(" · "),
+    uploadState,
+    uploadProgress,
+    stateLabel: uploadStateLabel(uploadState, uploadProgress),
   };
 }));
 
 const normalizedViewerItems = computed(() =>
-  itemsNormalized.value
-    .filter((i) => i.kind !== "file")
-    .map((i) => ({
-      kind: i.kind,
-      type: i.kind,
-      mediaType: i.kind,
-      url: i.src,
-      src: i.src,
-      thumbnailUrl: i.thumb || (i.kind === "image" ? i.src : ""),
-      contentType:
-        i.kind === "video"
-          ? (i.raw?.contentType || i.raw?.type || "video/mp4")
-          : i.kind === "image"
-            ? (i.raw?.contentType || i.raw?.type || "image/*")
-            : "",
-      name: i.name,
-    }))
-    .filter((i) => !!i.url)
+  normalizeMessageAttachments(props.items).filter((i) => i.kind !== "file" && !!(i.url || i.previewUrl || i.downloadUrl))
 );
+
+const summary = computed(() => {
+  const total = itemsNormalized.value.length;
+  const images = itemsNormalized.value.filter((item) => item.kind === "image").length;
+  const videos = itemsNormalized.value.filter((item) => item.kind === "video").length;
+  const files = total - images - videos;
+  return {
+    total,
+    text: [
+      images ? `이미지 ${images}` : "",
+      videos ? `동영상 ${videos}` : "",
+      files ? `파일 ${files}` : "",
+    ].filter(Boolean).join(" · "),
+  };
+});
 
 const viewerOpen = ref(false);
 const viewerIndex = ref(0);
 
 function openViewer(raw) {
-  const kind = normalizeKind(raw);
-  if (kind === "file") return;
-  const src = pickUrl(raw);
-  const idx = normalizedViewerItems.value.findIndex((i) => i.url === src);
+  const normalized = normalizeMessageAttachments([raw])[0];
+  if (!normalized || normalized.kind === "file") return;
+  const src = normalized.url || normalized.previewUrl || normalized.downloadUrl;
+  const idx = normalizedViewerItems.value.findIndex((i) => (i.url || i.previewUrl || i.downloadUrl) === src);
   viewerIndex.value = idx >= 0 ? idx : 0;
   viewerOpen.value = true;
 }
@@ -111,9 +101,14 @@ function markBrokenThumb(key) {
 </script>
 
 <template>
-  <div class="messageAttachmentPreview">
+  <div class="messageAttachmentPreview" :class="[`messageAttachmentPreview--${mode}`]">
+    <div v-if="mode === 'composer' && summary.total" class="previewHeader">
+      <div class="previewTitle">첨부 {{ summary.total }}개</div>
+      <div class="previewSummary">{{ summary.text }}</div>
+    </div>
+
     <div class="previewList">
-      <article v-for="item in itemsNormalized" :key="item.idx" class="previewCard">
+      <article v-for="item in itemsNormalized" :key="item.idx" class="previewCard" :data-state="item.uploadState">
         <button class="thumb" :data-kind="item.kind" type="button" @click="openViewer(item.raw)">
           <img v-if="item.kind === 'image' && item.canRenderThumb" :src="item.src" alt="" />
 
@@ -137,8 +132,12 @@ function markBrokenThumb(key) {
         </button>
 
         <div class="meta">
-          <div class="name">{{ item.name }}</div>
+          <div class="nameRow">
+            <div class="name">{{ item.name }}</div>
+            <span v-if="item.uploadState !== 'ready'" class="stateBadge" :data-state="item.uploadState">{{ item.stateLabel }}</span>
+          </div>
           <div class="sub">{{ item.sub }}</div>
+          <div v-if="item.uploadState === 'uploading'" class="stateBar"><span :style="{ width: `${item.uploadProgress}%` }"></span></div>
         </div>
 
         <div class="actionsCol">
@@ -160,8 +159,14 @@ function markBrokenThumb(key) {
 
 <style scoped>
 .messageAttachmentPreview{display:grid;gap:8px}
+.previewHeader{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px}
+.previewTitle{font-size:12px;font-weight:900;color:rgba(255,255,255,.9)}
+.previewSummary{font-size:11px;color:rgba(255,255,255,.62)}
 .previewList{display:grid;gap:8px}
 .previewCard{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
+.previewCard[data-state="uploading"]{border-color:rgba(126,182,255,.28);background:rgba(76,124,255,.08)}
+.previewCard[data-state="uploaded"]{border-color:rgba(93,215,157,.24);background:rgba(48,165,103,.08)}
+.previewCard[data-state="failed"]{border-color:rgba(255,107,129,.28);background:rgba(255,107,129,.08)}
 .thumb{width:56px;height:56px;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);display:grid;place-items:center;background:rgba(255,255,255,.04);font-size:10px;font-weight:900;padding:0;cursor:pointer}
 .thumb img,.thumb video{width:100%;height:100%;object-fit:cover;display:block}
 .thumbVideoWrap{position:relative;width:100%;height:100%;display:grid;place-items:center;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03))}
@@ -171,10 +176,18 @@ function markBrokenThumb(key) {
 .thumbVideoPlay{font-size:11px;line-height:1;margin-left:1px}
 .thumbVideoLabel{font-size:8px;font-weight:900;letter-spacing:.12em;opacity:.92}
 .playBadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:26px;height:26px;border-radius:999px;background:rgba(9,13,22,.72);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);color:#fff;font-size:11px;font-weight:900}
-.meta{min-width:0}
-.name{font-size:13px;font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sub{margin-top:4px;font-size:11px;color:rgba(255,255,255,.62)}
+.meta{min-width:0;display:grid;gap:4px}
+.nameRow{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.name{font-size:13px;font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.sub{font-size:11px;color:rgba(255,255,255,.62)}
+.stateBadge{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:900;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
+.stateBadge[data-state="uploading"]{border-color:rgba(126,182,255,.28);color:rgba(190,220,255,.94)}
+.stateBadge[data-state="uploaded"]{border-color:rgba(93,215,157,.3);color:rgba(183,245,211,.96)}
+.stateBadge[data-state="failed"]{border-color:rgba(255,107,129,.34);color:rgba(255,196,204,.96)}
+.stateBar{position:relative;height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.stateBar span{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,rgba(126,182,255,.9),rgba(93,215,157,.9))}
 .actionsCol{display:flex;align-items:center;gap:8px}
 .ghostBtn,.removeBtn,.ghostLink{height:34px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#fff;font-weight:900;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
-@media (max-width:640px){.previewCard{grid-template-columns:auto 1fr}.actionsCol{grid-column:1 / -1;justify-content:flex-end}}
+.messageAttachmentPreview--composer .previewCard{box-shadow:0 10px 24px rgba(0,0,0,.14)}
+@media (max-width:640px){.previewCard{grid-template-columns:auto 1fr}.actionsCol{grid-column:1 / -1;justify-content:flex-end}.previewHeader{padding:0 2px}.name{max-width:calc(100vw - 180px)}}
 </style>

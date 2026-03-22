@@ -11,6 +11,7 @@ import ConversationCapsulePanel from "@/components/chat/ConversationCapsulePanel
 import MessageAttachmentPicker from "@/components/chat/MessageAttachmentPicker.vue";
 import MessageAttachmentPreview from "@/components/chat/MessageAttachmentPreview.vue";
 import CapsuleComposerModal from "@/components/chat/CapsuleComposerModal.vue";
+import ConversationPendingBridge from "@/components/chat/ConversationPendingBridge.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -32,10 +33,11 @@ import { readNotification } from "@/api/notifications";
 import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
 import { updateMessage } from "@/api/messages";
-import { uploadFiles } from "@/api/files";
+import { uploadFiles, uploadFilesDetailed } from "@/api/files";
 import sse from "@/lib/sse";
 import { useConversationCapsules } from "@/lib/useConversationCapsules";
 import { useMessageContextMenu } from "@/lib/useMessageContextMenu";
+import { useConversationComposer } from "@/lib/useConversationComposer";
 
 const route = useRoute();
 const router = useRouter();
@@ -44,7 +46,6 @@ const convStore = useConversationsStore();
 const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
-
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
 
@@ -513,22 +514,6 @@ const suggestionCount = computed(() => {
   const arr = items.value || [];
   return arr.reduce((acc, m) => acc + ((m?.pinCandidates && m.pinCandidates.length) ? m.pinCandidates.length : 0), 0);
 });
-const latestSuggestionMessage = computed(() => {
-  const arr = Array.isArray(items.value) ? items.value : [];
-  for (let i = arr.length - 1; i >= 0; i -= 1) {
-    const message = arr[i];
-    if (Array.isArray(message?.pinCandidates) && message.pinCandidates.length) return message;
-  }
-  return null;
-});
-
-const mobileComposerSummary = computed(() => {
-  if (suggestionCount.value > 0) return `제안 ${suggestionCount.value}개를 바로 확인할 수 있어요.`;
-  if (activeCount.value > 0) return `진행 중 액션 ${activeCount.value}개를 대화와 함께 관리할 수 있어요.`;
-  if (capsuleItems.value.length > 0) return `타임 캡슐 ${capsuleItems.value.length}개가 이 대화에 저장돼 있어요.`;
-  return '대화에서 바로 액션, 캡슐, 첨부를 이어갈 수 있어요.';
-});
-
 
 function openActiveDock() {
   dockAnimating.value = true;
@@ -553,11 +538,6 @@ function openSuggestionsDock(message) {
   dockOpen.value = true;
   dockSourceMsg.value = message;
   dockCandidates.value = Array.isArray(message.pinCandidates) ? message.pinCandidates : [];
-}
-
-function openLatestSuggestionsDock() {
-  if (!latestSuggestionMessage.value) return;
-  openSuggestionsDock(latestSuggestionMessage.value);
 }
 
 // hoverActions의 ✨ 버튼이 호출
@@ -709,44 +689,6 @@ function openPeerProfile() {
   if (id) return router.push(`/u/id/${id}`);
 }
 
-const {
-  menu,
-  closeMsgMenu,
-  openMsgMenu,
-} = useMessageContextMenu();
-
-
-
-function attachmentKind(file) {
-  const type = String(file?.type || file?.contentType || "").toLowerCase();
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("video/")) return "video";
-  return "file";
-}
-function previewUrlFor(file) { try { return URL.createObjectURL(file); } catch { return ""; } }
-function normalizePickedFiles(fileList) {
-  return Array.from(fileList || []).map((file) => ({ file, name: file.name || "첨부파일", size: Number(file.size || 0), type: file.type || "", kind: attachmentKind(file), previewUrl: previewUrlFor(file) }));
-}
-function openAttachmentPicker() { fileInputRef.value?.click?.(); }
-function removeAttachedFile(index) {
-  const item = attachedFiles.value[index];
-  if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) { try { URL.revokeObjectURL(item.previewUrl); } catch {} }
-  attachedFiles.value.splice(index, 1);
-}
-function clearAttachments() {
-  for (const item of attachedFiles.value) {
-    if (item?.previewUrl && String(item.previewUrl).startsWith("blob:")) { try { URL.revokeObjectURL(item.previewUrl); } catch {} }
-  }
-  attachedFiles.value = [];
-  attachmentError.value = "";
-  attachmentProgress.value = 0;
-}
-function onPickFiles(e) {
-  const list = e?.target?.files;
-  if (!list || !list.length) return;
-  attachedFiles.value = [...attachedFiles.value, ...normalizePickedFiles(list)];
-  if (e?.target) e.target.value = "";
-}
 
 /** ====== DM 잠금 ====== */
 const lockEnabled = ref(false);
@@ -758,7 +700,6 @@ const lockModalMode = ref("set"); // set | disable
 const lockPw1 = ref("");
 const lockPw2 = ref("");
 
-
 function tokenKey() {
   return `conv_unlock_${conversationId.value}`;
 }
@@ -769,22 +710,32 @@ function getSavedToken() {
     return "";
   }
 }
+const unlockToken = ref("");
+function syncUnlockToken() {
+  unlockToken.value = getSavedToken();
+}
 function saveToken(token) {
+  const next = String(token || "").trim();
   try {
-    sessionStorage.setItem(tokenKey(), token);
+    sessionStorage.setItem(tokenKey(), next);
   } catch {}
+  unlockToken.value = next;
 }
 function clearToken() {
   try {
     sessionStorage.removeItem(tokenKey());
   } catch {}
+  unlockToken.value = "";
 }
-const unlockToken = computed(() => getSavedToken());
 
 const canViewConversation = computed(() => {
   if (!lockEnabled.value) return true;
   return !!unlocked.value;
 });
+
+watch(conversationId, () => {
+  syncUnlockToken();
+}, { immediate: true });
 
 async function refreshLockState() {
   try {
@@ -795,10 +746,12 @@ async function refreshLockState() {
       unlocked.value = true;
       return;
     }
-    unlocked.value = !!getSavedToken();
+    syncUnlockToken();
+    unlocked.value = !!unlockToken.value;
   } catch {
     lockEnabled.value = false;
     unlocked.value = true;
+    clearToken();
   }
 }
 
@@ -1421,14 +1374,6 @@ const savingEdit = ref(false);     // 저장중 플래그
 const nextCursor = ref(null);
 const hasNext = ref(false);
 
-const content = ref("");
-const sending = ref(false);
-const attachedFiles = ref([]);
-const attachmentUploading = ref(false);
-const attachmentProgress = ref(0);
-const attachmentError = ref("");
-const fileInputRef = ref(null);
-
 const scrollerRef = ref(null);
 const newMsgCount = ref(0);
 
@@ -1440,126 +1385,8 @@ let _msgTimeTimer2 = null;
 const pageRef = ref(null);
 const composerRef = ref(null);
 
-// ✅ v3.6 Bridge: Post/댓글 → Action → Chat Dock
-const pendingAction = ref(null);
-const pendingActionPrimed = ref(false);
-const pendingActionTempId = ref(null);
-const pendingHighlight = ref(false);
-function bumpPendingHighlight() {
-  pendingHighlight.value = true;
-  setTimeout(() => { pendingHighlight.value = false; }, 1400);
-}
-
-function loadPendingAction() {
-  try {
-    pendingAction.value = JSON.parse(sessionStorage.getItem("reallife:pendingAction") || "null");
-  } catch {
-    pendingAction.value = null;
-  }
-}
-function clearPendingAction() {
-  try { sessionStorage.removeItem("reallife:pendingAction"); } catch {}
-  try { sessionStorage.removeItem("reallife:pendingActionTargetConversationId"); } catch {}
-  pendingAction.value = null;
-  pendingActionPrimed.value = false;
-  pendingActionTempId.value = null;
-}
-function pendingKindLabel(kind) {
-  if (kind === "PROMISE") return "📅 약속";
-  if (kind === "TODO") return "✅ 할일";
-  return "📍 장소";
-}
-function pendingSourceRoute() {
-  const p = pendingAction.value;
-  if (!p) return "";
-  if (p.sourceRoute) return String(p.sourceRoute);
-  if (p.postId) return `/posts/${encodeURIComponent(String(p.postId))}`;
-  return "";
-}
-function pendingSourceMeta() {
-  const p = pendingAction.value;
-  if (!p) return "";
-  const author = p.sourcePostAuthorHandle || p.sourcePostAuthorName || p.authorHandle || "";
-  const label = p.sourceLabel || "게시글 댓글";
-  return author ? `${label} · ${String(author).replace(/^@?/, "@")}` : label;
-}
-function pendingSourcePreview() {
-  const p = pendingAction.value;
-  if (!p) return "";
-  return String(p.sourcePostPreview || p.text || "").trim().slice(0, 92);
-}
-function goPendingSource() {
-  const to = pendingSourceRoute();
-  if (to) router.push(to);
-}
-function pendingToDraftText(p) {
-  if (!p) return "";
-  const k = pendingKindLabel(p.kind);
-  const t = String(p.text || "").trim();
-  // ✅ 후보 감지가 잘 되도록 키워드 + 원문을 같이 넣는다.
-  // (백엔드가 메시지에서 pinCandidates를 뽑는 구조이므로, 여기서 메시지로 한 번 흘려보내는 방식)
-  return t ? `${k}: ${t}` : `${k} 만들자`;
-}
-function focusComposer() {
-  try {
-    const el = composerRef.value?.querySelector?.("input, textarea");
-    el?.focus?.();
-  } catch {}
-}
-function primePendingAction(silent = false, force = false) {
-  if (!pendingAction.value) return;
-  if (!force && String(content.value || "").trim()) {
-    // 이미 사용자가 입력 중이면 방해하지 않음
-    focusComposer();
-    return;
-  }
-  content.value = pendingToDraftText(pendingAction.value);
-  pendingActionPrimed.value = true;
-  nextTick(() => focusComposer());
-  if (!silent) toast.success?.("액션 준비됨", "전송하면 ✨ 제안으로 바로 뜹니다.");
-}
-async function quickSendPendingAction() {
-  if (!pendingAction.value || sending.value) return;
-  primePendingAction(true, true);
-  bumpPendingHighlight();
-  await nextTick();
-  await onSend();
-}
-
-const {
-  capsuleItems,
-  capsuleLoading,
-  capsuleModalOpen,
-  capsuleTitle,
-  capsuleUnlockAt,
-  capsuleSaving,
-  refreshCapsules,
-  deleteCapsuleItem,
-  relayFromCapsule,
-  openCapsuleModal,
-  closeCapsuleModal,
-  createTimeCapsuleFromDraft,
-} = useConversationCapsules({
-  conversationId,
-  content,
-  attachedFiles,
-  attachmentUploading,
-  attachmentProgress,
-  attachmentError,
-  clearAttachments,
-  uploadFiles,
-  sendMessage,
-  lockEnabled,
-  unlocked,
-  unlockToken,
-  toast,
-  pendingAction,
-  pendingActionPrimed,
-  primePendingAction,
-  bumpPendingHighlight,
-});
-
 const flashMid = ref("");
+
 
 function syncComposerHeightVar() {
   const pageEl = pageRef.value;
@@ -2113,130 +1940,96 @@ function upsertServerMessage(tempId, serverMsg) {
   replaceMessageById(tempId, { ...serverMsg });
 }
 
-async function onSend() {
-  const text = String(content.value || "").trim();
-  const hasAttachments = attachedFiles.value.length > 0;
-  const isPendingSend = !!(pendingActionPrimed.value && pendingAction.value && text && (
-    // pending의 원문이 조금이라도 포함되면 pending 전송으로 간주
-    !pendingAction.value.text || String(text).includes(String(pendingAction.value.text).trim())
-  ));
-  if ((!text && !hasAttachments) || sending.value || attachmentUploading.value) return;
+const {
+  content,
+  sending,
+  attachedFiles,
+  attachmentUploading,
+  attachmentProgress,
+  attachmentError,
+  fileInputRef,
+  pendingAction,
+  pendingActionPrimed,
+  pendingHighlight,
+  openAttachmentPicker,
+  removeAttachedFile,
+  clearAttachments,
+  onPickFiles,
+  loadPendingAction,
+  clearPendingAction,
+  pendingKindLabel,
+  pendingSourceRoute,
+  pendingSourceMeta,
+  pendingSourcePreview,
+  goPendingSource,
+  primePendingAction,
+  quickSendPendingAction,
+  bumpPendingHighlight,
+  onSend,
+} = useConversationComposer({
+  conversationId,
+  canViewConversation,
+  myId,
+  composerRef,
+  toast,
+  router,
+  uploadFiles,
+  uploadFilesDetailed,
+  sendMessage,
+  lockEnabled,
+  unlocked,
+  unlockToken,
+  clearToken,
+  convStore,
+  items,
+  newMsgCount,
+  scrollToBottom,
+  syncComposerHeightVar,
+  openSuggestionsDock,
+  triggerDockPulse,
+  hasMessage,
+  upsertServerMessage,
+});
 
-  if (!conversationId.value) {
-    toast.error?.("전송 실패", "대화방 ID가 없습니다.");
-    return;
-  }
-  if (!canViewConversation.value) {
-    toast.error?.("전송 실패", "잠금이 해제되어야 전송할 수 있어요.");
-    return;
-  }
+const {
+  capsuleItems,
+  capsuleLoading,
+  capsuleModalOpen,
+  capsuleTitle,
+  capsuleUnlockAt,
+  capsuleSaving,
+  refreshCapsules,
+  deleteCapsuleItem,
+  relayFromCapsule,
+  openCapsuleModal,
+  closeCapsuleModal,
+  createTimeCapsuleFromDraft,
+} = useConversationCapsules({
+  conversationId,
+  content,
+  attachedFiles,
+  attachmentUploading,
+  attachmentProgress,
+  attachmentError,
+  clearAttachments,
+  uploadFiles,
+  uploadFilesDetailed,
+  sendMessage,
+  lockEnabled,
+  unlocked,
+  unlockToken,
+  toast,
+  pendingAction,
+  pendingActionPrimed,
+  primePendingAction,
+  bumpPendingHighlight,
+});
 
-  // ✅ NEW: temp 메시지 먼저 넣기 (senderId를 반드시 세팅)
-  const tempId = makeTempId();
-  const tempMsg = {
-    messageId: tempId,
-    senderId: myId.value, // ✅ 핵심: 내 메시지로 즉시 판별되게
-    content: text,
-    createdAt: new Date().toISOString(),
-    attachments: attachedFiles.value.map((x, idx) => ({ attachmentId: `local-${idx}`, url: x.previewUrl, thumbnailUrl: x.previewUrl, originalFilename: x.name, contentType: x.type })),
-    pinCandidates: [],
-    _status: "sending",
-  };
-
-  items.value.push(tempMsg);
-  content.value = "";
-  newMsgCount.value = 0;
-  scrollToBottom({ smooth: true });
-
-  sending.value = true;
-  try {
-    let attachmentIds = [];
-    if (hasAttachments) {
-      attachmentUploading.value = true;
-      attachmentProgress.value = 0;
-      attachmentError.value = "";
-      try {
-        attachmentIds = await uploadFiles(attachedFiles.value.map((x) => x.file), { onProgress: (pct) => { attachmentProgress.value = Number(pct || 0); } });
-      } catch (err) {
-        attachmentError.value = err?.response?.data?.message || "첨부 업로드에 실패했어요.";
-        throw err;
-      } finally {
-        attachmentUploading.value = false;
-      }
-    }
-    const msg = await sendMessage({
-      conversationId: conversationId.value,
-      content: text,
-      attachmentIds,
-      unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
-    });
-
-    // ✅ 성공: SSE가 먼저 왔을 수도 있으니 "중복 방지 upsert"
-    upsertServerMessage(tempId, msg);
-    clearAttachments();
-
-    // ✅ v3.6 Bridge: pending action으로 보낸 메시지면, 곧바로 Dock ✨ 제안으로 열어준다.
-    if (isPendingSend) {
-      // tempId는 항상 1회 전송에만 대응
-      pendingActionTempId.value = tempId;
-
-      // 서버 응답에 pinCandidates가 있으면 즉시 Dock 오픈
-      const hasCandidates = msg && Array.isArray(msg.pinCandidates) && msg.pinCandidates.length > 0;
-      if (hasCandidates) {
-        openSuggestionsDock(msg);
-        triggerDockPulse();
-        clearPendingAction();
-      } else {
-        // 후보가 안 생기면 pendingAction은 유지하고, 사용자가 문장을 조금 더 구체화해서 다시 전송할 수 있게 한다.
-        toast.info?.("제안이 생성되지 않았어요", "메시지를 조금 더 구체적으로 적고 다시 전송해보세요.");
-      }
-    }
-
-    convStore.ingestMessageCreated?.({
-      messageId: msg?.messageId,
-      conversationId: conversationId.value,
-      senderId: msg?.senderId, // ✅ 응답 payload에서 가져오기
-      content: msg?.content,
-      createdAt: msg?.createdAt,
-      attachments: msg?.attachments || [],
-      pinCandidates: msg?.pinCandidates || [],
-    });
-
-    const hasCandidates = Array.isArray(msg?.pinCandidates) && msg.pinCandidates.length > 0;
-    scrollToBottom({ smooth: true });
-    if (hasCandidates) nextTick(() => scrollToBottom({ smooth: true }));
-  } catch (e) {
-    const status = e?.response?.status;
-    const serverMsg = e?.response?.data?.message;
-    const url = e?.config?.url;
-
-    if (status === 401) {
-      toast.error?.("전송 실패", "로그인이 만료됐어요. 다시 로그인해 주세요.");
-    } else if (status === 403) {
-      toast.error?.("전송 실패", "권한이 없어요. (403)");
-    } else if (status === 404) {
-      toast.error?.("전송 실패", `API 경로를 찾을 수 없어요. (404) ${url || ""}`);
-    } else if (status === 423) {
-      lockEnabled.value = true;
-      unlocked.value = false;
-      clearToken();
-      toast.error?.("전송 실패", "이 대화는 잠금 상태입니다. 먼저 잠금을 해제하세요.");
-    } else {
-      toast.error?.(
-          "전송 실패",
-          serverMsg || (status ? `요청 실패 (status=${status})` : "네트워크 오류/서버 응답 없음")
-      );
-    }
-
-    // temp 메시지에 실패 상태 부여 → 재시도 버튼 활성화
-    const idx = items.value.findIndex((x) => x?.messageId === tempId);
-    if (idx >= 0) items.value[idx]._status = "failed";
-  } finally {
-    sending.value = false;
-    await nextTick();
-    syncComposerHeightVar();
-  }
-}
+const {
+  menu,
+  closeMsgMenu,
+  openMsgMenu,
+} = useMessageContextMenu();
 
 async function retrySend(m) {
   if (!m || m._status !== "failed") return;
@@ -3115,56 +2908,34 @@ onBeforeUnmount(() => {
 
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
     <div ref="composerRef" class="composerWrap" v-if="canViewConversation">
-      <div v-if="pendingAction" class="pendingBridge" :class="{ 'pendingBridge--highlight': pendingHighlight }">
-      <div class="pbHead">
-        <div>
-          <div class="pbEyebrow">{{ pendingSourceMeta() }}</div>
-          <div class="pbTitle">댓글에서 가져온 액션</div>
-          <div class="pbSub">
-            <span class="pbKind">{{ pendingKindLabel(pendingAction.kind) }}</span>
-            <span class="pbQuote">“{{ pendingAction.text }}”</span>
-          </div>
-        </div>
-        <span v-if="pendingActionPrimed" class="pbReady">입력 준비됨</span>
-      </div>
-      <div v-if="pendingSourcePreview()" class="pbSourcePreview">원문: {{ pendingSourcePreview() }}</div>
-      <div class="pbHint">바로 보내면 이 대화의 ✨ 제안 Dock으로 이어집니다.</div>
-      <div class="pbActions">
-        <RlButton size="sm" variant="primary" @click="quickSendPendingAction">바로 보내고 제안 열기</RlButton>
-        <RlButton size="sm" variant="soft" @click="() => { primePendingAction(false, true); bumpPendingHighlight(); }">입력창에 넣기</RlButton>
-        <RlButton v-if="pendingSourceRoute()" size="sm" variant="soft" @click="goPendingSource">원문 보기</RlButton>
-        <RlButton size="sm" variant="ghost" @click="clearPendingAction">닫기</RlButton>
-      </div>
-    </div>
+      <ConversationPendingBridge
+        v-if="pendingAction"
+        :pending-action="pendingAction"
+        :primed="pendingActionPrimed"
+        :highlight="pendingHighlight"
+        :source-meta="pendingSourceMeta()"
+        :source-preview="pendingSourcePreview()"
+        :can-open-source="!!pendingSourceRoute()"
+        @quick-send="quickSendPendingAction"
+        @prime="() => { primePendingAction(false, true); bumpPendingHighlight(); }"
+        @open-source="goPendingSource"
+        @close="clearPendingAction"
+      />
 
     <div class="composerInner composerInner--stack">
       <input ref="fileInputRef" type="file" class="hiddenFileInput" multiple @change="onPickFiles" />
-      <MessageAttachmentPreview v-if="attachedFiles.length" :items="attachedFiles" removable @remove="removeAttachedFile" />
+      <MessageAttachmentPreview v-if="attachedFiles.length" :items="attachedFiles" mode="composer" :uploading="attachmentUploading" :upload-progress="attachmentProgress" removable @remove="removeAttachedFile" />
       <div v-if="attachmentUploading" class="uploadState">첨부 업로드 중… {{ attachmentProgress }}%</div>
       <div v-else-if="attachmentError" class="uploadError">{{ attachmentError }}</div>
-      <div v-if="isMobileViewport" class="composerUtilityRow">
-        <button class="composerUtilityBtn" type="button" @click="openActiveDock">
-          <span class="composerUtilityLabel">액션 허브</span>
-          <strong>{{ activeCount }}</strong>
-        </button>
-        <button class="composerUtilityBtn" type="button" :disabled="suggestionCount === 0" @click="openLatestSuggestionsDock">
-          <span class="composerUtilityLabel">제안 확인</span>
-          <strong>{{ suggestionCount }}</strong>
-        </button>
-        <button class="composerUtilityBtn" type="button" :disabled="newMsgCount === 0" @click="jumpToNewest">
-          <span class="composerUtilityLabel">최신 메시지</span>
-          <strong>{{ newMsgCount }}</strong>
-        </button>
-      </div>
       <div class="composerRow">
-        <MessageAttachmentPicker class="composerAttach" :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
-        <button class="miniBtn miniBtn--capsule" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
-        <input v-model="content" class="input composerInput" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
-        <button class="btn composerSend" type="button" @click="onSend" :disabled="sending || attachmentUploading">
+        <MessageAttachmentPicker :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
+        <button class="miniBtn" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
+        <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
+        <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading">
           {{ sending || attachmentUploading ? "..." : "전송" }}
         </button>
       </div>
-      <div class="composerHint">{{ mobileComposerSummary }}</div>
+      <div class="composerHint">파일 첨부는 📎, 캡슐은 메시지를 입력한 뒤 ⏳ 버튼으로 만들 수 있어요. 업로드가 끝나면 서버 메타데이터로 카드가 바로 정리돼요.</div>
     </div>
 
     <CapsuleComposerModal
@@ -3785,61 +3556,6 @@ onBeforeUnmount(() => {
   .dockRow{
     grid-template-columns: 1fr;
   }
-}
-
-.pendingBridge{
-  margin: 0 0 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--card) 70%, transparent);
-  box-shadow: 0 8px 18px rgba(0,0,0,0.10);
-}
-.pbEyebrow{
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .02em;
-  color: color-mix(in oklab, var(--accent) 74%, white);
-}
-.pbTitle{
-  margin-top: 3px;
-  font-weight: 800;
-  font-size: 13px;
-  letter-spacing: -0.2px;
-}
-.pbSub{
-  margin-top: 4px;
-  display:flex;
-  gap: 8px;
-  align-items:center;
-  color: color-mix(in oklab, var(--text) 90%, transparent);
-  font-size: 12px;
-}
-.pbKind{
-  font-weight: 800;
-}
-.pbQuote{
-  overflow:hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-.pbSourcePreview{
-  margin-top: 7px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: color-mix(in oklab, var(--text) 72%, transparent);
-}
-.pbHint{
-  margin-top: 8px;
-  font-size: 12px;
-  color: color-mix(in oklab, var(--text) 72%, transparent);
-}
-.pbActions{
-  margin-top: 8px;
-  display:flex;
-  gap: 8px;
-  justify-content:flex-end;
 }
 
 .composerInner{
@@ -5344,11 +5060,6 @@ onBeforeUnmount(() => {
 .input{min-width:0;height:46px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent)}
 .miniBtn{width:40px;height:40px;border-radius:14px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 92%, transparent);color:var(--text);font-size:16px;font-weight:900}
 .composerHint{font-size:11px;line-height:1.35;color:var(--muted);padding:0 4px}
-.composerUtilityRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.composerUtilityBtn{min-width:0;display:grid;gap:2px;justify-items:start;padding:10px 12px;border-radius:16px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 90%, transparent);color:var(--text);text-align:left;box-shadow:0 8px 20px rgba(0,0,0,.12)}
-.composerUtilityBtn:disabled{opacity:.5}
-.composerUtilityLabel{font-size:11px;font-weight:900;color:var(--muted)}
-.composerUtilityBtn strong{font-size:16px;line-height:1;font-weight:950;color:var(--text)}
 .uploadState,.uploadError{font-size:12px;font-weight:800}
 .uploadError{color:color-mix(in oklab,var(--danger) 80%, white)}
 .timelineRecentShare{
@@ -5418,20 +5129,8 @@ onBeforeUnmount(() => {
   .dockCard{scroll-margin-top:92px;padding-bottom:12px;}
   .dockCardActions{position:static;z-index:auto;padding-top:0;background:none;margin-top:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
   .dockShareBtn{margin-top:10px;height:42px;position:static;}
-  .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 196px) + env(safe-area-inset-bottom) + 24px)}
+  .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
-  .composerUtilityRow{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-  .composerUtilityBtn{padding:9px 10px;border-radius:14px}
-  .composerUtilityLabel{font-size:10px}
-  .composerUtilityBtn strong{font-size:15px}
-  .composerRow{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:
-    "input input"
-    "attach capsule"
-    "send send";align-items:stretch;gap:8px;padding:10px}
-  .composerAttach{grid-area:attach}
-  .miniBtn--capsule{grid-area:capsule;width:100%;height:42px;border-radius:14px}
-  .composerInput{grid-area:input;height:48px}
-  .composerSend{grid-area:send;width:100%;min-height:44px;border-radius:14px}
 }
 </style>
 

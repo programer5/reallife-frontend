@@ -10,6 +10,7 @@ import { useAuthStore } from "../stores/auth";
 import RlButton from "../components/ui/RlButton.vue";
 import MediaLightbox from "../components/media/MediaLightbox.vue";
 import sse from "../lib/sse";
+import { normalizePostMediaItems } from "@/lib/mediaModel";
 import AsyncStatePanel from "../components/ui/AsyncStatePanel.vue";
 
 const route = useRoute();
@@ -73,17 +74,7 @@ const mediaItems = computed(() => {
   const fallback = Array.isArray(post.value?.imageUrls) ? post.value.imageUrls : [];
   return fallback.map((url) => ({ mediaType: "IMAGE", url, thumbnailUrl: url }));
 });
-const normalizedMediaItems = computed(() =>
-  mediaItems.value
-    .map((m, idx) => ({
-      idx,
-      kind: String(m?.mediaType || "IMAGE").toUpperCase() === "VIDEO" ? "video" : "image",
-      url: m?.url || "",
-      thumbnailUrl: m?.thumbnailUrl || m?.url || "",
-      name: m?.name || `미디어 ${idx + 1}`,
-    }))
-    .filter((m) => !!m.url)
-);
+const normalizedMediaItems = computed(() => normalizePostMediaItems(mediaItems.value).filter((m) => !!m.url && m.kind !== "file"));
 const imageCount = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "image").length);
 const videoItems = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "video"));
 const imageMediaItems = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "image"));

@@ -4,6 +4,7 @@ import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useToastStore } from "../../stores/toast";
 import MediaLightbox from "../media/MediaLightbox.vue";
+import { normalizePostMediaItems } from "@/lib/mediaModel";
 
 const props = defineProps({
   post: { type: Object, required: true },
@@ -21,17 +22,7 @@ const mediaItems = computed(() => {
   return Array.isArray(fallback) ? fallback.map((url) => ({ mediaType: "IMAGE", url, thumbnailUrl: url })) : [];
 });
 
-const normalizedMediaItems = computed(() =>
-  mediaItems.value
-    .map((m, idx) => ({
-      idx,
-      kind: String(m?.mediaType || "IMAGE").toUpperCase() === "VIDEO" ? "video" : "image",
-      url: m?.url || "",
-      thumbnailUrl: m?.thumbnailUrl || m?.url || "",
-      name: m?.name || `미디어 ${idx + 1}`,
-    }))
-    .filter((m) => !!m.url)
-);
+const normalizedMediaItems = computed(() => normalizePostMediaItems(mediaItems.value).filter((m) => !!m.url && m.kind !== "file"));
 const images = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "image").map((m) => m.url || m.thumbnailUrl).filter(Boolean));
 const firstVideo = computed(() => normalizedMediaItems.value.find((m) => m.kind === "video") || null);
 
