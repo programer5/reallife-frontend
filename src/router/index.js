@@ -67,6 +67,7 @@ const routes = [
       },
       { path: "me", name: "me", component: MeView },
       { path: "me/activity", name: "my-activity", component: () => import("../views/MyActivityView.vue") },
+      { path: "search", name: "search-hub", component: () => import("../views/GlobalSearchView.vue") },
       {
         path: "ops/dashboard",
         name: "admin-dashboard",

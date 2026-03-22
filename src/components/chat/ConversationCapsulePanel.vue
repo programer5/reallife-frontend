@@ -5,6 +5,7 @@ import RlButton from "@/components/ui/RlButton.vue";
 const props = defineProps({
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
+  highlightCapsuleId: { type: [String, Number], default: "" },
 });
 const emit = defineEmits(["refresh", "relay", "delete", "share"]);
 
@@ -76,6 +77,10 @@ function requestShare(item) {
   selected.value = null;
   mobileSheetOpen.value = false;
 }
+
+function isHighlighted(item) {
+  return String(props.highlightCapsuleId || "") === String(item?.capsuleId || "");
+}
 </script>
 
 <template>
@@ -124,7 +129,7 @@ function requestShare(item) {
         <div v-if="loading && !items.length" class="state">캡슐 목록을 불러오는 중…</div>
         <div v-else-if="!items.length" class="state">아직 타임 캡슐이 없어요.</div>
         <div v-else class="capsuleList" :class="{ compact: !expanded }">
-          <article v-for="item in visibleItems" :key="item.capsuleId" class="capsuleCard" :data-opened="item.opened">
+          <article v-for="item in visibleItems" :key="item.capsuleId" class="capsuleCard" :class="{ highlight: isHighlighted(item) }" :data-capsule-id="String(item.capsuleId || '')" :data-opened="item.opened">
             <div class="capsuleRow">
               <div class="capsuleCardTitle">{{ item.title || "제목 없는 캡슐" }}</div>
               <span class="capsuleState">{{ item.opened ? '열림' : '잠금' }}</span>
@@ -132,6 +137,7 @@ function requestShare(item) {
             <div class="capsuleMeta">열릴 시간 · {{ fmt(item.unlockAt) }}</div>
             <div v-if="item.openedAt" class="capsuleMeta">열린 시간 · {{ fmt(item.openedAt) }}</div>
             <div class="capsuleActions">
+              <span v-if="isHighlighted(item)" class="searchHitBadge">검색 결과</span>
               <RlButton size="sm" variant="soft" @click="selected=item">상세 보기</RlButton>
               <RlButton v-if="item.opened" size="sm" variant="primary" @click="selected=item">액션 제안</RlButton>
               <RlButton v-if="item.opened" size="sm" variant="soft" @click="requestShare(item)">피드 공유</RlButton>
@@ -159,7 +165,7 @@ function requestShare(item) {
             <div v-if="loading && !items.length" class="state">캡슐 목록을 불러오는 중…</div>
             <div v-else-if="!items.length" class="state">아직 타임 캡슐이 없어요.</div>
             <div v-else class="capsuleList mobileList">
-              <article v-for="item in items" :key="item.capsuleId" class="capsuleCard" :data-opened="item.opened">
+              <article v-for="item in items" :key="item.capsuleId" class="capsuleCard" :class="{ highlight: isHighlighted(item) }" :data-capsule-id="String(item.capsuleId || '')" :data-opened="item.opened">
                 <div class="capsuleRow">
                   <div class="capsuleCardTitle">{{ item.title || "제목 없는 캡슐" }}</div>
                   <span class="capsuleState">{{ item.opened ? '열림' : '잠금' }}</span>
@@ -167,6 +173,7 @@ function requestShare(item) {
                 <div class="capsuleMeta">열릴 시간 · {{ fmt(item.unlockAt) }}</div>
                 <div v-if="item.openedAt" class="capsuleMeta">열린 시간 · {{ fmt(item.openedAt) }}</div>
                 <div class="capsuleActions">
+                  <span v-if="isHighlighted(item)" class="searchHitBadge">검색 결과</span>
                   <RlButton size="sm" variant="soft" @click="selected=item">상세 보기</RlButton>
                   <RlButton v-if="item.opened" size="sm" variant="primary" @click="selected=item">액션 제안</RlButton>
                   <RlButton v-if="item.opened" size="sm" variant="soft" @click="requestShare(item)">피드 공유</RlButton>
@@ -218,11 +225,13 @@ function requestShare(item) {
 .capsuleBody,.mobileSheetBody{display:grid;gap:10px}
 .state{padding:16px;border:1px dashed color-mix(in oklab,var(--border) 80%, transparent);border-radius:16px;text-align:center;color:var(--muted)}
 .capsuleList{display:grid;gap:10px}.capsuleList.compact .capsuleCard:not(:first-child){display:none}
-.capsuleCard{display:grid;gap:8px;padding:12px;border-radius:18px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 88%, transparent)}
+.capsuleCard{display:grid;gap:8px;padding:12px;border-radius:18px;border:1px solid color-mix(in oklab,var(--border) 82%, transparent);background:color-mix(in oklab,var(--surface) 88%, transparent);scroll-margin-top:132px}
 .capsuleCard[data-opened="true"]{border-color:color-mix(in oklab,var(--brand) 40%, var(--border));box-shadow:0 10px 28px rgba(59,130,246,.12)}
+.capsuleCard.highlight{border-color:rgba(255,210,102,.62);box-shadow:0 0 0 1px rgba(255,210,102,.26),0 0 0 7px rgba(255,210,102,.10),0 10px 28px rgba(255,199,82,.10)}
 .capsuleRow{display:flex;align-items:center;justify-content:space-between;gap:10px}.capsuleCardTitle{font-weight:800}.capsuleState{font-size:12px;color:var(--muted)}
 .capsuleMeta{font-size:12px;color:var(--muted)}
-.capsuleActions{display:flex;gap:8px;flex-wrap:wrap}
+.capsuleActions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.searchHitBadge{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:999px;background:rgba(255,214,102,.16);border:1px solid rgba(255,214,102,.28);font-size:12px;font-weight:900;color:#ffd666}
 .capsuleMobileBar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center}
 .capsuleMobileSummary{min-width:0;border:1px solid color-mix(in oklab,var(--border) 74%, transparent);background:color-mix(in oklab,var(--surface) 84%, transparent);border-radius:12px;padding:7px 10px;display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:center;text-align:left}
 .capsuleMobileHead,.capsuleMobileBody{display:none}

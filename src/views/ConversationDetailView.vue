@@ -48,6 +48,134 @@ const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const isPinnedHighlight = ref(false);
+const conversationSearchQ = ref("");
+const searchRailExpanded = ref(false);
+const searchFocusTerm = ref("");
+const searchFocusMid = ref("");
+const searchFocusPinId = ref("");
+const searchFocusCapsuleId = ref("");
+
+const conversationSearchSummary = computed(() => {
+  const parts = [];
+  if (activeCount.value) parts.push(`액션 ${activeCount.value}`);
+  if (capsuleItems.value?.length) parts.push(`캡슐 ${capsuleItems.value.length}`);
+  if (items.value?.length) parts.push(`메시지 ${items.value.length}`);
+  return parts.length ? parts.join(" · ") : "이 대화의 흐름을 빠르게 다시 찾을 수 있어요";
+});
+const hasSearchFocus = computed(() => Boolean(searchFocusTerm.value || searchFocusMid.value || searchFocusPinId.value || searchFocusCapsuleId.value));
+
+function syncSearchRailMode() {
+  searchRailExpanded.value = !isMobileViewport.value || hasSearchFocus.value;
+}
+function toggleSearchRail() {
+  searchRailExpanded.value = !searchRailExpanded.value;
+}
+
+function openConversationSearch(prefill = "") {
+  const q = String(prefill || conversationSearchQ.value || "").trim();
+  const query = { conversationId: conversationId.value || undefined };
+  if (q) query.q = q;
+  router.push({ path: '/search', query });
+}
+
+function openGlobalSearch() {
+  const q = String(conversationSearchQ.value || "").trim();
+  const query = {};
+  if (q) query.q = q;
+  router.push({ path: '/search', query });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function escapeRegExp(value) {
+  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function renderMessageHtml(message) {
+  const raw = String(message?.content ?? "");
+  let html = escapeHtml(raw).replace(/\n/g, "<br />");
+  const keyword = String(searchFocusTerm.value || "").trim();
+  const isSearchTarget = String(searchFocusMid.value || "") === String(message?.messageId || "");
+  const shouldHighlight = keyword && (isSearchTarget || raw.toLowerCase().includes(keyword.toLowerCase()));
+  if (shouldHighlight) {
+    try {
+      const regex = new RegExp(`(${escapeRegExp(keyword)})`, "ig");
+      html = html.replace(regex, '<mark class="msgSearchMark">$1</mark>');
+    } catch {}
+  }
+  return html || "&nbsp;";
+}
+const searchFocusSummary = computed(() => {
+  const parts = [];
+  if (searchFocusMid.value) parts.push('메시지');
+  if (searchFocusPinId.value) parts.push('액션');
+  if (searchFocusCapsuleId.value) parts.push('캡슐');
+  return parts.join(' · ');
+});
+
+function clearSearchFocus() {
+  searchFocusTerm.value = "";
+  searchFocusMid.value = "";
+  searchFocusPinId.value = "";
+  searchFocusCapsuleId.value = "";
+  const query = { ...route.query };
+  delete query.fromSearch;
+  delete query.searchQ;
+  delete query.mid;
+  delete query.pinId;
+  delete query.capsuleId;
+  router.replace({ query }).catch(() => {});
+}
+
+async function refocusSearchTarget() {
+  if (searchFocusMid.value) {
+    await ensureMessageVisible(searchFocusMid.value, 8);
+    await nextTick();
+    const target = document.querySelector(`[data-mid="${searchFocusMid.value}"]`);
+    if (target?.scrollIntoView) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("searchAnchorPulse");
+      setTimeout(() => target.classList.remove("searchAnchorPulse"), 2200);
+    }
+    return;
+  }
+  if (searchFocusPinId.value) {
+    await focusPinFromSearch(searchFocusPinId.value);
+    return;
+  }
+  if (searchFocusCapsuleId.value) {
+    await focusCapsuleFromSearch(searchFocusCapsuleId.value);
+  }
+}
+async function focusPinFromSearch(pinId) {
+  if (!pinId) return;
+  dockMode.value = "active";
+  dockOpen.value = true;
+  await nextTick();
+  const selector = `[data-pin-id="${pinId}"]`;
+  const target = document.querySelector(selector);
+  if (target?.scrollIntoView) {
+    target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    target.classList.add("searchAnchorPulse");
+    setTimeout(() => target.classList.remove("searchAnchorPulse"), 2200);
+  }
+}
+async function focusCapsuleFromSearch(capsuleId) {
+  if (!capsuleId) return;
+  await nextTick();
+  let target = document.querySelector(`[data-capsule-id="${String(capsuleId)}"]`);
+  if (!target) target = document.querySelector('.capsulePanel');
+  if (target?.scrollIntoView) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('searchAnchorPulse');
+    setTimeout(() => target.classList.remove('searchAnchorPulse'), 2200);
+  }
+}
 
 const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
 
@@ -64,6 +192,7 @@ const isMobileViewport = ref(false);
 function syncMobileViewport(){
   if (typeof window === "undefined") return;
   isMobileViewport.value = window.innerWidth <= 720;
+  syncSearchRailMode();
 }
 const useDockSheet = computed(() => isMobileViewport.value);
 const dockSheetTitle = computed(() => dockMode.value === "suggestions" ? "액션 제안" : "액션 허브");
@@ -637,6 +766,20 @@ onMounted(() => {
 
   window.addEventListener("pin-remind-highlight", onPinRemindHighlight);
 });
+watch(() => route.query, async () => {
+  const fromSearch = route.query?.fromSearch ? String(route.query.fromSearch) === "1" : false;
+  searchFocusTerm.value = route.query?.searchQ ? String(route.query.searchQ) : "";
+  searchFocusMid.value = route.query?.mid ? String(route.query.mid) : "";
+  searchFocusPinId.value = route.query?.pinId ? String(route.query.pinId) : "";
+  searchFocusCapsuleId.value = route.query?.capsuleId ? String(route.query.capsuleId) : "";
+  syncSearchRailMode();
+  if (!fromSearch) return;
+  await nextTick();
+  if (searchFocusMid.value) await ensureMessageVisible(searchFocusMid.value, 8);
+  if (searchFocusPinId.value) await focusPinFromSearch(searchFocusPinId.value);
+  if (searchFocusCapsuleId.value) await focusCapsuleFromSearch(searchFocusCapsuleId.value);
+}, { deep: true });
+
 onBeforeUnmount(() => {
   window.removeEventListener('resize', detectTouchUi);
 
@@ -2313,10 +2456,18 @@ onMounted(async () => {
     }
   }
 
-  // ✅ 알림으로 진입한 경우: 읽음 처리 + 해당 메시지로 스크롤
+  // ✅ 알림/검색으로 진입한 경우: 읽음 처리 + 대상 위치로 스크롤
   const notiId = route.query?.notiId ? String(route.query.notiId) : "";
   const fromNoti = route.query?.fromNoti ? String(route.query.fromNoti) === "1" : false;
+  const fromSearch = route.query?.fromSearch ? String(route.query.fromSearch) === "1" : false;
   const targetMid = route.query?.mid ? String(route.query.mid) : "";
+  const targetPinId = route.query?.pinId ? String(route.query.pinId) : "";
+  const targetCapsuleId = route.query?.capsuleId ? String(route.query.capsuleId) : "";
+  searchFocusTerm.value = route.query?.searchQ ? String(route.query.searchQ) : "";
+  searchFocusMid.value = targetMid;
+  searchFocusPinId.value = targetPinId;
+  searchFocusCapsuleId.value = targetCapsuleId;
+  syncSearchRailMode();
 
   if (notiId) {
     try {
@@ -2342,6 +2493,12 @@ onMounted(async () => {
       const lastMid = last?.messageId;
       if (lastMid) await scrollAndFlashMessage(lastMid, { block: "end" });
     }
+  }
+
+  if (fromSearch) {
+    if (targetMid) await ensureMessageVisible(targetMid, 8);
+    if (targetPinId) await focusPinFromSearch(targetPinId);
+    if (targetCapsuleId) await focusCapsuleFromSearch(targetCapsuleId);
   }
 
   // ✅ 화면 크기/주소창 변화/키보드 등으로 높이 달라질 때 다시 측정
@@ -2499,9 +2656,46 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <section class="conversationSearchRail rl-cardish" v-if="canViewConversation" :class="{ compact: isMobileViewport && !searchRailExpanded }">
+      <div class="conversationSearchRail__top">
+        <div class="conversationSearchRail__copy">
+          <div class="conversationSearchRail__eyebrow">Conversation OS</div>
+          <strong>찾고 바로 이어가기</strong>
+          <p v-if="!isMobileViewport || searchRailExpanded">대화, 액션, 캡슐을 한 번에 다시 찾고 바로 다음 행동으로 이어지게 설계했어요.</p>
+          <span v-else class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
+          <span v-if="isMobileViewport && !searchRailExpanded && hasSearchFocus" class="conversationSearchRail__focusPill">검색 결과 위치로 바로 이어지는 중</span>
+        </div>
+        <div class="conversationSearchRail__topActions">
+          <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="toggleSearchRail()">
+            {{ isMobileViewport && !searchRailExpanded ? "검색 열기" : "접기" }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="!isMobileViewport || searchRailExpanded" class="conversationSearchRail__controls">
+        <div class="conversationSearchRail__inputWrap">
+          <input
+            v-model.trim="conversationSearchQ"
+            class="conversationSearchRail__input"
+            placeholder="이 대화에서 찾고 싶은 키워드를 입력해 보세요"
+            @keydown.enter.prevent="openConversationSearch()"
+          />
+          <button type="button" class="conversationSearchRail__submit" @click="openConversationSearch()">검색</button>
+        </div>
+        <div class="conversationSearchRail__meta">
+          <span class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
+          <div class="conversationSearchRail__actions">
+            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('약속')">약속</button>
+            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('캡슐')">캡슐</button>
+            <button type="button" class="conversationSearchRail__chip" @click="openGlobalSearch()">전체 검색</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <SseStatusBanner />
 
-    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @delete="deleteCapsuleItem" />
+    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @delete="deleteCapsuleItem" :highlight-capsule-id="searchFocusCapsuleId" />
 
 
     
@@ -2675,12 +2869,12 @@ onBeforeUnmount(() => {
       <div v-if="pins && pins.length" class="dockRowWrap">
         <div v-if="dockVisibleSummary.hasMany" class="dockBrowseHint">아래 카드에서 이어지는 액션을 계속 볼 수 있어요.</div>
         <div class="dockRow">
-        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder }" @click="p.__placeholder ? null : openPinEdit(p)">
+        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder, searchHit: searchFocusPinId === String(p.pinId) }" @click="p.__placeholder ? null : openPinEdit(p)">
           <div class="dockCardTopline">
             <span class="dockTypePill">{{ pinKindMeta(p).emoji }} {{ pinKindMeta(p).label }}</span>
             <span class="dockStatePill" :data-tone="pinTimelineState(p).tone">{{ pinTimelineState(p).label }}</span>
           </div>
-          <div class="dockCardTitle">{{ p.title || "약속" }}</div>
+          <div class="dockCardTitleRow"><div class="dockCardTitle">{{ p.title || "약속" }}</div><span v-if="searchFocusPinId === String(p.pinId)" class="dockSearchBadge">검색 결과</span></div>
           <div class="dockCardMeta">
             <span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span>
             <span v-else class="muted">🕒 시간 미정</span>
@@ -2793,6 +2987,28 @@ onBeforeUnmount(() => {
     <!-- ✅ 메시지 스크롤 -->
     <div v-else ref="scrollerRef" class="scroller rl-scroll rl-scroll--premium">
       <div class="inner">
+        <div v-if="canViewConversation && hasSearchFocus" class="searchReturnBar rl-cardish">
+          <div class="searchReturnBar__copy">
+            <div class="searchReturnBar__eyebrow">Search Return</div>
+            <strong>검색 결과에서 다시 들어왔어요</strong>
+            <p>
+              <template v-if="searchFocusTerm">“{{ searchFocusTerm }}”</template>
+              <template v-if="searchFocusMid"> 메시지를 강조해서 보여주고, </template>
+              <template v-if="searchFocusPinId">액션 위치로 바로 이동하고, </template>
+              <template v-if="searchFocusCapsuleId">캡슐 영역도 같이 찾아드릴게요.</template>
+            </p>
+            <div v-if="searchFocusSummary" class="searchReturnBar__chips">
+              <span v-if="searchFocusMid" class="searchReturnBar__chipPill">메시지 위치</span>
+              <span v-if="searchFocusPinId" class="searchReturnBar__chipPill">액션 카드 강조</span>
+              <span v-if="searchFocusCapsuleId" class="searchReturnBar__chipPill">캡슐 카드 강조</span>
+            </div>
+          </div>
+          <div class="searchReturnBar__actions">
+            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="refocusSearchTarget">위치 다시 찾기</button>
+            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch(searchFocusTerm)">같은 검색 다시 보기</button>
+            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus">닫기</button>
+          </div>
+        </div>
         <div class="more">
           <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
             이전 메시지 더 보기
@@ -2804,6 +3020,7 @@ onBeforeUnmount(() => {
             :key="m.messageId"
             class="msg"
             :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId),
+            'msg--searchFocus': searchFocusMid === String(m.messageId),
             'msg--groupPrev': isGroupWithPrev(i), 'msg--groupNext': isGroupWithNext(i),}"
             :data-mid="m.messageId"
         >
@@ -2850,6 +3067,7 @@ onBeforeUnmount(() => {
 
             <!-- ✅ 저장됨 배지 -->
             <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
+            <span v-if="searchFocusMid === String(m.messageId)" class="messageSearchHitBadge" aria-live="polite">검색 결과</span>
 
             <!-- ✅ 본문 -->
             <div class="text">
@@ -2873,7 +3091,7 @@ onBeforeUnmount(() => {
               <!-- 일반 모드 -->
               <template v-else>
                 <div>
-                  {{ m.content }}
+                  <span v-html="renderMessageHtml(m)"></span>
                   <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
                 </div>
               </template>
@@ -5091,6 +5309,10 @@ onBeforeUnmount(() => {
 }
 .dockPanelSheet .dockEmpty{margin:12px 0 0}
 @media (max-width:900px){.dockRow{grid-template-columns:1fr!important}}
+
+.conversationSearchRail{margin:10px 12px 4px;padding:16px 18px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(18,22,38,.92),rgba(10,13,24,.9));display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,1fr);gap:16px;align-items:center}
+.conversationSearchRail__copy{display:grid;gap:6px}.conversationSearchRail__eyebrow{font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:rgba(145,170,255,.78)}.conversationSearchRail__copy strong{font-size:18px}.conversationSearchRail__copy p{margin:0;color:rgba(255,255,255,.68);font-size:13px;line-height:1.6}.conversationSearchRail__controls{display:grid;gap:10px}.conversationSearchRail__inputWrap{display:flex;gap:8px}.conversationSearchRail__input{flex:1;min-height:46px;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#fff;padding:0 14px;outline:none}.conversationSearchRail__input:focus{border-color:rgba(126,154,255,.48);box-shadow:0 0 0 4px rgba(126,154,255,.14)}.conversationSearchRail__submit{min-width:84px;border:none;border-radius:16px;background:linear-gradient(135deg,#6e85ff,#8c6bff);color:#fff;font-weight:900;padding:0 16px}.conversationSearchRail__meta{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.conversationSearchRail__summary{font-size:12px;color:rgba(255,255,255,.62)}.conversationSearchRail__actions{display:flex;gap:8px;flex-wrap:wrap}.conversationSearchRail__chip{min-height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:#fff;font-size:12px;font-weight:800}
+
 @media (max-width:720px){
   .page{height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px));max-height:calc(100dvh - var(--app-header-h, 64px) - var(--app-bottombar-h, 64px))}
   .topbar,.dockWrap,.composerWrap,.capsulePanel,.thread{max-width:none}
@@ -5127,12 +5349,59 @@ onBeforeUnmount(() => {
   .dockPanelSheet .dockGrid{padding:0 12px calc(28px + env(safe-area-inset-bottom));}
   .dockPanelSheet .dockFilterBar{top:0;padding-bottom:10px;}
   .dockCard{scroll-margin-top:92px;padding-bottom:12px;}
+  .dockCard.searchHit{border-color:rgba(126,154,255,.54);box-shadow:0 0 0 1px rgba(126,154,255,.28),0 0 0 8px rgba(126,154,255,.10);}
   .dockCardActions{position:static;z-index:auto;padding-top:0;background:none;margin-top:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
   .dockShareBtn{margin-top:10px;height:42px;position:static;}
   .scroller{padding-left:12px;padding-right:12px;padding-bottom:calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 20px)}
   .composerWrap{padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
+  .conversationSearchRail{grid-template-columns:1fr;margin:10px 12px 2px;padding:14px}
+  .conversationSearchRail__inputWrap{flex-direction:column}
+  .conversationSearchRail__submit{width:100%;min-height:42px}
 }
+
+
+.conversationSearchRail{display:grid;gap:12px;padding:14px 16px;border-radius:24px;background:linear-gradient(180deg,rgba(11,16,30,.94),rgba(7,11,22,.88));border:1px solid rgba(255,255,255,.08)}
+.conversationSearchRail.compact{padding:10px 12px;border-radius:18px;gap:8px}
+.conversationSearchRail__top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.conversationSearchRail__copy{display:grid;gap:4px;min-width:0}
+.conversationSearchRail__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}
+.conversationSearchRail__copy strong{font-size:18px;line-height:1.2}
+.conversationSearchRail.compact .conversationSearchRail__copy strong{font-size:15px}
+.conversationSearchRail__copy p{margin:0;font-size:13px;line-height:1.5;color:rgba(255,255,255,.72)}
+.conversationSearchRail__controls{display:grid;gap:10px}
+.conversationSearchRail__inputWrap{display:flex;gap:10px}
+.conversationSearchRail__input{flex:1;min-height:48px;border-radius:18px;border:1px solid rgba(255,255,255,.10);background:rgba(9,13,24,.82);color:#fff;padding:0 14px;outline:none}
+.conversationSearchRail__submit{min-width:96px;min-height:48px;border-radius:18px;border:0;background:linear-gradient(135deg,#7a8cff,#8e66ff);color:#fff;font-weight:900}
+.conversationSearchRail__meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.conversationSearchRail__summary{font-size:12px;color:rgba(255,255,255,.62)}
+.conversationSearchRail__focusPill{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:rgba(255,220,120,.12);border:1px solid rgba(255,220,120,.18);font-size:11px;font-weight:800;color:rgba(255,236,170,.96)}
+.conversationSearchRail__actions,.conversationSearchRail__topActions{display:flex;gap:8px;flex-wrap:wrap}
+.conversationSearchRail__chip{min-height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);color:#fff;font-size:12px;font-weight:800}
+.conversationSearchRail__chip--ghost{background:transparent}
+.searchReturnBar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:0 0 12px;padding:12px 14px;border-radius:20px;border:1px solid rgba(122,140,255,.22);background:rgba(79,101,255,.10)}
+.searchReturnBar__copy{display:grid;gap:4px}
+.searchReturnBar__eyebrow{font-size:11px;font-weight:900;letter-spacing:.1em;color:rgba(145,170,255,.82);text-transform:uppercase}
+.searchReturnBar__copy p{margin:0;font-size:12px;color:rgba(255,255,255,.72)}
+.searchReturnBar__actions{display:flex;gap:8px;flex-wrap:wrap}
+.messageSearchHitBadge{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 8px;margin-bottom:8px;border-radius:999px;background:rgba(122,140,255,.18);border:1px solid rgba(122,140,255,.28);color:#dfe5ff;font-size:11px;font-weight:900;letter-spacing:.02em}
+.conversationSearchRail__chip--accent{background:rgba(122,140,255,.22);border-color:rgba(122,140,255,.34)}
+.msg--searchFocus .bubble{box-shadow:0 0 0 1px rgba(122,140,255,.42),0 0 0 8px rgba(122,140,255,.12)}
+.msgSearchMark{padding:0 .18em;border-radius:.42em;background:rgba(255,220,120,.88);color:#1f1605}
+
+.dockCardTitleRow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.dockSearchBadge,.searchReturnBar__chipPill{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:rgba(255,214,102,.14);border:1px solid rgba(255,214,102,.26);font-size:11px;font-weight:900;color:#ffd666;white-space:nowrap}
+.searchReturnBar__chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+
+.searchAnchorPulse{animation:searchAnchorPulse 1.8s ease}
+@keyframes searchAnchorPulse{0%{box-shadow:0 0 0 0 rgba(122,140,255,.42)}70%{box-shadow:0 0 0 12px rgba(122,140,255,0)}100%{box-shadow:0 0 0 0 rgba(122,140,255,0)}}
+@media (max-width:720px){
+  .conversationSearchRail{gap:10px}
+  .conversationSearchRail__copy strong{font-size:16px}
+  .conversationSearchRail__inputWrap{flex-direction:column}
+  .conversationSearchRail__submit{width:100%}
+  .searchReturnBar{display:grid}
+  .messageSearchHitBadge{margin-bottom:6px}
+  .searchReturnBar__actions{width:100%}
+}
+
 </style>
-
-
-
