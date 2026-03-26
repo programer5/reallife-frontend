@@ -134,38 +134,14 @@ function clearSearchFocus() {
   router.replace({ query }).catch(() => {});
 }
 
-const searchViewModel = {
-  conversationSearchQ,
-  searchRailExpanded,
-  conversationSearchSummary,
-  toggleSearchRail,
-  openConversationSearch,
-  openGlobalSearch,
-};
-
-const searchFocusModel = {
-  hasSearchFocus,
-  searchFocusTerm,
-  searchFocusMid,
-  searchFocusPinId,
-  searchFocusCapsuleId,
-  searchFocusSummary,
-  clearSearchFocus,
-  goBackToSearch,
-};
-
-const searchBridge = {
-  refocus: refocusSearchTarget,
-};
-
-const { shellProps, shellBindings, isShellReady } =
-    useConversationDetailShellMountBundle({
-      canViewConversation,
-      isMobileViewport,
-      viewModel: searchViewModel,
-      searchFocus: searchFocusModel,
-      searchBridge,
-    });
+function goBackToSearch() {
+  const q = String(searchFocusTerm.value || conversationSearchQ.value || "").trim();
+  if (!q) {
+    router.push({ path: "/search" });
+    return;
+  }
+  router.push({ path: "/search", query: { q } });
+}
 
 async function refocusSearchTarget() {
   if (searchFocusMid.value) {
@@ -910,6 +886,39 @@ const canViewConversation = computed(() => {
   if (!lockEnabled.value) return true;
   return !!unlocked.value;
 });
+
+const searchViewModel = {
+  conversationSearchQ,
+  searchRailExpanded,
+  conversationSearchSummary,
+  toggleSearchRail,
+  openConversationSearch,
+  openGlobalSearch,
+};
+
+const searchFocusModel = {
+  hasSearchFocus,
+  searchFocusTerm,
+  searchFocusMid,
+  searchFocusPinId,
+  searchFocusCapsuleId,
+  searchFocusSummary,
+  clearSearchFocus,
+  goBackToSearch,
+};
+
+const searchBridge = {
+  refocus: refocusSearchTarget,
+};
+
+const { shellProps, shellBindings, isShellReady } =
+    useConversationDetailShellMountBundle({
+      canViewConversation,
+      isMobileViewport,
+      viewModel: searchViewModel,
+      searchFocus: searchFocusModel,
+      searchBridge,
+    });
 
 watch(conversationId, () => {
   syncUnlockToken();
