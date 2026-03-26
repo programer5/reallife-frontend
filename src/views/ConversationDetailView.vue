@@ -13,7 +13,11 @@ import MessageAttachmentPreview from "@/components/chat/MessageAttachmentPreview
 import CapsuleComposerModal from "@/components/chat/CapsuleComposerModal.vue";
 import ConversationPendingBridge from "@/components/chat/ConversationPendingBridge.vue";
 import ConversationSearchSectionShell from "@/components/search/ConversationSearchSectionShell.vue";
+import ConversationDetailSearchReturnSection from "@/components/conversation/ConversationDetailSearchReturnSection.vue";
+import ConversationDetailSearchRailSection from "@/components/conversation/ConversationDetailSearchRailSection.vue";
 
+import { useConversationDetailSearchReturnSectionReactiveBinding } from "@/composables/useConversationDetailSearchReturnSectionReactiveBinding";
+import { useConversationDetailSearchRailSectionBinding } from "@/composables/useConversationDetailSearchRailSectionBinding";
 import { useConversationDetailShellMountBundle } from "@/composables/useConversationDetailShellMountBundle";
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -886,6 +890,36 @@ const canViewConversation = computed(() => {
   if (!lockEnabled.value) return true;
   return !!unlocked.value;
 });
+
+const searchReturnSectionBinding =
+    useConversationDetailSearchReturnSectionReactiveBinding({
+      canViewConversation,
+      hasSearchFocus,
+      searchFocusTerm,
+      searchFocusMid,
+      searchFocusPinId,
+      searchFocusCapsuleId,
+      searchFocusSummary,
+      refocusSearchTarget,
+      openConversationSearch,
+      clearSearchFocus,
+    });
+
+const searchRailSectionBinding =
+    useConversationDetailSearchRailSectionBinding({
+      canViewConversation: canViewConversation.value,
+      isMobileViewport: isMobileViewport.value,
+      searchRailExpanded: searchRailExpanded.value,
+      conversationSearchSummary: conversationSearchSummary.value,
+      hasSearchFocus: hasSearchFocus.value,
+      conversationSearchQ: conversationSearchQ.value,
+      setSearchQuery: (value) => {
+        conversationSearchQ.value = value;
+      },
+      toggleSearchRail,
+      openConversationSearch,
+      openGlobalSearch,
+    });
 
 const searchViewModel = {
   conversationSearchQ,
@@ -2706,42 +2740,15 @@ onBeforeUnmount(() => {
         v-on="shellBindings"
     />
 
-    <section class="conversationSearchRail rl-cardish" v-if="canViewConversation" :class="{ compact: isMobileViewport && !searchRailExpanded }">
-      <div class="conversationSearchRail__top">
-        <div class="conversationSearchRail__copy">
-          <div class="conversationSearchRail__eyebrow">Conversation OS</div>
-          <strong>찾고 바로 이어가기</strong>
-          <p v-if="!isMobileViewport || searchRailExpanded">대화, 액션, 캡슐을 한 번에 다시 찾고 바로 다음 행동으로 이어지게 설계했어요.</p>
-          <span v-else class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
-          <span v-if="isMobileViewport && !searchRailExpanded && hasSearchFocus" class="conversationSearchRail__focusPill">검색 결과 위치로 바로 이어지는 중</span>
-        </div>
-        <div class="conversationSearchRail__topActions">
-          <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="toggleSearchRail()">
-            {{ isMobileViewport && !searchRailExpanded ? "검색 열기" : "접기" }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="!isMobileViewport || searchRailExpanded" class="conversationSearchRail__controls">
-        <div class="conversationSearchRail__inputWrap">
-          <input
-            v-model.trim="conversationSearchQ"
-            class="conversationSearchRail__input"
-            placeholder="이 대화에서 찾고 싶은 키워드를 입력해 보세요"
-            @keydown.enter.prevent="openConversationSearch()"
-          />
-          <button type="button" class="conversationSearchRail__submit" @click="openConversationSearch()">검색</button>
-        </div>
-        <div class="conversationSearchRail__meta">
-          <span class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
-          <div class="conversationSearchRail__actions">
-            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('약속')">약속</button>
-            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('캡슐')">캡슐</button>
-            <button type="button" class="conversationSearchRail__chip" @click="openGlobalSearch()">전체 검색</button>
-          </div>
-        </div>
-      </div>
-    </section>
+    <ConversationDetailSearchRailSection
+        v-bind="searchRailSectionBinding.props"
+        @update:searchQuery="searchRailSectionBinding.emits.onUpdateSearchQuery"
+        @toggle="searchRailSectionBinding.emits.onToggle"
+        @search="searchRailSectionBinding.emits.onSearch"
+        @search-promise="searchRailSectionBinding.emits.onSearchPromise"
+        @search-capsule="searchRailSectionBinding.emits.onSearchCapsule"
+        @search-global="searchRailSectionBinding.emits.onSearchGlobal"
+    />
 
     <SseStatusBanner />
 
@@ -3035,139 +3042,12 @@ onBeforeUnmount(() => {
     />
 
     <!-- ✅ 메시지 스크롤 -->
-    <div v-else ref="scrollerRef" class="scroller rl-scroll rl-scroll--premium">
-      <div class="inner">
-        <div v-if="canViewConversation && hasSearchFocus" class="searchReturnBar rl-cardish">
-          <div class="searchReturnBar__copy">
-            <div class="searchReturnBar__eyebrow">Search Return</div>
-            <strong>검색 결과에서 다시 들어왔어요</strong>
-            <p>
-              <template v-if="searchFocusTerm">“{{ searchFocusTerm }}”</template>
-              <template v-if="searchFocusMid"> 메시지를 강조해서 보여주고, </template>
-              <template v-if="searchFocusPinId">액션 위치로 바로 이동하고, </template>
-              <template v-if="searchFocusCapsuleId">캡슐 영역도 같이 찾아드릴게요.</template>
-            </p>
-            <div v-if="searchFocusSummary" class="searchReturnBar__chips">
-              <span v-if="searchFocusMid" class="searchReturnBar__chipPill">메시지 위치</span>
-              <span v-if="searchFocusPinId" class="searchReturnBar__chipPill">액션 카드 강조</span>
-              <span v-if="searchFocusCapsuleId" class="searchReturnBar__chipPill">캡슐 카드 강조</span>
-            </div>
-          </div>
-          <div class="searchReturnBar__actions">
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="refocusSearchTarget">위치 다시 찾기</button>
-            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch(searchFocusTerm)">같은 검색 다시 보기</button>
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus">닫기</button>
-          </div>
-        </div>
-        <div class="more">
-          <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
-            이전 메시지 더 보기
-          </button>
-        </div>
-
-        <div
-            v-for="(m, i) in items"
-            :key="m.messageId"
-            class="msg"
-            :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId),
-            'msg--searchFocus': searchFocusMid === String(m.messageId),
-            'msg--groupPrev': isGroupWithPrev(i), 'msg--groupNext': isGroupWithNext(i),}"
-            :data-mid="m.messageId"
-        >
-          <div
-              v-if="unreadDividerMid && String(m.messageId) === String(unreadDividerMid)"
-              class="unreadDivider"
-          >
-            <span>읽지 않은 메시지</span>
-          </div>
-
-          <div class="bubble"
-            @contextmenu.prevent.stop="openMsgMenu($event, m)"
-            @touchstart.passive="onBubbleTouchStart($event, m)"
-            @touchend="onBubbleTouchEnd"
-            @touchcancel="onBubbleTouchEnd"
-            @click="onBubbleClick($event, m)"
-          >
-            <!-- ✅ Hover Action Bar (RealLife v1) -->
-            <div
-                class="hoverActions"
-                v-if="!editingMid || String(m.messageId) !== String(editingMid)"
-            >
-              <!-- 복사: 내/상대 모두 가능 -->
-              <button class="haBtn" type="button" title="복사" @click.stop="copyMessage(m)">⧉</button>
-
-              <!-- 수정: 내 메시지만 -->
-              <button
-                  v-if="isMineMessage(m)"
-                  class="haBtn"
-                  type="button"
-                  title="수정"
-                  @click.stop="startEdit(m)"
-              >✎</button>
-
-              <!-- 후보(약속/핀) 펼치기: 후보 있을 때만 -->
-              <button
-                  v-if="m.pinCandidates && m.pinCandidates.length"
-                  class="haBtn"
-                  type="button"
-                  :title="isCandidatesOpen(m.messageId) ? '후보 닫기' : '후보 보기'"
-                  @click.stop="toggleCandidates(m.messageId)"
-              >✨</button>
-            </div>
-
-            <!-- ✅ 저장됨 배지 -->
-            <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
-            <span v-if="searchFocusMid === String(m.messageId)" class="messageSearchHitBadge" aria-live="polite">검색 결과</span>
-
-            <!-- ✅ 본문 -->
-            <div class="text">
-              <!-- 편집 모드 -->
-              <template v-if="editingMid && String(m.messageId) === String(editingMid)">
-                <textarea
-                    v-model="editingText"
-                    class="editBox"
-                    rows="2"
-                    :disabled="savingEdit"
-                ></textarea>
-
-                <div class="editActions">
-                  <button class="editBtn" :disabled="savingEdit" @click="cancelEdit">취소</button>
-                  <button class="editBtn editBtn--primary" :disabled="savingEdit" @click="saveEdit(m)">
-                    저장
-                  </button>
-                </div>
-              </template>
-
-              <!-- 일반 모드 -->
-              <template v-else>
-                <div>
-                  <span v-html="renderMessageHtml(m)"></span>
-                  <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
-                </div>
-              </template>
-            </div>
-
-            <MessageAttachmentPreview v-if="Array.isArray(m.attachments) && m.attachments.length" :items="m.attachments" class="messageAttachmentBlock" />
-
-            <!-- ✅ optimistic send 상태 -->
-            <div v-if="m._status" class="sendState" :data-status="m._status">
-              <template v-if="m._status === 'sending'">전송 중…</template>
-
-              <template v-else-if="m._status === 'failed'">
-                전송 실패
-                <button class="retryBtn" type="button" @click="retrySend(m)">재시도</button>
-              </template>
-            </div>
-          </div>
-
-          <div v-if="getReadLabel(m)" class="readReceipt">{{ getReadLabel(m) }}</div>
-
-          <div v-if="!isGroupWithNext(i)" class="time">{{ messageTimeText(m) }}</div>
-        </div>
-
-        <div class="bottomSpacer"></div>
-      </div>
-    </div>
+    <ConversationDetailSearchReturnSection
+        v-bind="searchReturnSectionBinding.props"
+        @refocus="searchReturnSectionBinding.emits.onRefocus"
+        @open-search="searchReturnSectionBinding.emits.onOpenSearch"
+        @close="searchReturnSectionBinding.emits.onClose"
+    />
 
     <!-- ✅ 새 메시지 배너 -->
     <button v-if="newMsgCount > 0" class="newBanner" type="button" @click="jumpToNewest">
