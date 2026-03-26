@@ -12,7 +12,9 @@ import MessageAttachmentPicker from "@/components/chat/MessageAttachmentPicker.v
 import MessageAttachmentPreview from "@/components/chat/MessageAttachmentPreview.vue";
 import CapsuleComposerModal from "@/components/chat/CapsuleComposerModal.vue";
 import ConversationPendingBridge from "@/components/chat/ConversationPendingBridge.vue";
+import ConversationSearchSectionShell from "@/components/search/ConversationSearchSectionShell.vue";
 
+import { useConversationDetailShellMountBundle } from "@/composables/useConversationDetailShellMountBundle";
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
 import { fetchConversationReadState } from "@/api/conversations";
@@ -131,6 +133,39 @@ function clearSearchFocus() {
   delete query.capsuleId;
   router.replace({ query }).catch(() => {});
 }
+
+const searchViewModel = {
+  conversationSearchQ,
+  searchRailExpanded,
+  conversationSearchSummary,
+  toggleSearchRail,
+  openConversationSearch,
+  openGlobalSearch,
+};
+
+const searchFocusModel = {
+  hasSearchFocus,
+  searchFocusTerm,
+  searchFocusMid,
+  searchFocusPinId,
+  searchFocusCapsuleId,
+  searchFocusSummary,
+  clearSearchFocus,
+  goBackToSearch,
+};
+
+const searchBridge = {
+  refocus: refocusSearchTarget,
+};
+
+const { shellProps, shellBindings, isShellReady } =
+    useConversationDetailShellMountBundle({
+      canViewConversation,
+      isMobileViewport,
+      viewModel: searchViewModel,
+      searchFocus: searchFocusModel,
+      searchBridge,
+    });
 
 async function refocusSearchTarget() {
   if (searchFocusMid.value) {
@@ -2655,6 +2690,12 @@ onBeforeUnmount(() => {
         </RlButton>
       </div>
     </div>
+
+    <ConversationSearchSectionShell
+        v-if="isShellReady"
+        v-bind="shellProps"
+        v-on="shellBindings"
+    />
 
     <section class="conversationSearchRail rl-cardish" v-if="canViewConversation" :class="{ compact: isMobileViewport && !searchRailExpanded }">
       <div class="conversationSearchRail__top">
