@@ -18,6 +18,7 @@ import ConversationDetailSearchRailSection from "@/components/conversation/Conve
 
 import { useConversationDetailSearchReturnSectionReactiveBinding } from "@/composables/useConversationDetailSearchReturnSectionReactiveBinding";
 import { useConversationDetailShellMountBundle } from "@/composables/useConversationDetailShellMountBundle";
+import { useConversationDetailDockPresentation } from "@/composables/useConversationDetailDockPresentation";
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
 import { fetchConversationReadState } from "@/api/conversations";
@@ -1152,6 +1153,25 @@ const reminderDueSoonCount = computed(() => {
   }).length;
 });
 
+const {
+  pinActivityLabel,
+  pinActivityTone,
+  pinActivityMeta,
+  pinTimelineTimeText,
+  pinTimelineEvents,
+  pinPrimarySummary,
+  pinSecondarySummary,
+  pinCtaHint,
+  feedShareTextForPin,
+  feedShareMetaForPin,
+} = useConversationDetailDockPresentation({
+  classifyPin,
+  pinKindMeta,
+  pinTimelineState,
+  pinTimeText,
+  reminderTimeText,
+});
+
 const reminderTodayCount = computed(() => {
   const now = new Date();
   return upcomingReminderPins.value.filter((p) => {
@@ -1177,24 +1197,6 @@ function openReminderPins(pin) {
 }
 
 const recentPinActivity = computed(() => pinActivity.value.slice(0, 4));
-
-function pinActivityLabel(item) {
-  if (item?.action === "DONE") return "완료";
-  if (item?.action === "CANCELED") return "취소";
-  return "숨김";
-}
-
-function pinActivityTone(item) {
-  if (item?.action === "DONE") return "done";
-  if (item?.action === "CANCELED") return "cancel";
-  return "hide";
-}
-
-function pinActivityMeta(item) {
-  const when = item?.startAt ? pinTimeText(item) : "방금 처리";
-  const place = item?.placeText ? ` · ${item.placeText}` : "";
-  return `${when}${place}`;
-}
 
 const timelinePrimaryMeta = computed(() => {
   if (dockTimelineSummary.value.nextLabel) return dockTimelineSummary.value.nextLabel;
@@ -1248,38 +1250,6 @@ const timelineActionPath = computed(() => {
   };
 });
 
-function pinPrimarySummary(pin) {
-  const kind = classifyPin(pin);
-  const state = pinTimelineState(pin);
-  if (kind === 'PROMISE') {
-    if (pin?.startAt) return `${state.label} · ${pinTimeText(pin)}`;
-    return '시간을 정하면 약속 흐름이 더 선명해져요';
-  }
-  if (kind === 'TODO') {
-    return pin?.remindAt ? `리마인드 예정 · ${reminderTimeText(pin)}` : '체크 전 상태예요';
-  }
-  return pin?.placeText ? `${pin.placeText} 저장됨` : '다음에 다시 꺼낼 장소예요';
-}
-
-function pinSecondarySummary(pin) {
-  const kind = classifyPin(pin);
-  if (kind === 'PROMISE') {
-    return pin?.placeText ? '장소와 시간을 확인한 뒤 완료 또는 일정 조정' : '시간과 장소를 보강해 약속 맥락 완성';
-  }
-  if (kind === 'TODO') {
-    return pin?.startAt ? '시간에 맞춰 처리하거나 완료로 정리' : '완료 처리하거나 필요하면 리마인드 추가';
-  }
-  return pin?.remindAt ? '리마인드 시점 전에 다시 확인' : '필요하면 메모를 덧붙여 공유하기';
-}
-
-function pinCtaHint(pin) {
-  const kind = classifyPin(pin);
-  if (kind === 'PROMISE') return '시간 변경, 완료 처리, 피드 공유까지 한 카드에서 이어갈 수 있어요';
-  if (kind === 'TODO') return '할 일은 완료 처리와 리마인드 정리가 가장 빠른 다음 액션이에요';
-  return '장소는 수정 후 공유해 두면 나중에 다시 찾기 쉬워져요';
-}
-
-
 function pinTimelineEvents(pin) {
   const events = [];
   if (pin?.createdAt) {
@@ -1311,15 +1281,6 @@ function pinTimelineEvents(pin) {
   return events
     .filter((event) => event.time)
     .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-}
-
-function pinTimelineTimeText(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).replace('T', ' ').slice(0, 16);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${hh}:${mi}`;
 }
 
 async function loadPins() {
@@ -1438,59 +1399,6 @@ function fromLocalInput(v) {
   return v.length === 16 ? `${v}:00` : v;
 }
 
-
-function feedShareTextForPin(pin) {
-  const meta = pinKindMeta(pin);
-  const title = String(pin?.title || meta.label || "액션").trim();
-  const time = pin?.startAt ? pinTimeText(pin) : "";
-  const place = String(pin?.placeText || "").trim();
-  const remind = pin?.remindAt ? reminderTimeText(pin) : "";
-
-  return [
-    `${meta.emoji} ${title}`,
-    time ? `🕒 ${time}` : "",
-    place ? `📍 ${place}` : "",
-    remind && remind !== "리마인드 없음" ? `⏰ ${remind}` : "",
-    "",
-    "#RealLife",
-  ]
-      .filter((line, idx, arr) => {
-        if (line) return true;
-        return idx === arr.length - 2; // 해시태그 위 한 줄 띄우기용 빈 줄만 유지
-      })
-      .join("\n");
-}
-
-function feedShareMetaForPin(pin) {
-  const meta = pinKindMeta(pin);
-  const title = String(pin?.title || meta.label || "액션").trim();
-  const time = pin?.startAt ? pinTimeText(pin) : "시간 미정";
-  const place = String(pin?.placeText || "장소 미정").trim();
-  const remind = pin?.remindAt ? reminderTimeText(pin) : "리마인드 없음";
-
-  const chips = [
-    time ? `🕒 ${time}` : "",
-    place ? `📍 ${place}` : "",
-    remind && remind !== "리마인드 없음" ? `⏰ ${remind}` : "",
-  ].filter(Boolean);
-
-  return {
-    badge: "액션 공유",
-    title,
-    subtitle: [meta.label, place !== "장소 미정" ? place : ""].filter(Boolean).join(" · "),
-    description: [time, place].filter(Boolean).join(" · "),
-    state: remind && remind !== "리마인드 없음" ? "리마인더 설정됨" : meta.label,
-    status: remind && remind !== "리마인드 없음" ? remind : meta.label,
-
-    kind: meta.label,
-    emoji: meta.emoji,
-
-    time,
-    place,
-    remindAt: remind && remind !== "리마인드 없음" ? remind : "",
-    chips,
-  };
-}
 
 function sharePinToFeed(pin) {
   try {
