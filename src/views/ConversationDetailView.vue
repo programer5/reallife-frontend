@@ -266,6 +266,9 @@ function activateSessionControls(session, { scroll = false, switchMode = true } 
     joinedSessionIds.value = [...joinedSessionIds.value, sessionId];
   }
   if (switchMode) uiMode.value = 'watch';
+  messageStageMode.value = 'stream';
+  stageDeckOpen.value = false;
+  openCommandDeck('sessions');
   if (scroll) {
     nextTick(() => {
       sessionHubRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
@@ -289,6 +292,29 @@ const focusModeTabs = computed(() => ([
 ]));
 
 const currentSessionMini = computed(() => featuredActiveSession.value || activeSessions.value?.[0] || null);
+const railPrimarySession = computed(() => spotlightMessage.value && isSessionMessage(spotlightMessage.value) ? sessionForMessage(spotlightMessage.value) : currentSessionMini.value);
+
+function openRailSession() {
+  const session = railPrimarySession.value || currentSessionMini.value;
+  lensLauncherOpen.value = false;
+  if (!session?.sessionId) {
+    openCommandDeck('sessions');
+    return;
+  }
+  activateSessionControls(session, { scroll: true, switchMode: false });
+  openCommandDeck('sessions');
+}
+
+function activateSessionFromMessage(session, options = {}) {
+  if (!session?.sessionId) {
+    openCommandDeck('sessions');
+    return;
+  }
+  lensLauncherOpen.value = false;
+  stageDeckOpen.value = false;
+  activateSessionControls(session, { scroll: true, switchMode: false, ...options });
+  openCommandDeck('sessions');
+}
 
 function setUiMode(mode) {
   uiMode.value = mode;
@@ -321,10 +347,10 @@ const commandDeckTab = ref('search');
 const lensLauncherOpen = ref(false);
 
 const commandDeckTabs = computed(() => ([
-  { key: 'search', label: '검색', count: items.value?.length || 0 },
-  { key: 'actions', label: '액션', count: activeCount.value || 0 },
-  { key: 'capsules', label: '캡슐', count: capsuleItems.value?.length || 0 },
-  { key: 'sessions', label: '세션', count: (activeSessions.value?.length || 0) + (recentSessions.value?.length || 0) },
+  { key: 'search', label: '검색', count: items.value?.length || 0, badge: items.value?.length || 0 },
+  { key: 'actions', label: '액션', count: activeCount.value || 0, badge: activeCount.value || 0 },
+  { key: 'capsules', label: '캡슐', count: capsuleItems.value?.length || 0, badge: capsuleItems.value?.length || 0 },
+  { key: 'sessions', label: '세션', count: (activeSessions.value?.length || 0) + (recentSessions.value?.length || 0), badge: (activeSessions.value?.length || 0) + (recentSessions.value?.length || 0) },
 ]));
 
 const filteredPins = computed(() => {
@@ -336,6 +362,8 @@ const filteredPins = computed(() => {
 
 const messageStageMode = ref('stream');
 const stageFilter = ref('all');
+const stageDeckOpen = ref(false);
+const stageSheetTab = ref('overview');
 
 function messageHasAttachment(message) {
   return Array.isArray(message?.attachments) && message.attachments.length > 0;
@@ -345,6 +373,9 @@ function messageHasActionCandidate(message) {
 }
 function isHighlightedMessage(message) {
   return searchFocusMid.value && String(searchFocusMid.value) === String(message?.messageId || '');
+}
+function isStageCandidate(message) {
+  return stagePool.value.some((item) => String(item?.messageId || '') === String(message?.messageId || ''));
 }
 
 const stagePool = computed(() => {
@@ -366,12 +397,14 @@ const stageFilteredMessages = computed(() => {
   return source;
 });
 
-const visibleMessages = computed(() => {
-  if (messageStageMode.value === 'stage') {
-    return stageFilteredMessages.value.length ? stageFilteredMessages.value : items.value;
-  }
-  return items.value;
+const visibleMessages = computed(() => items.value);
+
+const stageStackCards = computed(() => {
+  const source = stageFilteredMessages.value.length ? stageFilteredMessages.value : stagePool.value;
+  return source.slice(-4).reverse();
 });
+
+const stageRailCards = computed(() => stageStackCards.value.slice(0, 3));
 
 const stageStats = computed(() => ({
   total: stagePool.value.length,
@@ -392,6 +425,22 @@ const spotlightMessage = computed(() => {
   const source = stageFilteredMessages.value;
   return source.length ? source[source.length - 1] : null;
 });
+
+const stageSheetTabs = computed(() => ([
+  { key: 'overview', label: '개요', count: stageStats.value.total },
+  { key: 'sessions', label: '세션', count: stageStats.value.sessions },
+  { key: 'actions', label: '액션', count: stageStats.value.actions },
+  { key: 'media', label: '미디어', count: stageStats.value.media },
+]));
+
+const stageSheetSessions = computed(() => stagePool.value.filter((message) => isSessionMessage(message)).slice().reverse());
+const stageSheetActions = computed(() => stagePool.value.filter((message) => messageHasActionCandidate(message)).slice().reverse());
+const stageSheetMedia = computed(() => stagePool.value.filter((message) => messageHasAttachment(message)).slice().reverse());
+
+function openStageSheet(tab = 'overview') {
+  stageSheetTab.value = tab;
+  stageDeckOpen.value = true;
+}
 
 function openCommandDeck(tab = 'search') {
   commandDeckTab.value = tab;
@@ -416,11 +465,21 @@ function toggleLensLauncher() {
 }
 
 function openLensDeck(tab = 'search') {
+  if (tab === 'sessions') {
+    openCommandDeck('sessions');
+    stageSheetTab.value = 'sessions';
+    lensLauncherOpen.value = false;
+    return;
+  }
   openCommandDeck(tab);
 }
 
 watch(commandDeckOpen, (open) => {
   if (open) lensLauncherOpen.value = false;
+});
+
+watch(messageStageMode, (mode) => {
+  if (mode === 'stage') stageDeckOpen.value = true;
 });
 
 function toggleSessionHistory() {
@@ -1895,6 +1954,92 @@ const pageRef = ref(null);
 const composerRef = ref(null);
 
 const flashMid = ref("");
+const messageDepthEnabled = ref(true);
+const focusedDepthMid = ref("");
+const depthPeel = ref(0);
+
+
+function messageElementSelector(messageId) {
+  if (messageId == null) return "";
+  try {
+    return `[data-mid="${CSS.escape(String(messageId))}"]`;
+  } catch {
+    return `[data-mid="${String(messageId)}"]`;
+  }
+}
+
+function updateMessageDepthFocus() {
+  const el = scrollerRef.value;
+  if (!el) return;
+  const nodes = Array.from(el.querySelectorAll('[data-mid]'));
+  if (!nodes.length) {
+    focusedDepthMid.value = '';
+    depthPeel.value = 0;
+    return;
+  }
+  const rect = el.getBoundingClientRect();
+  const center = rect.top + rect.height * 0.46;
+  let best = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const node of nodes) {
+    const r = node.getBoundingClientRect();
+    const nodeCenter = r.top + r.height / 2;
+    const dist = Math.abs(nodeCenter - center);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = node;
+    }
+  }
+  focusedDepthMid.value = best?.getAttribute('data-mid') || '';
+  const maxTravel = Math.max(rect.height * 0.5, 1);
+  depthPeel.value = Math.max(0, Math.min(1, bestDist / maxTravel));
+}
+
+function focusDepthMessage(messageId, { smooth = true } = {}) {
+  const selector = messageElementSelector(messageId);
+  if (!selector) return;
+  const target = scrollerRef.value?.querySelector(selector) || document.querySelector(selector);
+  if (!target?.scrollIntoView) return;
+  target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' });
+  focusedDepthMid.value = String(messageId);
+  target.classList.add('depthSpotPulse');
+  setTimeout(() => target.classList.remove('depthSpotPulse'), 1600);
+}
+
+function messageDepthRank(index) {
+  const focusId = String(focusedDepthMid.value || '');
+  if (!messageDepthEnabled.value || !focusId) return 'flat';
+  const focusIndex = items.value.findIndex((item) => String(item?.messageId || '') === focusId);
+  if (focusIndex < 0) return 'flat';
+  const delta = index - focusIndex;
+  const distance = Math.abs(delta);
+  if (distance === 0) return 'focus';
+  if (distance === 1) return delta < 0 ? 'near-prev' : 'near-next';
+  if (distance === 2) return delta < 0 ? 'mid-prev' : 'mid-next';
+  return delta < 0 ? 'far-prev' : 'far-next';
+}
+
+function messageDepthStyle(index) {
+  if (!messageDepthEnabled.value) return {};
+  const rank = messageDepthRank(index);
+  const peel = depthPeel.value;
+  const styles = {
+    focus: { '--depth-scale': '1', '--depth-blur': '0px', '--depth-opacity': '1', '--depth-y': '0px', '--depth-z': '0px' },
+    'near-prev': { '--depth-scale': '0.992', '--depth-blur': `${0.4 + peel * 0.8}px`, '--depth-opacity': `${0.96 - peel * 0.04}`, '--depth-y': '-4px', '--depth-z': '-4px' },
+    'near-next': { '--depth-scale': '0.994', '--depth-blur': `${0.4 + peel * 0.8}px`, '--depth-opacity': `${0.97 - peel * 0.04}`, '--depth-y': '5px', '--depth-z': '-4px' },
+    'mid-prev': { '--depth-scale': '0.984', '--depth-blur': `${1.2 + peel * 1.2}px`, '--depth-opacity': `${0.88 - peel * 0.06}`, '--depth-y': '-8px', '--depth-z': '-10px' },
+    'mid-next': { '--depth-scale': '0.986', '--depth-blur': `${1.2 + peel * 1.2}px`, '--depth-opacity': `${0.9 - peel * 0.06}`, '--depth-y': '9px', '--depth-z': '-10px' },
+    'far-prev': { '--depth-scale': '0.974', '--depth-blur': `${2 + peel * 1.5}px`, '--depth-opacity': `${0.78 - peel * 0.08}`, '--depth-y': '-12px', '--depth-z': '-16px' },
+    'far-next': { '--depth-scale': '0.976', '--depth-blur': `${2 + peel * 1.5}px`, '--depth-opacity': `${0.8 - peel * 0.08}`, '--depth-y': '13px', '--depth-z': '-16px' },
+    flat: { '--depth-scale': '1', '--depth-blur': '0px', '--depth-opacity': '1', '--depth-y': '0px', '--depth-z': '0px' },
+  };
+  const result = styles[rank] || styles.flat;
+  if (rank === 'near-prev' || rank === 'near-next') result['--depth-overlap'] = '6px';
+  else if (rank === 'mid-prev' || rank === 'mid-next') result['--depth-overlap'] = '10px';
+  else if (rank === 'far-prev' || rank === 'far-next') result['--depth-overlap'] = '12px';
+  else result['--depth-overlap'] = '0px';
+  return result;
+}
 
 
 function syncComposerHeightVar() {
@@ -2093,6 +2238,7 @@ function onBubbleTouchEnd() {
 }
 
 function onBubbleClick(e, m) {
+  focusedDepthMid.value = String(m?.messageId || '');
   if (!isTouchUi.value) return;
   const t = e?.target;
   if (t?.closest?.("button, a, textarea, input, select, .hoverActions")) return;
@@ -2239,6 +2385,7 @@ function appendIncomingMessage(payload) {
 function onScroll() {
   const el = scrollerRef.value;
   if (!el) return;
+  updateMessageDepthFocus();
 
   if (el.scrollTop < 12) {
     if (hasNext.value && !loading.value) loadMore();
@@ -2794,6 +2941,22 @@ async function syncTailAfterReconnect() {
   } catch {}
 }
 
+watch(() => items.value.length, async () => {
+  await nextTick();
+  updateMessageDepthFocus();
+});
+
+watch(() => messageStageMode.value, async () => {
+  await nextTick();
+  updateMessageDepthFocus();
+});
+
+watch(() => commandDeckOpen.value, async (open) => {
+  if (open) return;
+  await nextTick();
+  updateMessageDepthFocus();
+});
+
 onMounted(async () => {
   const ok = await ensureSessionOrRedirect();
   if (!ok) return;
@@ -3030,24 +3193,25 @@ onBeforeUnmount(() => {
 
     <section v-if="canViewConversation" class="messageOrbitBar rl-cardish">
       <div class="messageOrbitBar__main">
-        <button type="button" class="messageOrbitBar__lens" @click="toggleCommandDeck('search')">{{ commandDeckOpen ? '렌즈 닫기' : '렌즈 열기' }}</button>
+        <button type="button" class="messageOrbitBar__lens" @click="toggleCommandDeck(commandDeckOpen ? commandDeckTab : 'search')">
+          <span class="messageOrbitBar__lensBadge">{{ commandDeckOpen ? '닫기' : '렌즈' }}</span>
+          <strong>{{ commandDeckOpen ? '도구 패널 닫기' : '도구 꺼내기' }}</strong>
+        </button>
         <div class="messageOrbitBar__copy">
-          <div class="messageOrbitBar__eyebrow">Message stage</div>
-          <strong>{{ messageStageMode === 'stage' ? '핵심 장면 위주로 보기' : '전체 대화 흐름 보기' }}</strong>
+          <div class="messageOrbitBar__eyebrow">Message canvas</div>
+          <strong>{{ messageStageMode === 'stage' ? '핵심 장면 위주로 점프' : '메시지를 읽으면서 필요한 도구만 꺼내기' }}</strong>
         </div>
       </div>
-      <div class="messageOrbitBar__chips">
-        <button type="button" class="messageOrbitBar__chip" :class="{ on: messageStageMode === 'stream' }" @click="messageStageMode = 'stream'">전체 <small>{{ items.length }}</small></button>
-        <button type="button" class="messageOrbitBar__chip" :class="{ on: messageStageMode === 'stage' }" @click="messageStageMode = 'stage'">스테이지 <small>{{ stageStats.total }}</small></button>
-        <button type="button" class="messageOrbitBar__chip" @click="toggleCommandDeck('actions')">액션 <small>{{ activeCount }}</small></button>
-        <button type="button" class="messageOrbitBar__chip" @click="toggleCommandDeck('sessions')">세션 <small>{{ activeSessions.length + recentSessions.length }}</small></button>
-        <button type="button" class="messageOrbitBar__chip messageOrbitBar__chip--accent" @click="openSessionModal">세션 만들기</button>
+      <div class="messageOrbitBar__chips messageOrbitBar__chips--compact">
+        <button type="button" class="messageOrbitBar__chip" :class="{ on: messageDepthEnabled }" @click="messageDepthEnabled = !messageDepthEnabled">깊이감 <small>{{ messageDepthEnabled ? 'ON' : 'OFF' }}</small></button>
+        <button type="button" class="messageOrbitBar__chip" @click="openStageSheet('overview')">무대 <small>{{ stageStats.total }}</small></button>
+        <button v-if="railPrimarySession" type="button" class="messageOrbitBar__chip messageOrbitBar__chip--accent" @click="openRailSession">현재 세션</button>
       </div>
-      <div v-if="currentSessionMini" class="messageOrbitBar__floating" @click="openCommandDeck('sessions')">
+      <button v-if="railPrimarySession" type="button" class="messageOrbitBar__floating" @click="openRailSession">
         <span class="messageOrbitBar__floatingTag">Now</span>
-        <strong>{{ currentSessionMini.title || '공동 플레이' }}</strong>
-        <span>{{ currentSessionMini.playbackState === 'PLAYING' ? '재생 중' : currentSessionMini.status === 'ENDED' ? '기록' : '대기' }}</span>
-      </div>
+        <strong>{{ railPrimarySession.title || '공동 플레이' }}</strong>
+        <span>{{ railPrimarySession.playbackState === 'PLAYING' ? '재생 중' : railPrimarySession.status === 'ENDED' ? '기록' : '대기' }}</span>
+      </button>
     </section>
 
     <SseStatusBanner />
@@ -3119,33 +3283,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section v-if="canViewConversation" class="messageStagePanel rl-cardish" :class="{ compact: messageStageMode === 'stream' }">
-          <div class="messageStagePanel__head">
-            <div>
-              <div class="messageStagePanel__eyebrow">Conversation stage</div>
-              <strong>{{ stageHeadline }}</strong>
-              <p>{{ messageStageMode === 'stage' ? '전체 메시지 중 다시 보기 좋은 장면만 앞으로 당겨서 보여줘요.' : '필요하면 스테이지로 바꿔 핵심 장면만 빠르게 훑을 수 있어요.' }}</p>
-            </div>
-            <div class="messageStagePanel__actions">
-              <button type="button" class="messageStagePanel__mode" :class="{ on: messageStageMode === 'stream' }" @click="messageStageMode = 'stream'">Stream</button>
-              <button type="button" class="messageStagePanel__mode" :class="{ on: messageStageMode === 'stage' }" @click="messageStageMode = 'stage'">Stage</button>
-            </div>
-          </div>
-          <div class="messageStagePanel__filters">
-            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'all' }" @click="stageFilter = 'all'">전체 장면 <small>{{ stageStats.total }}</small></button>
-            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'sessions' }" @click="stageFilter = 'sessions'">세션 <small>{{ stageStats.sessions }}</small></button>
-            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'media' }" @click="stageFilter = 'media'">미디어 <small>{{ stageStats.media }}</small></button>
-            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'actions' }" @click="stageFilter = 'actions'">액션 <small>{{ stageStats.actions }}</small></button>
-          </div>
-          <div v-if="spotlightMessage" class="messageSpotlight" @click="ensureMessageVisible(spotlightMessage.messageId, 4)">
-            <div class="messageSpotlight__label">Spotlight</div>
-            <div class="messageSpotlight__body">
-              <strong>{{ isSessionMessage(spotlightMessage) ? '공동 플레이 장면' : spotlightMessage.content || '메시지 장면' }}</strong>
-              <p>{{ isSessionMessage(spotlightMessage) ? '세션 카드로 바로 이동해 다시 이어볼 수 있어요.' : '최근 핵심 장면으로 바로 점프할 수 있어요.' }}</p>
-            </div>
-            <button type="button" class="messageSpotlight__jump">이 장면 보기</button>
-          </div>
-        </section>
+        
 
         <div class="more">
           <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
@@ -3159,7 +3297,9 @@ onBeforeUnmount(() => {
             class="msg"
             :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId),
             'msg--searchFocus': searchFocusMid === String(m.messageId),
-            'msg--groupPrev': isGroupWithPrev(i), 'msg--groupNext': isGroupWithNext(i),}"
+            'msg--groupPrev': isGroupWithPrev(i), 'msg--groupNext': isGroupWithNext(i),
+            depthOn: messageDepthEnabled, depthFocused: String(focusedDepthMid) === String(m.messageId), [`depthRank--${messageDepthRank(i)}`]: messageDepthEnabled, stageMuted: messageStageMode === 'stage' && stageDeckOpen && !isStageCandidate(m) }"
+            :style="messageDepthStyle(i)"
             :data-mid="m.messageId"
         >
           <div
@@ -3238,7 +3378,7 @@ onBeforeUnmount(() => {
                     :session="sessionForMessage(m)"
                     :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
                     :current-user-id="meId"
-                    @activate-session="activateSessionControls($event, { scroll: true })"
+                    @activate-session="activateSessionFromMessage($event)"
                     @play="onPlaybackPlay"
                     @pause="onPlaybackPause"
                     @seek="onPlaybackSeek"
@@ -3286,18 +3426,95 @@ onBeforeUnmount(() => {
 
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
     <div ref="composerRef" class="composerWrap" v-if="canViewConversation">
-      <div class="lensLauncher" :class="{ open: lensLauncherOpen }">
-        <button type="button" class="lensLauncher__toggle" @click="toggleLensLauncher">
-          {{ lensLauncherOpen ? '렌즈 닫기' : '렌즈' }}
-        </button>
+      <teleport to="body">
+        <div v-if="canViewConversation && stageDeckOpen" class="messageStageSheetBackdrop" @click.self="stageDeckOpen = false">
+          <section class="messageStageSheet rl-cardish">
+            <div class="messageStageSheet__grab"></div>
+            <div class="messageStageSheet__head">
+              <div>
+                <div class="messageStageRail__eyebrow">Message stage</div>
+                <strong>메시지를 가리지 않고, 핵심 장면만 카드 탭으로 꺼내서 봐요.</strong>
+                <p>{{ stageHeadline }}</p>
+              </div>
+              <button type="button" class="messageStageSheet__close" @click="stageDeckOpen = false">닫기</button>
+            </div>
+            <div class="messageStageSheetTabs">
+              <button v-for="tab in stageSheetTabs" :key="`stage-sheet-${tab.key}`" type="button" class="messageStageSheetTabs__tab" :class="{ on: stageSheetTab === tab.key }" @click="stageSheetTab = tab.key">
+                <span>{{ tab.label }}</span>
+                <small>{{ tab.count }}</small>
+              </button>
+            </div>
+            <div v-if="stageSheetTab === 'overview'" class="messageStageSheetBody">
+              <button v-if="spotlightMessage" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(spotlightMessage.messageId, 4); stageDeckOpen = false">
+                <span class="messageStageSheetCard__tag">NOW FOCUS</span>
+                <strong>{{ spotlightMessage.content || '핵심 장면' }}</strong>
+                <p>지금 가장 중요한 장면으로 바로 점프해요.</p>
+              </button>
+              <div v-if="stageRailCards.length" class="messageStageSheetMiniStack">
+                <button v-for="stackMessage in stageRailCards" :key="`stage-mini-${stackMessage.messageId}`" type="button" class="messageStageSheetMiniStack__card" @click="ensureMessageVisible(stackMessage.messageId, 4); stageDeckOpen = false">
+                  <span>{{ isSessionMessage(stackMessage) ? 'SESSION' : messageHasAttachment(stackMessage) ? 'MEDIA' : messageHasActionCandidate(stackMessage) ? 'ACTION' : 'MESSAGE' }}</span>
+                  <strong>{{ stackMessage.content || '핵심 장면' }}</strong>
+                </button>
+              </div>
+            </div>
+            <div v-else-if="stageSheetTab === 'sessions'" class="messageStageSheetBody">
+              <button v-for="sessionMessage in stageSheetSessions" :key="`stage-session-${sessionMessage.messageId}`" type="button" class="messageStageSheetCard" @click="activateSessionFromMessage(sessionForMessage(sessionMessage))">
+                <span class="messageStageSheetCard__tag">SESSION</span>
+                <strong>{{ sessionMessage.content || '공동 플레이 장면' }}</strong>
+                <p>{{ sessionForMessage(sessionMessage)?.title || '현재 세션으로 열어서 바로 이어볼 수 있어요.' }}</p>
+              </button>
+              <div v-if="!stageSheetSessions.length" class="messageStageSheetEmpty">세션 장면이 아직 없어요.</div>
+            </div>
+            <div v-else-if="stageSheetTab === 'actions'" class="messageStageSheetBody">
+              <button v-for="actionMessage in stageSheetActions" :key="`stage-action-${actionMessage.messageId}`" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(actionMessage.messageId, 4); stageDeckOpen = false">
+                <span class="messageStageSheetCard__tag">ACTION</span>
+                <strong>{{ actionMessage.content || '액션 장면' }}</strong>
+                <p>약속·할 일 후보가 있는 메시지로 바로 이동해요.</p>
+              </button>
+              <div v-if="!stageSheetActions.length" class="messageStageSheetEmpty">액션 장면이 아직 없어요.</div>
+            </div>
+            <div v-else class="messageStageSheetBody">
+              <button v-for="mediaMessage in stageSheetMedia" :key="`stage-media-${mediaMessage.messageId}`" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(mediaMessage.messageId, 4); stageDeckOpen = false">
+                <span class="messageStageSheetCard__tag">MEDIA</span>
+                <strong>{{ mediaMessage.content || '미디어 장면' }}</strong>
+                <p>첨부·링크가 있는 메시지로 바로 이동해요.</p>
+              </button>
+              <div v-if="!stageSheetMedia.length" class="messageStageSheetEmpty">미디어 장면이 아직 없어요.</div>
+            </div>
+          </section>
+        </div>
+      </teleport>
+      <div class="lensLauncher lensLauncher--dock" :class="{ open: lensLauncherOpen }">
+        <div class="lensLauncher__dockRow">
+          <button type="button" class="lensLauncher__toggle lensLauncher__toggle--fab" @click="toggleLensLauncher">
+            <span class="lensLauncher__toggleLabel">{{ lensLauncherOpen ? '닫기' : '렌즈' }}</span>
+            <strong>{{ commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.label || '검색' }}</strong>
+          </button>
+          <button v-if="railPrimarySession" type="button" class="lensLauncher__dockChip lensLauncher__dockChip--accent" @click="openRailSession">현재 세션</button>
+          <button type="button" class="lensLauncher__dockChip" @click="openStageSheet('overview')">무대</button>
+        </div>
         <div v-if="lensLauncherOpen" class="lensLauncher__menu rl-cardish">
-          <button v-for="tab in commandDeckTabs" :key="`launcher-${tab.key}`" type="button" class="lensLauncher__chip" @click="openLensDeck(tab.key)">
-            {{ tab.label }}
-            <small>{{ tab.count }}</small>
-          </button>
-          <button type="button" class="lensLauncher__chip lensLauncher__chip--accent" @click="lensLauncherOpen = false; openSessionModal()">
-            세션 만들기
-          </button>
+          <div class="lensLauncher__menuHead">
+            <strong>빠른 도구</strong>
+            <span>입력창을 가리지 않고 아래에서 바로 꺼내 써요</span>
+          </div>
+          <div v-if="railPrimarySession" class="lensLauncher__hero">
+            <span class="lensLauncher__heroTag">Now</span>
+            <strong>{{ railPrimarySession.title || '공동 플레이' }}</strong>
+            <button type="button" class="lensLauncher__heroAction" @click="openRailSession">재생 컨트롤 열기</button>
+          </div>
+          <div class="lensLauncher__chips">
+            <button v-for="tab in commandDeckTabs" :key="`launcher-${tab.key}`" type="button" class="lensLauncher__chip" :class="{ on: commandDeckTab === tab.key }" @click="openLensDeck(tab.key)">
+              <span>{{ tab.label }}</span>
+              <small>{{ tab.count }}</small>
+            </button>
+            <button type="button" class="lensLauncher__chip" @click="lensLauncherOpen = false; openStageSheet('overview')">
+              <span>무대 sheet</span>
+            </button>
+            <button type="button" class="lensLauncher__chip lensLauncher__chip--accent" @click="lensLauncherOpen = false; openSessionModal()">
+              <span>세션 만들기</span>
+            </button>
+          </div>
         </div>
       </div>
       <ConversationPendingBridge
@@ -3441,7 +3658,7 @@ onBeforeUnmount(() => {
                     :busy="isActionBusy(featuredActiveSession.sessionId)"
                     :current-user-id="meId"
                     :force-interactive="isSessionActivated(featuredActiveSession.sessionId)"
-                    @activate-session="activateSessionControls($event)"
+                    @activate-session="activateSessionFromMessage($event, { scroll: false })"
                     @play="onPlaybackPlay"
                     @pause="onPlaybackPause"
                     @seek="onPlaybackSeek"
@@ -3465,7 +3682,7 @@ onBeforeUnmount(() => {
                       :busy="isActionBusy(session.sessionId)"
                       :current-user-id="meId"
                       :force-interactive="isSessionActivated(session.sessionId)"
-                      @activate-session="activateSessionControls($event, { scroll: true })"
+                      @activate-session="activateSessionFromMessage($event)"
                       @touch-presence="onTouchPlaybackPresence"
                     />
                   </div>
@@ -3487,7 +3704,7 @@ onBeforeUnmount(() => {
                       :busy="isActionBusy(session.sessionId)"
                       :current-user-id="meId"
                       :force-interactive="isSessionActivated(session.sessionId)"
-                      @activate-session="activateSessionControls($event, { scroll: true })"
+                      @activate-session="activateSessionFromMessage($event)"
                       @touch-presence="onTouchPlaybackPresence"
                     />
                   </div>
@@ -5609,7 +5826,7 @@ onBeforeUnmount(() => {
   position:sticky;
   bottom:0;
   z-index:60;
-  padding:10px 14px calc(14px + env(safe-area-inset-bottom));
+  padding:8px 14px calc(14px + env(safe-area-inset-bottom));
   background:linear-gradient(180deg, rgba(4,8,18,0), rgba(4,8,18,.82) 18%, rgba(4,8,18,.96) 100%);
   border-top:1px solid color-mix(in oklab, var(--border) 82%, transparent);
   box-shadow:0 -18px 40px rgba(0,0,0,.18);
@@ -5764,29 +5981,45 @@ onBeforeUnmount(() => {
 
 
 
-.messageOrbitBar{display:grid;gap:12px;padding:14px 16px;margin-top:10px;border-radius:24px;background:linear-gradient(180deg,rgba(10,14,34,.94),rgba(8,11,24,.9));border:1px solid rgba(122,140,255,.16)}
-.messageOrbitBar__main{display:flex;align-items:center;gap:12px;justify-content:space-between}
+.messageOrbitBar{display:grid;gap:10px;padding:10px 14px;margin-top:8px;border-radius:20px;background:linear-gradient(180deg,rgba(10,14,34,.92),rgba(8,11,24,.88));border:1px solid rgba(122,140,255,.14);position:sticky;top:0;z-index:25}
+.messageOrbitBar__main{display:flex;align-items:center;gap:10px;justify-content:space-between}
 .messageOrbitBar__lens,.messageOrbitBar__chip,.messageStagePanel__mode,.messageStagePanel__filter,.messageSpotlight__jump{border:none;cursor:pointer;font:inherit}
-.messageOrbitBar__lens{min-height:40px;padding:0 16px;border-radius:999px;background:linear-gradient(135deg,rgba(124,92,255,.92),rgba(89,149,255,.86));color:#fff;font-weight:900;box-shadow:0 14px 28px rgba(70,53,146,.24)}
+.messageOrbitBar__lens{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:10px;min-height:40px;padding:0 14px;border-radius:999px;background:linear-gradient(135deg,rgba(124,92,255,.92),rgba(89,149,255,.86));color:#fff;font-weight:900;box-shadow:0 10px 22px rgba(70,53,146,.22);cursor:pointer}
+.messageOrbitBar__lensBadge{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.18);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .messageOrbitBar__copy{display:grid;gap:3px;min-width:0;flex:1}
 .messageOrbitBar__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.72);font-weight:800}
-.messageOrbitBar__copy strong{font-size:15px;line-height:1.3}
+.messageOrbitBar__copy strong{font-size:14px;line-height:1.25}
 .messageOrbitBar__chips{display:flex;flex-wrap:wrap;gap:8px}
-.messageOrbitBar__chip{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.05);color:rgba(255,255,255,.82);font-weight:800;border:1px solid rgba(255,255,255,.06)}
+.messageOrbitBar__chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:32px;padding:0 11px;border-radius:999px;background:rgba(255,255,255,.05);color:rgba(255,255,255,.82);font-weight:800;border:1px solid rgba(255,255,255,.06);cursor:pointer}
 .messageOrbitBar__chip small{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.66)}
 .messageOrbitBar__chip.on{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.32);color:#fff}
 .messageOrbitBar__chip--accent{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.32)}
-.messageOrbitBar__floating{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);cursor:pointer}
+.messageOrbitBar__floating{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);cursor:pointer}
 .messageOrbitBar__floatingTag{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 8px;border-radius:999px;background:rgba(122,140,255,.18);color:#fff;font-size:11px;font-weight:900}
-.messageStagePanel{display:grid;gap:12px;padding:14px 16px;margin:6px 0 12px;border-radius:24px;background:linear-gradient(180deg,rgba(8,11,25,.92),rgba(8,10,20,.88));border:1px solid rgba(122,140,255,.14);position:sticky;top:8px;z-index:4;backdrop-filter:blur(12px)}
-.messageStagePanel.compact{padding:12px 14px}
+.messageStageRailSlim{display:grid;gap:10px;padding:10px 12px;margin:4px 0 10px;border-radius:18px;background:linear-gradient(180deg,rgba(8,11,25,.76),rgba(8,10,20,.56));border:1px solid rgba(122,140,255,.1);position:relative;z-index:2;backdrop-filter:blur(8px);overflow:hidden}
+.messageStageRailSlim__main{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.messageStageRailSlim__eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(164,177,255,.68);font-weight:800}
+.messageStageRailSlim__copy strong{display:block;font-size:13px;line-height:1.3;color:#fff}
+.messageStageRailSlim__actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.messageStageRailSlim__pill{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#eef3ff;font-weight:800;font-size:12px}
+.messageStageRailSlim__pill.on{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.34)}
+.messageStageRailSlim__lane{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center}
+.messageStageRailSlim__focus{display:grid;gap:4px;min-width:0;padding:12px 14px;border-radius:16px;border:1px solid rgba(122,140,255,.16);background:linear-gradient(180deg,rgba(16,21,39,.96),rgba(9,13,26,.92));color:#fff;text-align:left}
+.messageStageRailSlim__focusTag,.messageStageRailSlim__stackTag{display:inline-flex;align-items:center;justify-content:center;width:max-content;min-width:58px;height:20px;padding:0 8px;border-radius:999px;background:rgba(122,140,255,.16);font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#edf1ff}
+.messageStageRailSlim__focus strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.messageStageRailSlim__stack{position:relative;min-width:130px;height:72px;padding-right:92px}
+.messageStageRailSlim__stackCard{position:absolute;top:0;right:var(--stack-shift);display:grid;gap:4px;width:128px;padding:10px 12px;border-radius:16px;border:1px solid rgba(122,140,255,.14);background:linear-gradient(180deg,rgba(18,24,45,.96),rgba(10,15,29,.94));transform:translateX(calc(var(--stack-shift) * -1)) scale(var(--stack-scale));transform-origin:right center;color:#fff;text-align:left;box-shadow:0 16px 32px rgba(4,7,17,.22)}
+.messageStageRailSlim__stackCard strong{font-size:12px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.messageStagePanel.compact{padding:10px 12px}
+.messageStagePanel.expanded{padding:12px 14px 14px}
 .messageStagePanel__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .messageStagePanel__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.7);font-weight:800}
 .messageStagePanel__head strong{display:block;font-size:16px;line-height:1.3}
 .messageStagePanel__head p{margin:4px 0 0;color:rgba(226,232,255,.68);font-size:12px;line-height:1.45}
 .messageStagePanel__actions{display:flex;gap:8px}
-.messageStagePanel__mode{min-height:34px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.04);color:rgba(255,255,255,.75);font-weight:800;border:1px solid rgba(255,255,255,.06)}
+.messageStagePanel__mode{min-height:32px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.04);color:rgba(255,255,255,.75);font-weight:800;border:1px solid rgba(255,255,255,.06)}
 .messageStagePanel__mode.on{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.34);color:#fff}
+.messageStagePanel__mode--primary{background:linear-gradient(135deg,rgba(124,92,255,.74),rgba(89,149,255,.68));border-color:rgba(132,150,255,.3);color:#fff}
 .messageStagePanel__filters{display:flex;flex-wrap:wrap;gap:8px}
 .messageStagePanel__filter{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.72);font-weight:800;border:1px solid rgba(255,255,255,.05)}
 .messageStagePanel__filter small{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.66)}
@@ -5796,48 +6029,84 @@ onBeforeUnmount(() => {
 .messageSpotlight__body strong{display:block;font-size:14px;line-height:1.3}
 .messageSpotlight__body p{margin:4px 0 0;color:rgba(226,232,255,.68);font-size:12px;line-height:1.45}
 .messageSpotlight__jump{min-height:36px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,.08);color:#fff;font-weight:900}
-.sceneHero{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;margin-top:10px;border-radius:24px;background:linear-gradient(180deg,rgba(12,18,44,.94),rgba(9,13,33,.86));border:1px solid rgba(122,140,255,.16)}
-.sceneHero__copy{display:grid;gap:6px;max-width:720px}
-.sceneHero__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.72);font-weight:800}
-.sceneHero__copy strong{font-size:18px;line-height:1.25}
-.sceneHero__copy p{margin:0;color:rgba(226,232,255,.72);font-size:13px;line-height:1.5}
-.sceneHero__actions{display:flex;gap:10px;flex-wrap:wrap}
-.sceneHero__action{min-height:42px;padding:0 16px;border-radius:999px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);color:#eef2ff;font-weight:800}
-.sceneHero__action--primary{background:linear-gradient(135deg,rgba(124,92,255,.9),rgba(89,149,255,.86));border-color:rgba(164,177,255,.45);box-shadow:0 18px 38px rgba(72,54,140,.26)}
-.sceneStrip{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.sceneStrip__pill{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.76);font-size:13px;font-weight:800}
-.sceneStrip__pill small{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.64)}
-.sceneStrip__pill.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.34);color:#fff}
-.commandDeckBackdrop{position:fixed;inset:0;z-index:80;background:rgba(1,4,10,.42);backdrop-filter:blur(16px);display:flex;justify-content:center;align-items:flex-end;padding:18px}
-.commandDeck{width:min(980px,100%);max-height:min(84vh,920px);overflow:hidden;display:flex;flex-direction:column;border-radius:28px;border:1px solid rgba(122,140,255,.18);background:linear-gradient(180deg,rgba(10,14,32,.98),rgba(7,10,24,.96));box-shadow:0 28px 80px rgba(3,6,18,.56)}
-.commandDeck__grab{width:64px;height:6px;border-radius:999px;background:rgba(255,255,255,.14);margin:12px auto 0}
-.commandDeck__head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px 10px}
-.commandDeck__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.7);font-weight:800}
-.commandDeck__head strong{display:block;font-size:18px;line-height:1.3}
-.commandDeck__tabs{display:flex;gap:8px;flex-wrap:wrap;padding:0 20px 14px}
-.commandDeck__tab{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.76);font-weight:800}
-.commandDeck__tab small{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.64)}
-.commandDeck__tab.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.34);color:#fff}
-.commandDeck__panel{overflow:auto;padding:0 20px 20px 20px}
-.lensLauncher{display:none}
-.lensLauncher__toggle,.lensLauncher__chip{border:none;cursor:pointer;font:inherit}
-@media (max-width:720px){.messageOrbitBar{padding:12px 14px;border-radius:20px}.messageOrbitBar__main{align-items:flex-start;flex-direction:column}.messageOrbitBar__chips{display:none}.messageOrbitBar__floating{margin-top:-2px}.messageStagePanel{top:4px;padding:12px 14px;border-radius:20px}.messageStagePanel__head{flex-direction:column}.messageSpotlight{grid-template-columns:1fr;justify-items:start}.messageSpotlight__jump{width:100%}.sceneHero,.sceneStrip{display:none}.sessionMiniBar{margin-top:8px}.lensLauncher{display:block;position:absolute;right:12px;top:-56px;z-index:7}.lensLauncher__toggle{display:inline-flex;align-items:center;justify-content:center;min-width:72px;height:42px;padding:0 14px;border-radius:999px;background:linear-gradient(135deg,#8ea2ff,#6e7cff);color:#fff;font-weight:900;box-shadow:0 14px 32px rgba(66,84,180,.34)}.lensLauncher__menu{position:absolute;right:0;bottom:52px;display:grid;gap:8px;min-width:188px;padding:12px;border-radius:22px;border:1px solid rgba(122,140,255,.2);background:linear-gradient(180deg,rgba(9,13,32,.98),rgba(8,11,24,.95));box-shadow:0 24px 52px rgba(4,7,18,.46)}.lensLauncher__chip{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:42px;padding:0 14px;border-radius:14px;background:rgba(255,255,255,.04);color:#fff;font-weight:800}.lensLauncher__chip small{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.1);font-size:11px;color:rgba(255,255,255,.76)}.lensLauncher__chip--accent{background:rgba(122,140,255,.18);border:1px solid rgba(122,140,255,.3)}.sceneHero{padding:14px 16px;border-radius:20px;flex-direction:column;align-items:flex-start}.sceneHero__actions{width:100%}.sceneHero__action{flex:1 1 calc(50% - 5px);justify-content:center}.commandDeckBackdrop{padding:12px}.commandDeck{max-height:88vh;border-radius:24px}.commandDeck__head{padding:14px 16px 10px;align-items:flex-start;flex-direction:column}.commandDeck__tabs,.commandDeck__panel{padding-left:16px;padding-right:16px}}
+.messageStageRail{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.messageStageRail__copy{display:grid;gap:2px;min-width:0}
+.messageStageRail__eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(164,177,255,.72);font-weight:800}
+.messageStageRail__copy strong{font-size:14px;line-height:1.28}
+.messageStageRail__copy p{margin:0;color:rgba(226,232,255,.58);font-size:11px;line-height:1.4}
+.messageStageRail__actions{display:flex;gap:8px;flex-wrap:wrap}
+.messageStageLane{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,340px);gap:12px;align-items:center}
+.messageStageLane__filters{display:flex;gap:8px;flex-wrap:wrap;min-width:0}
+.messageStageLane__stack{position:relative;display:flex;justify-content:flex-end;align-items:center;min-height:72px;padding-right:6px}
+.messageStageLane__card{position:absolute;right:var(--lane-shift);display:grid;gap:6px;min-width:160px;max-width:220px;padding:11px 13px;border-radius:18px;border:1px solid rgba(122,140,255,.14);background:linear-gradient(180deg,rgba(17,23,45,.95),rgba(11,16,33,.9));box-shadow:0 14px 28px rgba(5,8,18,.22);transform:translateY(calc(var(--lane-shift) * .03)) scale(var(--lane-scale));text-align:left;color:#fff}
+.messageStageLane__tag{display:inline-flex;align-items:center;justify-content:center;min-width:62px;height:22px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.08);font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:rgba(235,239,255,.82)}
+.messageStageLane__card strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.35}
+.messageStagePeek{display:flex;gap:8px;flex-wrap:wrap}
+.messageStagePeek__pill{display:inline-flex;align-items:center;gap:8px;min-height:30px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.03);color:rgba(255,255,255,.72);font-weight:800}
+.messageStagePeek__pill small{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.66)}
+.messageStagePeek__pill.on{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.3);color:#fff}
+.messageStageDeck{display:grid;gap:12px;padding-top:6px;border-top:1px solid rgba(122,140,255,.08)}
+.messageStageDeck__top{display:grid;gap:12px}
+.messageSpotlight--compact{grid-template-columns:auto 1fr auto}
+.messageStageStackWrap{display:grid;gap:10px}
+.messageStageStackHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;color:rgba(226,232,255,.74);font-size:12px}
+.messageStageStackHeader strong{font-size:13px;color:#fff}
+.messageStageStack{position:relative;min-height:182px;padding:6px 0 8px}
+.messageStageStack--fan{padding:12px 8px 14px}
+.messageStageStack__card{position:absolute;left:0;right:0;top:var(--stack-offset);display:grid;gap:8px;padding:14px 16px;border-radius:22px;border:1px solid rgba(122,140,255,.14);background:linear-gradient(180deg,rgba(17,23,45,.96),rgba(11,16,33,.92));box-shadow:0 18px 40px rgba(5,8,18,.24);transform:scale(var(--stack-scale));transform-origin:top center;text-align:left;color:#fff}
+.messageStageStack__card--fan{left:12px;right:12px;transform:translateX(calc(var(--stack-offset) * .18)) rotate(var(--stack-rotate,0deg)) scale(var(--stack-scale));transform-origin:center top}
+.messageStageStack__tag{display:inline-flex;align-items:center;justify-content:center;min-width:74px;height:24px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.08);font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:rgba(235,239,255,.82)}
+.messageStageStack__card strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;line-height:1.4}
+.messageStageStack__card small{color:rgba(226,232,255,.66);font-size:12px;line-height:1.4}
+.msg.stageMuted{opacity:.78;transform:none}
+.msg.stageMuted .bubble{filter:saturate(.92)}
+@media (max-width:720px){.messageStageRailSlim__main{align-items:flex-start;flex-direction:column}.messageStageRailSlim__actions{width:100%;justify-content:flex-start}.messageStageRailSlim__pill{flex:0 0 auto}.messageStageRailSlim__lane{grid-template-columns:1fr;gap:10px}.messageStageRailSlim__stack{min-width:0;height:66px;padding-right:72px}.messageStageRailSlim__stackCard{width:118px;padding:9px 11px}.msg.stageMuted{opacity:.9}}
+.messageDepthHero{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:20px;background:linear-gradient(135deg,rgba(92,111,255,.16),rgba(28,34,64,.74));border:1px solid rgba(122,140,255,.22)}
+.messageDepthHero__eyebrow{font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:rgba(190,202,255,.8)}
+.messageDepthHero strong{display:block;font-size:14px}
+.messageDepthHero p{margin:4px 0 0;font-size:12px;line-height:1.45;color:rgba(231,236,255,.7)}
+.messageDepthHero__actions{display:flex;flex-wrap:wrap;gap:8px}
+.msg.depthOn{transform:translate3d(0,var(--depth-y,0),var(--depth-z,0)) scale(var(--depth-scale,1));opacity:var(--depth-opacity,1);filter:blur(var(--depth-blur,0));transition:transform .22s ease, opacity .22s ease, filter .22s ease, box-shadow .22s ease;transform-origin:center center;will-change:transform,opacity,filter;position:relative;margin-top:calc(var(--depth-overlap,0px) * -1)}
+.msg.depthOn::after{content:"";position:absolute;inset:auto 14px -6px; height:18px;border-radius:999px;background:radial-gradient(circle at center,rgba(77,92,179,.26),transparent 72%);opacity:calc(var(--depth-opacity,1) * .7);pointer-events:none;filter:blur(8px)}
+.msg.depthFocused{z-index:3;filter:none !important;opacity:1 !important}
+.msg.depthFocused .bubble{box-shadow:0 20px 38px rgba(5,8,18,.28),0 0 0 1px rgba(132,150,255,.14)}
+.msg.depthRank--near-prev,.msg.depthRank--near-next{z-index:2}
+.msg.depthRank--mid-prev,.msg.depthRank--mid-next{z-index:1}
+.msg.depthRank--far-prev,.msg.depthRank--far-next{pointer-events:none}
+.depthSpotPulse{animation:depthSpotPulse 1.2s ease}
+@keyframes depthSpotPulse{0%{box-shadow:0 0 0 0 rgba(122,140,255,.38)}100%{box-shadow:0 0 0 16px rgba(122,140,255,0)}}
+@media (max-width:720px){.messageDepthHero{align-items:flex-start;flex-direction:column}.messageDepthHero__actions{width:100%}.messageDepthHero__actions .messageStagePanel__filter{flex:1 1 calc(50% - 4px);justify-content:center}.msg.depthOn{transform:translate3d(0,calc(var(--depth-y,0) * .55),var(--depth-z,0)) scale(calc(.98 + (var(--depth-scale,1) - .98) * .7))}}
 
-.focusModeBar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin-top:10px;border-radius:20px}
-.focusModeBar__tabs{display:flex;gap:8px;flex-wrap:wrap}
-.focusModeBar__tab{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.78);font-size:13px;font-weight:800}
-.focusModeBar__tab small{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.62)}
-.focusModeBar__tab.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.3);color:#fff}
-.focusModeBar__actions{display:flex;gap:8px;flex-wrap:wrap}
-.sessionMiniBar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding:12px 14px;border-radius:20px;cursor:pointer;border:1px solid rgba(122,140,255,.18);background:linear-gradient(180deg,rgba(18,24,42,.9),rgba(10,13,26,.92))}
-.sessionMiniBar__copy{display:grid;gap:2px}.sessionMiniBar__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}
-.sessionMiniBar__copy strong{font-size:14px}.sessionMiniBar__copy span{font-size:12px;color:rgba(255,255,255,.62)}
-.sessionMiniBar__actions{display:flex;gap:8px;flex-wrap:wrap}.sessionMiniBar__pill{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.05);font-size:11px;font-weight:800;color:rgba(255,255,255,.82)}
-.sessionMiniBar__pill--accent{background:rgba(122,140,255,.16);color:#fff}
-.focusStage{display:grid;gap:12px;margin-top:10px}.focusStage__header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-radius:24px;border:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg,rgba(14,19,34,.92),rgba(9,12,24,.94))}
-.focusStage__header strong{display:block;font-size:18px}.focusStage__header p{margin:6px 0 0;font-size:13px;line-height:1.55;color:rgba(255,255,255,.62)}.focusStage__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}
-.focusStage__tabs{display:flex;gap:8px;flex-wrap:wrap}.focusStage__tab{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:rgba(255,255,255,.74);font-size:12px;font-weight:800}.focusStage__tab.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.28);color:#fff}
-.focusStage__panel{display:grid;gap:12px}.dockWrapInline{margin-top:0}.dockBarInline{border-bottom:none;padding:0 0 10px}.dockPanelInline{position:static;transform:none;opacity:1;pointer-events:auto;max-height:none;border-radius:24px;border:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg,rgba(14,19,34,.92),rgba(9,12,24,.94));padding:14px}
-.dockListInline{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.sessionHub{margin-top:10px}
-@media (max-width:720px){.focusModeBar,.sessionMiniBar,.focusStage__header{border-radius:18px}.focusModeBar{align-items:flex-start;flex-direction:column}.focusModeBar__actions{width:100%}.focusModeBar__actions .conversationSearchRail__chip{flex:1 1 calc(50% - 4px);justify-content:center}.sessionMiniBar{align-items:flex-start;flex-direction:column}.sessionMiniBar__actions{width:100%}.focusStage__header{padding:14px}.dockListInline{grid-template-columns:1fr}}
+.lensLauncher{position:static;display:grid;gap:10px;margin-bottom:8px}
+.lensLauncher__toggle,.lensLauncher__chip,.lensLauncher__dockChip,.messageStageSheetTabs__tab,.messageOrbitBar__floating{all:unset;box-sizing:border-box;cursor:pointer}
+.lensLauncher__dockRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.lensLauncher__toggle{display:inline-flex;align-items:center;gap:8px;min-height:42px;padding:0 14px;border-radius:999px;background:linear-gradient(135deg,rgba(121,96,255,.96),rgba(79,156,255,.92));color:#fff;box-shadow:0 12px 26px rgba(34,40,97,.26);font-weight:900}
+.lensLauncher__toggle--fab{padding-right:16px}
+.lensLauncher__toggleLabel{display:inline-flex;align-items:center;justify-content:center;height:24px;padding:0 9px;border-radius:999px;background:rgba(255,255,255,.18);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.lensLauncher__menu{min-width:280px;max-width:min(92vw,420px);display:grid;gap:12px;padding:14px;border-radius:24px;background:linear-gradient(180deg,rgba(8,11,25,.98),rgba(7,10,22,.95));border:1px solid rgba(128,147,255,.16);box-shadow:0 20px 40px rgba(4,7,17,.34)}
+.lensLauncher__menuHead{display:grid;gap:4px}.lensLauncher__menuHead strong{font-size:14px;color:#fff}.lensLauncher__menuHead span{font-size:11px;color:rgba(228,234,255,.62)}
+.lensLauncher__hero{display:grid;gap:8px;padding:12px 13px;border-radius:18px;background:linear-gradient(180deg,rgba(17,22,41,.96),rgba(10,14,29,.94));border:1px solid rgba(122,140,255,.16)}
+.lensLauncher__heroTag{display:inline-flex;align-items:center;justify-content:center;width:max-content;min-width:46px;height:20px;padding:0 8px;border-radius:999px;background:rgba(122,140,255,.16);font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#fff}
+.lensLauncher__hero strong{font-size:13px;color:#fff}.lensLauncher__heroAction{all:unset;display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 12px;border-radius:999px;background:rgba(122,140,255,.18);border:1px solid rgba(122,140,255,.34);color:#fff;font-weight:800;cursor:pointer;box-sizing:border-box}
+.lensLauncher__chips{display:flex;flex-wrap:wrap;gap:8px}
+.lensLauncher__dockChip,.lensLauncher__chip{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.05);color:#eff3ff;border:1px solid rgba(255,255,255,.08);font-weight:800}
+.lensLauncher__chip small{font-size:11px;color:rgba(255,255,255,.68)}
+.lensLauncher__chip.on,.lensLauncher__dockChip--accent{background:rgba(122,140,255,.2);border-color:rgba(122,140,255,.34)}
+.lensLauncher__chip--accent{background:linear-gradient(135deg,rgba(124,92,255,.78),rgba(89,149,255,.72));border-color:rgba(132,150,255,.36)}
+.messageStageSheetTabs{display:flex;flex-wrap:wrap;gap:8px}
+.messageStageSheetTabs__tab{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.05);color:rgba(236,241,255,.78);border:1px solid rgba(255,255,255,.08);font-weight:800}
+.messageStageSheetTabs__tab.on{background:rgba(122,140,255,.2);border-color:rgba(122,140,255,.34);color:#fff}
+.messageStageSheetBody{display:grid;gap:10px}
+.messageStageSheetCard{appearance:none;-webkit-appearance:none;display:grid;gap:6px;padding:14px 15px;border-radius:18px;border:1px solid rgba(122,140,255,.14);background:linear-gradient(180deg,rgba(18,24,45,.96),rgba(10,15,29,.94));text-align:left;color:#fff}
+.messageStageSheetCard__tag{display:inline-flex;align-items:center;justify-content:center;width:max-content;min-width:58px;height:22px;padding:0 8px;border-radius:999px;background:rgba(122,140,255,.16);font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.messageStageSheetCard strong{font-size:14px;line-height:1.35}
+.messageStageSheetCard p{margin:0;font-size:12px;line-height:1.5;color:rgba(226,232,255,.68)}
+.messageStageSheetEmpty{padding:16px;border-radius:18px;border:1px dashed rgba(255,255,255,.12);font-size:12px;color:rgba(226,232,255,.62)}
+@media (max-width: 768px){
+  .lensLauncher{margin-bottom:8px}
+  .lensLauncher__menu{min-width:min(100%,320px)}
+  .lensLauncher__dockRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .lensLauncher__toggle{justify-content:center}
+  .lensLauncher__toggle strong{display:none}
+}
+
 </style>
