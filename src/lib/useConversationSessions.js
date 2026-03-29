@@ -1,13 +1,16 @@
-import { computed, ref } from "vue";
-import { createPlaybackSession, endPlaybackSession, fetchPlaybackSessions, updatePlaybackSessionState } from "@/api/playbackSessions";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { createPlaybackSession, endPlaybackSession, fetchPlaybackSessions, touchPlaybackSessionPresence, updatePlaybackSessionState } from "@/api/playbackSessions";
 
-export function useConversationSessions({ conversationId, toast }) {
+const PRESENCE_INTERVAL_MS = 45000;
+
+export function useConversationSessions({ conversationId, meId, toast }) {
   const sessions = ref([]);
   const loadingSessions = ref(false);
   const sessionError = ref("");
   const sessionModalOpen = ref(false);
   const sessionBusy = ref(false);
   const actionBusyById = ref({});
+  let presenceTimer = null;
 
   const activeSessions = computed(() => sessions.value.filter((item) => item?.status === "ACTIVE"));
   const recentSessions = computed(() => sessions.value.filter((item) => item?.status !== "ACTIVE").slice(0, 4));
@@ -83,6 +86,40 @@ export function useConversationSessions({ conversationId, toast }) {
     }
   }
 
+  async function touchSessionPresence(sessionId, { silent = true } = {}) {
+    if (!conversationId.value || !sessionId) return null;
+    try {
+      const updated = await touchPlaybackSessionPresence(conversationId.value, sessionId);
+      upsertSession(updated);
+      return updated;
+    } catch (err) {
+      if (!silent) {
+        toast?.error?.("세션 참여 확인 실패", err?.response?.data?.message || "세션 참여 상태를 갱신하지 못했어요.");
+      }
+      return null;
+    }
+  }
+
+  async function touchAllActiveSessions() {
+    const list = activeSessions.value.filter((session) => !!session?.sessionId);
+    if (!list.length) return;
+    for (const session of list) {
+      await touchSessionPresence(session.sessionId, { silent: true });
+    }
+  }
+
+  function restartPresenceHeartbeat() {
+    if (presenceTimer) {
+      window.clearInterval(presenceTimer);
+      presenceTimer = null;
+    }
+    if (!activeSessions.value.length || !conversationId.value) return;
+    touchAllActiveSessions();
+    presenceTimer = window.setInterval(() => {
+      touchAllActiveSessions();
+    }, PRESENCE_INTERVAL_MS);
+  }
+
   async function endSession(sessionId, positionSeconds = 0) {
     if (!conversationId.value || !sessionId || isActionBusy(sessionId)) return;
     setActionBusy(sessionId, true);
@@ -127,11 +164,39 @@ export function useConversationSessions({ conversationId, toast }) {
         endedAt: payload?.endedAt,
         lastControlledAt: payload?.endedAt,
         lastControlledBy: payload?.actorId,
+        canControl: false,
       });
+      return true;
+    }
+    if (type === "playback-session-presence") {
+      const sessionId = String(payload?.sessionId || "");
+      const targetUserId = String(payload?.userId || "");
+      const idx = sessions.value.findIndex((item) => String(item?.sessionId || "") === sessionId);
+      if (idx < 0) return true;
+      const session = { ...sessions.value[idx] };
+      const participants = Array.isArray(session.participants) ? [...session.participants] : [];
+      const pidx = participants.findIndex((item) => String(item?.userId || "") === targetUserId);
+      const patch = { userId: targetUserId, lastSeenAt: payload?.lastSeenAt || null, active: true };
+      if (pidx >= 0) participants[pidx] = { ...participants[pidx], ...patch };
+      else participants.push({ ...patch, role: String(targetUserId) === String(session.hostUserId || "") ? "HOST" : "GUEST" });
+      session.participants = participants;
+      session.activeParticipantCount = participants.filter((item) => item?.active).length;
+      if (String(targetUserId) === String(meId?.value || "")) {
+        session.myRole = session.hostUserId && String(session.hostUserId) === String(targetUserId) ? "HOST" : session.myRole || "GUEST";
+      }
+      upsertSession(session);
       return true;
     }
     return false;
   }
+
+  watch([conversationId, () => activeSessions.value.length], () => {
+    restartPresenceHeartbeat();
+  });
+
+  onBeforeUnmount(() => {
+    if (presenceTimer) window.clearInterval(presenceTimer);
+  });
 
   return {
     sessions,
@@ -146,6 +211,7 @@ export function useConversationSessions({ conversationId, toast }) {
     loadSessions,
     createSession,
     applySessionAction,
+    touchSessionPresence,
     endSession,
     isActionBusy,
     handleSessionSse,

@@ -51,6 +51,7 @@ const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
 const conversationId = computed(() => String(route.params.conversationId || ""));
+const meId = computed(() => String(auth.me?.id || ""));
 const isPinnedHighlight = ref(false);
 const conversationSearchQ = ref("");
 const searchRailExpanded = ref(false);
@@ -98,6 +99,10 @@ function sessionSnapshotFromMessage(message) {
     status: meta?.status || 'ACTIVE',
     playbackState: meta?.playbackState || 'PAUSED',
     positionSeconds: Number(meta?.positionSeconds || 0),
+    myRole: meta?.hostUserId && String(meta?.hostUserId) === meId.value ? 'HOST' : 'GUEST',
+    host: meta?.hostUserId && String(meta?.hostUserId) === meId.value,
+    canControl: meta?.hostUserId && String(meta?.hostUserId) === meId.value && (meta?.status || 'ACTIVE') === 'ACTIVE',
+    activeParticipantCount: 0,
     participants: [],
   };
 }
@@ -128,6 +133,7 @@ function buildSessionMessageFromSession(session) {
       status: session.status || 'ACTIVE',
       playbackState: session.playbackState || 'PAUSED',
       positionSeconds: Number(session.positionSeconds || 0),
+      hostUserId: session.hostUserId || null,
     }),
     sessionId: session.sessionId,
     createdAt: session.createdAt || new Date().toISOString(),
@@ -250,6 +256,11 @@ async function focusCapsuleFromSearch(capsuleId) {
   }
 }
 
+async function onTouchPlaybackPresence(session) {
+  if (!session?.sessionId || session?.status !== 'ACTIVE') return;
+  await touchSessionPresence(session.sessionId, { silent: true });
+}
+
 async function onCreatePlaybackSession(form) {
   const created = await createSession(form);
   const sessionMessage = buildSessionMessageFromSession(created);
@@ -257,6 +268,7 @@ async function onCreatePlaybackSession(form) {
 }
 
 async function onPlaybackPlay(session) {
+  await onTouchPlaybackPresence(session);
   await applySessionAction(session?.sessionId, {
     playbackState: 'PLAYING',
     positionSeconds: Number(session?.positionSeconds || 0),
@@ -264,6 +276,7 @@ async function onPlaybackPlay(session) {
 }
 
 async function onPlaybackPause(session) {
+  await onTouchPlaybackPresence(session);
   await applySessionAction(session?.sessionId, {
     playbackState: 'PAUSED',
     positionSeconds: Number(session?.positionSeconds || 0),
@@ -271,6 +284,7 @@ async function onPlaybackPause(session) {
 }
 
 async function onPlaybackSeek(session) {
+  await onTouchPlaybackPresence(session);
   await applySessionAction(session?.sessionId, {
     playbackState: String(session?.playbackState || 'PAUSED'),
     positionSeconds: Number(session?.positionSeconds || 0) + 15,
@@ -278,8 +292,10 @@ async function onPlaybackSeek(session) {
 }
 
 async function onPlaybackEnd(session) {
+  await onTouchPlaybackPresence(session);
   await endSession(session?.sessionId, Number(session?.positionSeconds || 0));
 }
+
 
 const {
   sessions,
@@ -294,10 +310,11 @@ const {
   loadSessions,
   createSession,
   applySessionAction,
+  touchSessionPresence,
   endSession,
   isActionBusy,
   handleSessionSse,
-} = useConversationSessions({ conversationId, toast });
+} = useConversationSessions({ conversationId, meId, toast });
 
 const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
 
@@ -3156,6 +3173,7 @@ onBeforeUnmount(() => {
               :key="session.sessionId"
               :session="session"
               :busy="isActionBusy(session.sessionId)"
+              :current-user-id="meId"
               @play="onPlaybackPlay"
               @pause="onPlaybackPause"
               @seek="onPlaybackSeek"
@@ -3255,6 +3273,7 @@ onBeforeUnmount(() => {
                     :message="m"
                     :session="sessionForMessage(m)"
                     :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
+                    :current-user-id="meId"
                     @play="onPlaybackPlay"
                     @pause="onPlaybackPause"
                     @seek="onPlaybackSeek"

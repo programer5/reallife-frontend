@@ -16,6 +16,11 @@ export async function updatePlaybackSessionState(conversationId, sessionId, payl
   return res.data;
 }
 
+export async function touchPlaybackSessionPresence(conversationId, sessionId) {
+  const res = await api.post(`/api/conversations/${conversationId}/playback-sessions/${sessionId}/presence`);
+  return res.data;
+}
+
 export async function endPlaybackSession(conversationId, sessionId, payload = {}) {
   const res = await api.post(`/api/conversations/${conversationId}/playback-sessions/${sessionId}/end`, payload);
   return res.data;
