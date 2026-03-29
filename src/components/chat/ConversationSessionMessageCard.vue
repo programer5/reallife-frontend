@@ -13,47 +13,20 @@
       <span>활성 {{ displaySession?.activeParticipantCount ?? 0 }}/{{ displaySession?.participants?.length || 0 }}명</span>
       <span>{{ permissionLabel }}</span>
     </div>
-    <div class="sessionMessageCard__participants" v-if="displaySession?.participants?.length">
-      <span
-        v-for="participant in displaySession.participants"
-        :key="participant.userId"
-        class="sessionMessageCard__participant"
-        :data-active="participant.active ? 'true' : 'false'"
-      >
-        <span class="sessionMessageCard__participantRole">{{ participant.role === 'HOST' ? '호스트' : '게스트' }}</span>
-        <span>{{ participant.userId === currentUserId ? '나' : shortId(participant.userId) }}</span>
-      </span>
-    </div>
-    <ConversationSessionPlaybackPreview
-      v-if="previewKind !== 'link'"
-      :session="displaySession"
-      :interactive="false"
-    />
-    <div v-if="previewLink" class="sessionMessageCard__linkRow">
-      <div class="sessionMessageCard__linkActions">
-        <button type="button" class="sessionMessageCard__join" @click="joinSession">{{ joinLabel }}</button>
-        <a class="sessionMessageCard__link" :href="previewLink" target="_blank" rel="noreferrer">{{ providerLabel }}에서 열기</a>
-      </div>
-      <button type="button" class="sessionMessageCard__copy" @click="copyLink">{{ copied ? '링크 복사됨' : '링크 복사' }}</button>
+    <div class="sessionMessageCard__actions">
+      <button type="button" class="sessionMessageCard__primary" @click="joinSession">{{ joinLabel }}</button>
+      <a v-if="previewLink" class="sessionMessageCard__link" :href="previewLink" target="_blank" rel="noreferrer">{{ providerLabel }}에서 열기</a>
+      <button v-if="previewLink" type="button" class="sessionMessageCard__ghost" @click="copyLink">{{ copied ? '링크 복사됨' : '링크 복사' }}</button>
     </div>
     <p v-if="syncStampLabel" class="sessionMessageCard__sync">{{ syncStampLabel }}</p>
-    <p class="sessionMessageCard__sync sessionMessageCard__sync--hint">이 카드에서 재생을 누르면 상단 세션 허브를 활성화해서 같은 세션을 한 군데서만 안정적으로 재생해요.</p>
-    <p v-if="displaySession?.status === 'ENDED'" class="sessionMessageCard__notice">종료된 세션이에요. 링크 재오픈만 가능하고 재생 제어는 잠겨 있어요.</p>
-    <p v-else-if="!displaySession?.canControl" class="sessionMessageCard__notice">참여 상태는 유지되지만 재생 제어는 호스트만 할 수 있어요.</p>
-    <div class="sessionMessageCard__actions">
-      <button type="button" class="sessionMessageCard__btn" :disabled="busy || !canControl" @click="emitImmediate('PLAYING')">재생</button>
-      <button type="button" class="sessionMessageCard__btn" :disabled="busy || !canControl" @click="emitImmediate('PAUSED')">일시정지</button>
-      <button type="button" class="sessionMessageCard__btn" :disabled="busy || !canControl" @click="emitSeek">+15초</button>
-      <button type="button" class="sessionMessageCard__btn sessionMessageCard__btn--danger" :disabled="busy || !canControl" @click="$emit('end', displaySession)">종료</button>
-    </div>
+    <p class="sessionMessageCard__hint">이 메시지는 기록 카드예요. 실제 재생과 제어는 상단의 <strong>현재 세션</strong> 카드에서만 보여요.</p>
+    <p v-if="displaySession?.status === 'ENDED'" class="sessionMessageCard__notice">종료된 세션은 기록으로만 남고, 필요할 때 링크만 다시 열 수 있어요.</p>
   </article>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue';
-import ConversationSessionPlaybackPreview from '@/components/chat/ConversationSessionPlaybackPreview.vue';
 import { getPlaybackSourceMeta } from '@/lib/playbackSourceMeta';
-import { dispatchPlaybackCommand } from '@/lib/playbackCommandBus';
 import { formatPlaybackPosition, playbackMediaLabel, playbackPermissionLabel, playbackStateLabel } from '@/lib/playbackSessionUi';
 
 const props = defineProps({
@@ -63,10 +36,9 @@ const props = defineProps({
   currentUserId: { type: String, default: '' },
 });
 
-const emit = defineEmits(['play', 'pause', 'seek', 'end', 'touch-presence', 'activate-session']);
+const emit = defineEmits(['touch-presence', 'activate-session']);
 
 const displaySession = computed(() => props.session || {});
-const canControl = computed(() => !!displaySession.value?.canControl && displaySession.value?.status === 'ACTIVE');
 const mediaLabel = computed(() => playbackMediaLabel(displaySession.value));
 const stateLabel = computed(() => playbackStateLabel(displaySession.value));
 const permissionLabel = computed(() => playbackPermissionLabel(displaySession.value));
@@ -76,7 +48,7 @@ const previewLink = computed(() => sourceMeta.value.cleanUrl || displaySession.v
 const providerLabel = computed(() => sourceMeta.value.label || '링크');
 const positionLabel = computed(() => `현재 위치 ${formatPlaybackPosition(displaySession.value?.positionSeconds)}`);
 const myParticipant = computed(() => (displaySession.value?.participants || []).find((item) => String(item?.userId || '') === String(props.currentUserId || '')) || null);
-const joinLabel = computed(() => (myParticipant.value?.active ? '참여 중' : '이 세션에 참여'));
+const joinLabel = computed(() => (displaySession.value?.status === 'ACTIVE' ? '현재 세션으로 열기' : '기록 열기'));
 const syncStampLabel = computed(() => {
   const stamp = myParticipant.value?.lastSeenAt || displaySession.value?.lastControlledAt || displaySession.value?.createdAt;
   if (!stamp) return '';
@@ -110,29 +82,9 @@ async function copyLink() {
 }
 
 
-function emitImmediate(playbackState) {
-  emit('activate-session', displaySession.value);
-  dispatchPlaybackCommand(displaySession.value?.sessionId, {
-    playbackState,
-    positionSeconds: Number(displaySession.value?.positionSeconds || 0),
-  });
-  emit(playbackState === 'PLAYING' ? 'play' : 'pause', displaySession.value);
-}
-
-function emitSeek() {
-  emit('activate-session', displaySession.value);
-  const positionSeconds = Number(displaySession.value?.positionSeconds || 0) + 15;
-  dispatchPlaybackCommand(displaySession.value?.sessionId, {
-    playbackState: String(displaySession.value?.playbackState || 'PAUSED').toUpperCase(),
-    positionSeconds,
-  });
-  emit('seek', displaySession.value);
-}
-
 function joinSession() {
   emit('activate-session', displaySession.value);
   emit('touch-presence', displaySession.value);
-  if (previewLink.value) window.open(previewLink.value, '_blank', 'noopener,noreferrer');
 }
 
 function shortId(value) {
@@ -147,6 +99,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.sessionMessageCard{display:grid;gap:10px;margin-top:8px;padding:14px 16px;border-radius:20px;border:1px solid rgba(122,140,255,.22);background:linear-gradient(180deg,rgba(26,32,58,.96),rgba(11,16,29,.94));box-shadow:0 14px 34px rgba(0,0,0,.22)}
-.sessionMessageCard__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.sessionMessageCard__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}.sessionMessageCard__state{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:rgba(122,140,255,.16);border:1px solid rgba(122,140,255,.28);font-size:11px;font-weight:900}.sessionMessageCard[data-status="ENDED"] .sessionMessageCard__state{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.72)}.sessionMessageCard__summary{margin:0;font-size:13px;line-height:1.6;color:rgba(255,255,255,.82)}.sessionMessageCard__meta{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:rgba(255,255,255,.68)}.sessionMessageCard__participants{display:flex;gap:8px;flex-wrap:wrap}.sessionMessageCard__participant{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.05);font-size:11px;font-weight:700;color:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.08)}.sessionMessageCard__participant[data-active="true"]{border-color:rgba(122,140,255,.32);background:rgba(122,140,255,.12)}.sessionMessageCard__participantRole{opacity:.72}.sessionMessageCard__linkRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sessionMessageCard__linkActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sessionMessageCard__join,.sessionMessageCard__link,.sessionMessageCard__copy{font-size:13px;font-weight:800;color:#cfd6ff}.sessionMessageCard__join,.sessionMessageCard__copy{min-height:30px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05)}.sessionMessageCard__copy{color:rgba(255,255,255,.86);font-size:11px}.sessionMessageCard__sync{margin:0;font-size:11px;color:rgba(255,255,255,.58)}.sessionMessageCard__sync--hint{color:rgba(145,170,255,.78)}.sessionMessageCard__notice{margin:0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.66)}.sessionMessageCard__actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.sessionMessageCard__btn{min-height:36px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;font-size:12px;font-weight:800}.sessionMessageCard__btn:disabled{opacity:.45;cursor:not-allowed}.sessionMessageCard__btn--danger{border-color:rgba(255,120,120,.24);color:#ffb4b4}@media (max-width:720px){.sessionMessageCard__actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.sessionMessageCard{display:grid;gap:10px;margin-top:8px;padding:12px 14px;border-radius:18px;border:1px solid rgba(122,140,255,.16);background:linear-gradient(180deg,rgba(22,28,52,.9),rgba(11,16,29,.9))}
+.sessionMessageCard__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.sessionMessageCard__eyebrow{font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}.sessionMessageCard__state{display:inline-flex;align-items:center;min-height:24px;padding:0 9px;border-radius:999px;background:rgba(122,140,255,.14);border:1px solid rgba(122,140,255,.22);font-size:10px;font-weight:900}.sessionMessageCard[data-status="ENDED"] .sessionMessageCard__state{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.72)}
+.sessionMessageCard__summary{margin:0;font-size:12px;line-height:1.55;color:rgba(255,255,255,.76)}
+.sessionMessageCard__meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,.6)}
+.sessionMessageCard__actions{display:flex;gap:8px;flex-wrap:wrap}.sessionMessageCard__primary,.sessionMessageCard__ghost,.sessionMessageCard__link{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.12);font-size:12px;font-weight:800}.sessionMessageCard__primary{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.28);color:#fff}.sessionMessageCard__ghost{background:rgba(255,255,255,.05);color:#e8edff}.sessionMessageCard__link{background:rgba(255,255,255,.04);color:#cfd6ff}
+.sessionMessageCard__sync,.sessionMessageCard__hint,.sessionMessageCard__notice{margin:0;font-size:11px;line-height:1.5;color:rgba(255,255,255,.58)}.sessionMessageCard__hint{color:rgba(145,170,255,.76)}
 </style>

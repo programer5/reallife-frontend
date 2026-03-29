@@ -259,12 +259,13 @@ async function focusCapsuleFromSearch(capsuleId) {
 }
 
 
-function activateSessionControls(session, { scroll = false } = {}) {
+function activateSessionControls(session, { scroll = false, switchMode = true } = {}) {
   const sessionId = String(session?.sessionId || '');
   if (!sessionId) return;
   if (!joinedSessionIds.value.includes(sessionId)) {
     joinedSessionIds.value = [...joinedSessionIds.value, sessionId];
   }
+  if (switchMode) uiMode.value = 'watch';
   if (scroll) {
     nextTick(() => {
       sessionHubRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
@@ -276,6 +277,157 @@ function isSessionActivated(sessionId) {
   return joinedSessionIds.value.includes(String(sessionId || ''));
 }
 
+const sessionHistoryOpen = ref(false);
+
+const uiMode = ref('conversation');
+const exploreTab = ref('search');
+
+const focusModeTabs = computed(() => ([
+  { key: 'conversation', label: '대화', badge: items.value?.length || 0 },
+  { key: 'watch', label: '세션', badge: activeSessions.value?.length || recentSessions.value?.length || 0 },
+  { key: 'explore', label: '탐색', badge: activeCount.value + capsuleItems.value.length },
+]));
+
+const currentSessionMini = computed(() => featuredActiveSession.value || activeSessions.value?.[0] || null);
+
+function setUiMode(mode) {
+  uiMode.value = mode;
+  if (mode === 'watch' && currentSessionMini.value?.sessionId) {
+    activateSessionControls(currentSessionMini.value);
+  }
+}
+
+function openExploreTab(tab = 'search') {
+  exploreTab.value = tab;
+  uiMode.value = 'explore';
+}
+
+const featuredActiveSession = computed(() => {
+  const list = activeSessions.value || [];
+  if (!list.length) return null;
+  const joined = list.find((item) => isSessionActivated(item?.sessionId));
+  return joined || list[0] || null;
+});
+
+const secondaryActiveSessions = computed(() => {
+  const featuredId = String(featuredActiveSession.value?.sessionId || '');
+  return (activeSessions.value || []).filter((item) => String(item?.sessionId || '') !== featuredId).slice(0, 3);
+});
+
+const visibleRecentSessions = computed(() => (sessionHistoryOpen.value ? recentSessions.value : recentSessions.value.slice(0, 2)));
+
+const commandDeckOpen = ref(false);
+const commandDeckTab = ref('search');
+const lensLauncherOpen = ref(false);
+
+const commandDeckTabs = computed(() => ([
+  { key: 'search', label: '검색', count: items.value?.length || 0 },
+  { key: 'actions', label: '액션', count: activeCount.value || 0 },
+  { key: 'capsules', label: '캡슐', count: capsuleItems.value?.length || 0 },
+  { key: 'sessions', label: '세션', count: (activeSessions.value?.length || 0) + (recentSessions.value?.length || 0) },
+]));
+
+const filteredPins = computed(() => {
+  const list = Array.isArray(dockActivePinsToShow.value)
+    ? dockActivePinsToShow.value.filter((x) => !x?.__placeholder)
+    : [];
+  return list.slice(0, 6);
+});
+
+const messageStageMode = ref('stream');
+const stageFilter = ref('all');
+
+function messageHasAttachment(message) {
+  return Array.isArray(message?.attachments) && message.attachments.length > 0;
+}
+function messageHasActionCandidate(message) {
+  return Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0;
+}
+function isHighlightedMessage(message) {
+  return searchFocusMid.value && String(searchFocusMid.value) === String(message?.messageId || '');
+}
+
+const stagePool = computed(() => {
+  const source = Array.isArray(items.value) ? items.value : [];
+  return source.filter((message) => {
+    if (isSessionMessage(message)) return true;
+    if (messageHasAttachment(message)) return true;
+    if (messageHasActionCandidate(message)) return true;
+    if (isHighlightedMessage(message)) return true;
+    return false;
+  });
+});
+
+const stageFilteredMessages = computed(() => {
+  const source = stagePool.value;
+  if (stageFilter.value === 'sessions') return source.filter((message) => isSessionMessage(message));
+  if (stageFilter.value === 'media') return source.filter((message) => messageHasAttachment(message));
+  if (stageFilter.value === 'actions') return source.filter((message) => messageHasActionCandidate(message));
+  return source;
+});
+
+const visibleMessages = computed(() => {
+  if (messageStageMode.value === 'stage') {
+    return stageFilteredMessages.value.length ? stageFilteredMessages.value : items.value;
+  }
+  return items.value;
+});
+
+const stageStats = computed(() => ({
+  total: stagePool.value.length,
+  sessions: stagePool.value.filter((message) => isSessionMessage(message)).length,
+  media: stagePool.value.filter((message) => messageHasAttachment(message)).length,
+  actions: stagePool.value.filter((message) => messageHasActionCandidate(message)).length,
+}));
+
+const stageHeadline = computed(() => {
+  if (stageFilter.value === 'sessions') return '공동 플레이 흐름만 모아서 봐요';
+  if (stageFilter.value === 'media') return '첨부와 미디어가 있는 장면만 보여드릴게요';
+  if (stageFilter.value === 'actions') return '약속·할 일로 이어질 장면만 보여드릴게요';
+  if (stageStats.value.total) return '지금 대화에서 다시 보기 좋은 장면만 앞에 세웠어요';
+  return '아직 무대에 올릴 장면이 없어서 전체 대화를 그대로 보여드려요';
+});
+
+const spotlightMessage = computed(() => {
+  const source = stageFilteredMessages.value;
+  return source.length ? source[source.length - 1] : null;
+});
+
+function openCommandDeck(tab = 'search') {
+  commandDeckTab.value = tab;
+  commandDeckOpen.value = true;
+  lensLauncherOpen.value = false;
+}
+
+function closeCommandDeck() {
+  commandDeckOpen.value = false;
+}
+
+function toggleCommandDeck(tab = 'search') {
+  if (commandDeckOpen.value && commandDeckTab.value === tab) {
+    closeCommandDeck();
+    return;
+  }
+  openCommandDeck(tab);
+}
+
+function toggleLensLauncher() {
+  lensLauncherOpen.value = !lensLauncherOpen.value;
+}
+
+function openLensDeck(tab = 'search') {
+  openCommandDeck(tab);
+}
+
+watch(commandDeckOpen, (open) => {
+  if (open) lensLauncherOpen.value = false;
+});
+
+function toggleSessionHistory() {
+  sessionHistoryOpen.value = !sessionHistoryOpen.value;
+}
+
+
 async function onTouchPlaybackPresence(session) {
   if (!session?.sessionId || session?.status !== 'ACTIVE') return;
   activateSessionControls(session);
@@ -284,6 +436,8 @@ async function onTouchPlaybackPresence(session) {
 
 async function onCreatePlaybackSession(form) {
   const created = await createSession(form);
+  uiMode.value = 'watch';
+  activateSessionControls(created, { switchMode: false });
   const sessionMessage = buildSessionMessageFromSession(created);
   if (sessionMessage && !hasMessage(sessionMessage.messageId)) appendIncomingMessage(sessionMessage);
 }
@@ -391,6 +545,19 @@ function syncMobileViewport(){
   isMobileViewport.value = window.innerWidth <= 720;
   syncSearchRailMode();
 }
+
+watch(() => route.query, () => {
+  if (hasSearchFocus.value) {
+    uiMode.value = 'explore';
+    exploreTab.value = 'search';
+  }
+}, { immediate: true, deep: true });
+
+watch(currentSessionMini, (session) => {
+  if (uiMode.value === 'watch' && !session) {
+    uiMode.value = 'conversation';
+  }
+});
 const useDockSheet = computed(() => isMobileViewport.value);
 const dockSheetTitle = computed(() => dockMode.value === "suggestions" ? "액션 제안" : "액션 허브");
 const dockSheetSubtitle = computed(() => {
@@ -2861,293 +3028,30 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <section class="conversationSearchRail rl-cardish" v-if="canViewConversation" :class="{ compact: isMobileViewport && !searchRailExpanded }">
-      <div class="conversationSearchRail__top">
-        <div class="conversationSearchRail__copy">
-          <div class="conversationSearchRail__eyebrow">Conversation OS</div>
-          <strong>찾고 바로 이어가기</strong>
-          <p v-if="!isMobileViewport || searchRailExpanded">대화, 액션, 캡슐을 한 번에 다시 찾고 바로 다음 행동으로 이어지게 설계했어요.</p>
-          <span v-else class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
-          <span v-if="isMobileViewport && !searchRailExpanded && hasSearchFocus" class="conversationSearchRail__focusPill">검색 결과 위치로 바로 이어지는 중</span>
-        </div>
-        <div class="conversationSearchRail__topActions">
-          <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="toggleSearchRail()">
-            {{ isMobileViewport && !searchRailExpanded ? "검색 열기" : "접기" }}
-          </button>
+    <section v-if="canViewConversation" class="messageOrbitBar rl-cardish">
+      <div class="messageOrbitBar__main">
+        <button type="button" class="messageOrbitBar__lens" @click="toggleCommandDeck('search')">{{ commandDeckOpen ? '렌즈 닫기' : '렌즈 열기' }}</button>
+        <div class="messageOrbitBar__copy">
+          <div class="messageOrbitBar__eyebrow">Message stage</div>
+          <strong>{{ messageStageMode === 'stage' ? '핵심 장면 위주로 보기' : '전체 대화 흐름 보기' }}</strong>
         </div>
       </div>
-
-      <div v-if="!isMobileViewport || searchRailExpanded" class="conversationSearchRail__controls">
-        <div class="conversationSearchRail__inputWrap">
-          <input
-            v-model.trim="conversationSearchQ"
-            class="conversationSearchRail__input"
-            placeholder="이 대화에서 찾고 싶은 키워드를 입력해 보세요"
-            @keydown.enter.prevent="openConversationSearch()"
-          />
-          <button type="button" class="conversationSearchRail__submit" @click="openConversationSearch()">검색</button>
-        </div>
-        <div class="conversationSearchRail__meta">
-          <span class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
-          <div class="conversationSearchRail__actions">
-            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('약속')">약속</button>
-            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('캡슐')">캡슐</button>
-            <button type="button" class="conversationSearchRail__chip" @click="openGlobalSearch()">전체 검색</button>
-          </div>
-        </div>
+      <div class="messageOrbitBar__chips">
+        <button type="button" class="messageOrbitBar__chip" :class="{ on: messageStageMode === 'stream' }" @click="messageStageMode = 'stream'">전체 <small>{{ items.length }}</small></button>
+        <button type="button" class="messageOrbitBar__chip" :class="{ on: messageStageMode === 'stage' }" @click="messageStageMode = 'stage'">스테이지 <small>{{ stageStats.total }}</small></button>
+        <button type="button" class="messageOrbitBar__chip" @click="toggleCommandDeck('actions')">액션 <small>{{ activeCount }}</small></button>
+        <button type="button" class="messageOrbitBar__chip" @click="toggleCommandDeck('sessions')">세션 <small>{{ activeSessions.length + recentSessions.length }}</small></button>
+        <button type="button" class="messageOrbitBar__chip messageOrbitBar__chip--accent" @click="openSessionModal">세션 만들기</button>
+      </div>
+      <div v-if="currentSessionMini" class="messageOrbitBar__floating" @click="openCommandDeck('sessions')">
+        <span class="messageOrbitBar__floatingTag">Now</span>
+        <strong>{{ currentSessionMini.title || '공동 플레이' }}</strong>
+        <span>{{ currentSessionMini.playbackState === 'PLAYING' ? '재생 중' : currentSessionMini.status === 'ENDED' ? '기록' : '대기' }}</span>
       </div>
     </section>
 
     <SseStatusBanner />
 
-    <ConversationCapsulePanel v-if="canViewConversation" :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @delete="deleteCapsuleItem" :highlight-capsule-id="searchFocusCapsuleId" />
-
-
-    
-<!-- ✅ RealLife v2: Active Actions Dock -->
-<div class="dockWrap" v-if="canViewConversation" :class="{ dockPulse: dockPulseOn, dockWrapSheet: useDockSheet }">
-  <div class="dockBar" :class="{ dockBarSheet: useDockSheet }">
-    <button
-      class="dockTab"
-      :class="{ on: dockMode==='active' }"
-      type="button"
-      @click="openActiveDock"
-    >
-      📌 액션 <span class="dockCount">{{ activeCount }}</span>
-    </button>
-
-    <button
-      class="dockTab"
-      :class="{ on: dockMode==='suggestions' }"
-      type="button"
-      :disabled="suggestionCount===0"
-      @click="dockMode='suggestions'; dockOpen=!dockOpen"
-    >
-      ✨ 제안 <span class="dockCount">{{ suggestionCount }}</span>
-    </button>
-
-    <div class="dockSpacer"></div>
-
-    <RlButton
-      size="sm"
-      variant="ghost"
-      class="dockMore"
-      @click="
-        clearPinRemindBadge();
-        router.push(`/inbox/conversations/${conversationId}/pins`)
-      "
-    >
-      전체
-      <span v-if="hasPinRemindBadge" class="pinRemindDot" title="리마인드 도착"></span>
-    </RlButton>
-  </div>
-
-  <Teleport to="body" :disabled="!useDockSheet">
-    <template v-if="dockOpen">
-      <div v-if="useDockSheet" class="dockSheetBackdrop" @click="closeDockSheet"></div>
-      <div class="dockPanel" :class="{ enter: dockAnimating, dockPanelSheet: useDockSheet }">
-        <div v-if="useDockSheet" class="dockSheetHead">
-      <div class="dockSheetGrab" aria-hidden="true"></div>
-      <div class="dockSheetMeta">
-        <div class="dockSheetTitle">{{ dockSheetTitle }}</div>
-        <div class="dockSheetSub">{{ dockSheetSubtitle }}</div>
-      </div>
-      <button class="dockSheetClose" type="button" @click="closeDockSheet">닫기</button>
-    </div>
-
-    <!-- Active -->
-    <div v-if="dockMode==='active'" class="dockGrid">
-      <div class="dockFilterBar">
-        <button class="dockPill" :class="{ on: activeFilter==='ALL' }" type="button" @click="activeFilter='ALL'">
-          전체 <span class="dockPillCount">{{ activeCount }}</span>
-        </button>
-        <button class="dockPill" :class="{ on: activeFilter==='PROMISE' }" type="button" @click="activeFilter='PROMISE'">
-          📅 약속
-        <span class="dockPillCount">{{ activeCounts.PROMISE }}</span>
-        </button>
-        <button class="dockPill" :class="{ on: activeFilter==='TODO' }" type="button" @click="activeFilter='TODO'">
-          ✅ 할일
-        <span class="dockPillCount">{{ activeCounts.TODO }}</span>
-        </button>
-        <button class="dockPill" :class="{ on: activeFilter==='PLACE' }" type="button" @click="activeFilter='PLACE'">
-          📍 장소
-        <span class="dockPillCount">{{ activeCounts.PLACE }}</span>
-        </button>
-      </div>
-
-      <div v-if="pins && pins.length" class="dockTimelineHero">
-        <div class="timelineHeroHead">
-          <div>
-            <div class="timelineHeroEyebrow">Action Timeline</div>
-            <div class="timelineHeroTitle">이 대화에서 바로 이어갈 액션</div>
-          </div>
-          <div class="timelineHeroTotal">{{ dockTimelineSummary.total }}개</div>
-        </div>
-
-        <div class="timelineHeroStats">
-          <div class="timelineStat">
-            <span class="timelineStatK">📅 약속</span>
-            <strong>{{ dockTimelineSummary.promises }}</strong>
-            <span class="timelineStatSub">시간이 있는 액션</span>
-          </div>
-          <div class="timelineStat">
-            <span class="timelineStatK">✅ 할일</span>
-            <strong>{{ dockTimelineSummary.todos }}</strong>
-            <span class="timelineStatSub">바로 체크 가능한 항목</span>
-          </div>
-          <div class="timelineStat">
-            <span class="timelineStatK">📍 장소</span>
-            <strong>{{ dockTimelineSummary.places }}</strong>
-            <span class="timelineStatSub">나중에 다시 꺼낼 위치</span>
-          </div>
-        </div>
-
-        <div class="timelineScanStrip">
-          <div class="timelineScanCard" data-tone="accent">
-            <span class="timelineScanLabel">지금 먼저 볼 것</span>
-            <strong>{{ dockTimelineSummary.nextTitle || (dockStatusSummary.overdue ? '시간 지난 액션 확인' : '바로 할 일 점검') }}</strong>
-            <span class="timelineScanMeta">{{ dockTimelineSummary.nextTitle ? dockTimelineSummary.nextLabel : timelinePrimaryMeta }}</span>
-          </div>
-          <div class="timelineScanCard" data-tone="warn">
-            <span class="timelineScanLabel">왜 지금 봐야 하나</span>
-            <strong>{{ timelinePriorityReason.title }}</strong>
-            <span class="timelineScanMeta">{{ timelinePriorityReason.description }}</span>
-          </div>
-          <div class="timelineScanCard" data-tone="soft">
-            <span class="timelineScanLabel">어디서 바로 처리하나</span>
-            <strong>{{ timelineActionPath.title }}</strong>
-            <span class="timelineScanMeta">{{ timelineActionPath.description }}</span>
-          </div>
-        </div>
-
-        <div class="timelineFocusRow">
-          <div class="timelineFocusCard" data-tone="upcoming">
-            <span class="timelineFocusLabel">다가오는 일정</span>
-            <strong>{{ dockStatusSummary.upcoming }}</strong>
-            <span class="timelineFocusMeta">예정된 약속</span>
-          </div>
-          <div class="timelineFocusCard" data-tone="warn">
-            <span class="timelineFocusLabel">시간 지난 액션</span>
-            <strong>{{ dockStatusSummary.overdue }}</strong>
-            <span class="timelineFocusMeta">시간 확인 필요</span>
-          </div>
-          <div class="timelineFocusCard" data-tone="todo">
-            <span class="timelineFocusLabel">바로 할 일</span>
-            <strong>{{ dockStatusSummary.todoReady }}</strong>
-            <span class="timelineFocusMeta">체크 가능한 항목</span>
-          </div>
-        </div>
-
-        <div v-if="nextReminderPin" class="timelineReminderCard">
-          <div>
-            <div class="timelineReminderEyebrow">Action Reminder</div>
-            <div class="timelineReminderTitle">다음 리마인더는 “{{ nextReminderPin.title || '액션' }}”예요</div>
-            <div class="timelineReminderMeta">{{ reminderTimeText(nextReminderPin) }}</div>
-          </div>
-          <div class="timelineReminderActions">
-            <span class="timelineReminderCount">오늘 {{ reminderTodayCount }}개 · 24시간 내 {{ reminderDueSoonCount }}개</span>
-            <button class="timelineReminderBtn" type="button" @click="openReminderPins(nextReminderPin)">리마인더 보기</button>
-          </div>
-        </div>
-
-        <div v-if="dockTimelineSummary.nextTitle" class="timelineHeroNext">
-          <span class="timelineHeroNextLabel">다음 약속</span>
-          <span class="timelineHeroNextTitle">{{ dockTimelineSummary.nextTitle }}</span>
-          <span class="timelineHeroNextTime">{{ dockTimelineSummary.nextLabel }}</span>
-        </div>
-
-        <div v-if="recentPinActivity.length" class="timelineRecent">
-          <div class="timelineRecentHead">최근 처리</div>
-          <div class="timelineRecentList">
-            <div v-for="item in recentPinActivity" :key="item.id" class="timelineRecentItem">
-              <span class="timelineRecentBadge" :data-tone="pinActivityTone(item)">{{ pinActivityLabel(item) }}</span>
-              <div class="timelineRecentBody">
-                <div class="timelineRecentTitle">{{ item.title }}</div>
-                <div class="timelineRecentMeta">{{ pinActivityMeta(item) }}</div>
-              </div>
-              <button class="timelineRecentShare" type="button" @click="sharePinActivityToFeed(item)">피드 공유</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="pins && pins.length" class="dockRowWrap">
-        <div v-if="dockVisibleSummary.hasMany" class="dockBrowseHint">아래 카드에서 이어지는 액션을 계속 볼 수 있어요.</div>
-        <div class="dockRow">
-        <div v-for="p in dockActivePinsToShow" :key="p.pinId" class="dockCard" :data-pin-id="String(p.pinId)" :class="{ moved: dockJustMovedPinId===String(p.pinId), placeholder: !!p.__placeholder, searchHit: searchFocusPinId === String(p.pinId) }" @click="p.__placeholder ? null : openPinEdit(p)">
-          <div class="dockCardTopline">
-            <span class="dockTypePill">{{ pinKindMeta(p).emoji }} {{ pinKindMeta(p).label }}</span>
-            <span class="dockStatePill" :data-tone="pinTimelineState(p).tone">{{ pinTimelineState(p).label }}</span>
-          </div>
-          <div class="dockCardTitleRow"><div class="dockCardTitle">{{ p.title || "약속" }}</div><span v-if="searchFocusPinId === String(p.pinId)" class="dockSearchBadge">검색 결과</span></div>
-          <div class="dockCardMeta">
-            <span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span>
-            <span v-else class="muted">🕒 시간 미정</span>
-            <span v-if="p.placeText" class="sep">·</span>
-            <span v-if="p.placeText">📍 {{ p.placeText }}</span>
-          </div>
-          <div class="dockCardSummary">
-            <div class="dockCardSummaryLine">
-              <span class="dockCardSummaryLabel">지금 상태</span>
-              <span class="dockCardSummaryText">{{ pinPrimarySummary(p) }}</span>
-            </div>
-            <div class="dockCardSummaryLine">
-              <span class="dockCardSummaryLabel">다음 액션</span>
-              <span class="dockCardSummaryText">{{ pinSecondarySummary(p) }}</span>
-            </div>
-          </div>
-          <div v-if="p.remindAt" class="dockReminderRow">⏰ {{ reminderTimeText(p) }}</div>
-          <div class="dockProgress">
-            <div class="dockProgressFill" :style="{ width: pinTimelineState(p).progress + '%' }"></div>
-          </div>
-          <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
-          <div v-if="pinTimelineEvents(p).length" class="dockCardTimeline">
-            <div class="dockCardTimelineHead">Action Timeline</div>
-            <div class="dockCardTimelineList">
-              <div v-for="event in pinTimelineEvents(p)" :key="event.key" class="dockCardTimelineItem" :data-tone="event.tone">
-                <span class="dockCardTimelineDot" aria-hidden="true"></span>
-                <span class="dockCardTimelineTime">{{ pinTimelineTimeText(event.time) }}</span>
-                <span class="dockCardTimelineLabel">{{ event.label }}</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="!p.__placeholder" class="dockCardActions" @click.stop>
-            <button class="dockMiniBtn dockMiniBtn--soft" type="button" @click="openPinEdit(p)">수정</button>
-            <button class="dockMiniBtn dockMiniBtn--primary" type="button" @click="openPinActionModal('DONE', p)">완료</button>
-            <button class="dockMiniBtn dockMiniBtn--danger" type="button" @click="openPinActionModal('CANCELED', p)">취소</button>
-          </div>
-          <button v-if="!p.__placeholder" class="dockShareBtn" type="button" @click.stop="sharePinToFeed(p)">피드에 공유</button>
-        </div>
-        </div>
-      </div>
-      <div v-else class="dockEmpty">아직 저장된 액션이 없어요. 메시지의 ✨로 약속/할일을 바로 만들어보세요.</div>
-    </div>
-
-    <!-- Suggestions -->
-    <div v-else class="dockGrid">
-      <div v-if="dockSourceMsg" class="dockSuggestHead">
-        <div class="dockSuggestTitle">✨ 제안</div>
-        <div class="dockSuggestSub">“{{ dockSourceMsg.content }}”에서 생성된 후보</div>
-      </div>
-
-      <div v-if="dockCandidates && dockCandidates.length" class="dockSuggestList">
-        <div v-for="(c, i) in sortedDockCandidates.slice(0, 3)" :key="c.candidateId" class="dockSlot" :data-cid="String(c.candidateId)">
-        <PinCandidateCard
-          :candidate="c"
-          :class="{ leaving: savingCandidateId===String(c.candidateId) }"
-          :busy="dockSourceMsg ? isConfirmBusy(dockSourceMsg.messageId) : false"
-          @confirm="dockSourceMsg && confirmCandidate(dockSourceMsg, $event)"
-          @dismiss="dockSourceMsg && dismissCandidate(dockSourceMsg, $event)"
-        />
-      </div>
-      </div>
-
-      <div v-else class="dockEmpty">표시할 제안이 없어요.</div>
-    </div>
-      </div>
-    </template>
-  </Teleport>
-</div>
 <!-- ✅ 잠금 게이트 -->
     <div v-if="lockEnabled && !unlocked" class="lockGate">
       <div class="lockCard">
@@ -3214,70 +3118,33 @@ onBeforeUnmount(() => {
             <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus">닫기</button>
           </div>
         </div>
-        <section v-if="canViewConversation" ref="sessionHubRef" class="sessionHub">
-          <div class="sessionHub__head">
+
+        <section v-if="canViewConversation" class="messageStagePanel rl-cardish" :class="{ compact: messageStageMode === 'stream' }">
+          <div class="messageStagePanel__head">
             <div>
-              <div class="sessionHub__eyebrow">Shared Play MVP</div>
-              <strong>같이 보기 · 같이 듣기</strong>
-              <p>링크 기반 세션을 만들고 play/pause/seek 상태만 가볍게 맞춥니다.</p>
+              <div class="messageStagePanel__eyebrow">Conversation stage</div>
+              <strong>{{ stageHeadline }}</strong>
+              <p>{{ messageStageMode === 'stage' ? '전체 메시지 중 다시 보기 좋은 장면만 앞으로 당겨서 보여줘요.' : '필요하면 스테이지로 바꿔 핵심 장면만 빠르게 훑을 수 있어요.' }}</p>
             </div>
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="openSessionModal">세션 만들기</button>
+            <div class="messageStagePanel__actions">
+              <button type="button" class="messageStagePanel__mode" :class="{ on: messageStageMode === 'stream' }" @click="messageStageMode = 'stream'">Stream</button>
+              <button type="button" class="messageStagePanel__mode" :class="{ on: messageStageMode === 'stage' }" @click="messageStageMode = 'stage'">Stage</button>
+            </div>
           </div>
-          <div v-if="loadingSessions" class="sessionHub__empty">세션을 불러오는 중이에요…</div>
-          <div v-else-if="sessionError" class="sessionHub__empty">{{ sessionError }}</div>
-          <div v-else-if="activeSessions.length || recentSessions.length" class="sessionHub__stack">
-            <section v-if="activeSessions.length" class="sessionHub__section">
-              <div class="sessionHub__sectionHead">
-                <strong>진행 중인 세션</strong>
-                <span>{{ activeSessions.length }}개</span>
-              </div>
-              <p class="sessionHub__sectionCopy">대화 상세에 들어왔다고 바로 재생하지 않고, 참여를 누른 카드만 여기서 재생을 붙입니다.</p>
-              <div class="sessionHub__grid">
-                <ConversationSessionCard
-                  v-for="session in activeSessions"
-                  :key="session.sessionId"
-                  :session="session"
-                  :busy="isActionBusy(session.sessionId)"
-                  :current-user-id="meId"
-                  :force-interactive="isSessionActivated(session.sessionId)"
-                  @activate-session="activateSessionControls($event)"
-                  @play="onPlaybackPlay"
-                  @pause="onPlaybackPause"
-                  @seek="onPlaybackSeek"
-                  @end="onPlaybackEnd"
-                  @playback-intent="onPlaybackIntent"
-                  @position-sampled="onPlaybackTelemetry"
-                  @touch-presence="onTouchPlaybackPresence"
-                />
-              </div>
-            </section>
-            <section v-if="recentSessions.length" class="sessionHub__section">
-              <div class="sessionHub__sectionHead">
-                <strong>최근 종료되거나 멈춘 세션</strong>
-                <span>{{ recentSessions.length }}개</span>
-              </div>
-              <p class="sessionHub__sectionCopy">여기는 기록/재오픈 용도예요. 종료된 세션은 재생 제어하지 않고 링크만 다시 열 수 있어요.</p>
-              <div class="sessionHub__grid">
-                <ConversationSessionCard
-                  v-for="session in recentSessions"
-                  :key="session.sessionId"
-                  :session="session"
-                  :busy="isActionBusy(session.sessionId)"
-                  :current-user-id="meId"
-                  :force-interactive="isSessionActivated(session.sessionId)"
-                  @activate-session="activateSessionControls($event)"
-                  @play="onPlaybackPlay"
-                  @pause="onPlaybackPause"
-                  @seek="onPlaybackSeek"
-                  @end="onPlaybackEnd"
-                  @playback-intent="onPlaybackIntent"
-                  @position-sampled="onPlaybackTelemetry"
-                  @touch-presence="onTouchPlaybackPresence"
-                />
-              </div>
-            </section>
+          <div class="messageStagePanel__filters">
+            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'all' }" @click="stageFilter = 'all'">전체 장면 <small>{{ stageStats.total }}</small></button>
+            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'sessions' }" @click="stageFilter = 'sessions'">세션 <small>{{ stageStats.sessions }}</small></button>
+            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'media' }" @click="stageFilter = 'media'">미디어 <small>{{ stageStats.media }}</small></button>
+            <button type="button" class="messageStagePanel__filter" :class="{ on: stageFilter === 'actions' }" @click="stageFilter = 'actions'">액션 <small>{{ stageStats.actions }}</small></button>
           </div>
-          <div v-else class="sessionHub__empty">아직 공동 플레이 세션이 없어요. 첫 세션을 만들어 보세요.</div>
+          <div v-if="spotlightMessage" class="messageSpotlight" @click="ensureMessageVisible(spotlightMessage.messageId, 4)">
+            <div class="messageSpotlight__label">Spotlight</div>
+            <div class="messageSpotlight__body">
+              <strong>{{ isSessionMessage(spotlightMessage) ? '공동 플레이 장면' : spotlightMessage.content || '메시지 장면' }}</strong>
+              <p>{{ isSessionMessage(spotlightMessage) ? '세션 카드로 바로 이동해 다시 이어볼 수 있어요.' : '최근 핵심 장면으로 바로 점프할 수 있어요.' }}</p>
+            </div>
+            <button type="button" class="messageSpotlight__jump">이 장면 보기</button>
+          </div>
         </section>
 
         <div class="more">
@@ -3287,7 +3154,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-            v-for="(m, i) in items"
+            v-for="(m, i) in visibleMessages"
             :key="m.messageId"
             class="msg"
             :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId),
@@ -3419,6 +3286,20 @@ onBeforeUnmount(() => {
 
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
     <div ref="composerRef" class="composerWrap" v-if="canViewConversation">
+      <div class="lensLauncher" :class="{ open: lensLauncherOpen }">
+        <button type="button" class="lensLauncher__toggle" @click="toggleLensLauncher">
+          {{ lensLauncherOpen ? '렌즈 닫기' : '렌즈' }}
+        </button>
+        <div v-if="lensLauncherOpen" class="lensLauncher__menu rl-cardish">
+          <button v-for="tab in commandDeckTabs" :key="`launcher-${tab.key}`" type="button" class="lensLauncher__chip" @click="openLensDeck(tab.key)">
+            {{ tab.label }}
+            <small>{{ tab.count }}</small>
+          </button>
+          <button type="button" class="lensLauncher__chip lensLauncher__chip--accent" @click="lensLauncherOpen = false; openSessionModal()">
+            세션 만들기
+          </button>
+        </div>
+      </div>
       <ConversationPendingBridge
         v-if="pendingAction"
         :pending-action="pendingAction"
@@ -3449,6 +3330,175 @@ onBeforeUnmount(() => {
       </div>
       <div class="composerHint">파일 첨부는 📎, 캡슐은 메시지를 입력한 뒤 ⏳ 버튼으로 만들 수 있어요. 업로드가 끝나면 서버 메타데이터로 카드가 바로 정리돼요.</div>
     </div>
+
+    <teleport to="body">
+      <div v-if="canViewConversation && commandDeckOpen" class="commandDeckBackdrop" @click.self="closeCommandDeck">
+        <section class="commandDeck rl-cardish">
+          <div class="commandDeck__grab"></div>
+          <div class="commandDeck__head">
+            <div>
+              <div class="commandDeck__eyebrow">Command lens</div>
+              <strong>대화를 가리지 않고 필요한 기능만 꺼내서 씁니다</strong>
+            </div>
+            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="closeCommandDeck">닫기</button>
+          </div>
+          <div class="commandDeck__tabs">
+            <button v-for="tab in commandDeckTabs" :key="tab.key" type="button" class="commandDeck__tab" :class="{ on: commandDeckTab === tab.key }" @click="commandDeckTab = tab.key">
+              <span>{{ tab.label }}</span><small>{{ tab.badge }}</small>
+            </button>
+          </div>
+
+          <section v-if="commandDeckTab === 'search'" class="commandDeck__panel">
+            <section class="conversationSearchRail rl-cardish">
+              <div class="conversationSearchRail__top">
+                <div class="conversationSearchRail__copy">
+                  <div class="conversationSearchRail__eyebrow">Conversation OS</div>
+                  <strong>찾고 바로 이어가기</strong>
+                  <p>메시지 흐름은 그대로 두고 검색만 빠르게 꺼내 씁니다.</p>
+                </div>
+              </div>
+              <div class="conversationSearchRail__controls">
+                <div class="conversationSearchRail__inputWrap">
+                  <input v-model.trim="conversationSearchQ" class="conversationSearchRail__input" placeholder="이 대화에서 찾고 싶은 키워드를 입력해 보세요" @keydown.enter.prevent="openConversationSearch()" />
+                  <button type="button" class="conversationSearchRail__submit" @click="openConversationSearch()">검색</button>
+                </div>
+                <div class="conversationSearchRail__meta">
+                  <span class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
+                  <div class="conversationSearchRail__actions">
+                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('약속')">약속</button>
+                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('캡슐')">캡슐</button>
+                    <button type="button" class="conversationSearchRail__chip" @click="openGlobalSearch()">전체 검색</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section v-else-if="commandDeckTab === 'capsules'" class="commandDeck__panel">
+            <ConversationCapsulePanel :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @delete="deleteCapsuleItem" :highlight-capsule-id="searchFocusCapsuleId" />
+          </section>
+
+          <section v-else-if="commandDeckTab === 'actions'" class="commandDeck__panel">
+            <div class="dockWrap dockWrapInline" :class="{ dockPulse: dockPulseOn }">
+              <div class="dockBar dockBarInline">
+                <button class="dockTab" :class="{ on: dockMode==='active' }" type="button" @click="dockMode='active'; dockOpen=true">📌 액션 <span class="dockCount">{{ activeCount }}</span></button>
+                <button class="dockTab" :class="{ on: dockMode==='suggestions' }" type="button" :disabled="suggestionCount===0" @click="dockMode='suggestions'; dockOpen=true">✨ 제안 <span class="dockCount">{{ suggestionCount }}</span></button>
+                <div class="dockSpacer"></div>
+                <RlButton size="sm" variant="ghost" class="dockMore" @click="clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck()">전체</RlButton>
+              </div>
+              <div class="dockPanel dockPanelInline">
+                <div v-if="dockMode==='active'" class="dockGrid">
+                  <div class="dockFilterBar">
+                    <button class="dockPill" :class="{ on: activeFilter==='ALL' }" type="button" @click="activeFilter='ALL'">전체 <span class="dockPillCount">{{ activeCount }}</span></button>
+                    <button class="dockPill" :class="{ on: activeFilter==='PROMISE' }" type="button" @click="activeFilter='PROMISE'">📅 약속 <span class="dockPillCount">{{ activeCounts.PROMISE }}</span></button>
+                    <button class="dockPill" :class="{ on: activeFilter==='TODO' }" type="button" @click="activeFilter='TODO'">✅ 할일 <span class="dockPillCount">{{ activeCounts.TODO }}</span></button>
+                    <button class="dockPill" :class="{ on: activeFilter==='PLACE' }" type="button" @click="activeFilter='PLACE'">📍 장소 <span class="dockPillCount">{{ activeCounts.PLACE }}</span></button>
+                  </div>
+                  <div v-if="filteredPins && filteredPins.length" class="dockList dockListInline">
+                    <div v-for="p in filteredPins" :key="p.pinId" class="dockCard" :data-kind="p.kind || 'PROMISE'" :data-pin-id="String(p.pinId)">
+                      <div class="dockCardTop"><div class="dockCardTitleRow"><div class="dockCardTitle">{{ p.title || '약속' }}</div></div></div>
+                      <div class="dockCardMeta"><span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span><span v-else class="muted">🕒 시간 미정</span><span v-if="p.placeText" class="sep">·</span><span v-if="p.placeText">📍 {{ p.placeText }}</span></div>
+                      <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
+                    </div>
+                  </div>
+                  <div v-else class="dockEmpty">아직 저장된 액션이 없어요.</div>
+                </div>
+                <div v-else class="dockGrid">
+                  <div v-if="dockCandidates && dockCandidates.length" class="dockSuggestList">
+                    <div v-for="c in sortedDockCandidates.slice(0, 3)" :key="c.candidateId" class="dockSlot">
+                      <PinCandidateCard :candidate="c" :busy="dockSourceMsg ? isConfirmBusy(dockSourceMsg.messageId) : false" @confirm="dockSourceMsg && confirmCandidate(dockSourceMsg, $event)" @dismiss="dockSourceMsg && dismissCandidate(dockSourceMsg, $event)" />
+                    </div>
+                  </div>
+                  <div v-else class="dockEmpty">표시할 제안이 없어요.</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section v-else class="commandDeck__panel">
+            <div ref="sessionHubRef" class="sessionHub">
+              <div class="sessionHub__head">
+                <div>
+                  <div class="sessionHub__eyebrow">Shared play</div>
+                  <strong>세션은 여기서만 크게 다룹니다</strong>
+                  <p>메시지 화면은 방해하지 않고, 공동 플레이는 별도 렌즈 패널에서 집중해서 제어합니다.</p>
+                </div>
+                <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="openSessionModal">세션 만들기</button>
+              </div>
+              <div v-if="loadingSessions" class="sessionHub__empty">세션을 불러오는 중이에요…</div>
+              <div v-else-if="sessionError" class="sessionHub__empty">{{ sessionError }}</div>
+              <div v-else-if="activeSessions.length || recentSessions.length" class="sessionHub__stack">
+                <section v-if="featuredActiveSession" class="sessionHub__section sessionHub__section--featured">
+                  <div class="sessionHub__sectionHead">
+                    <div>
+                      <strong>현재 세션</strong>
+                      <p class="sessionHub__sectionCopy">실제 플레이어와 컨트롤은 이 카드 한 장에만 모읍니다.</p>
+                    </div>
+                    <span>1개</span>
+                  </div>
+                  <ConversationSessionCard
+                    :session="featuredActiveSession"
+                    :busy="isActionBusy(featuredActiveSession.sessionId)"
+                    :current-user-id="meId"
+                    :force-interactive="isSessionActivated(featuredActiveSession.sessionId)"
+                    @activate-session="activateSessionControls($event)"
+                    @play="onPlaybackPlay"
+                    @pause="onPlaybackPause"
+                    @seek="onPlaybackSeek"
+                    @end="onPlaybackEnd"
+                    @playback-intent="onPlaybackIntent"
+                    @position-sampled="onPlaybackTelemetry"
+                    @touch-presence="onTouchPlaybackPresence"
+                  />
+                </section>
+                <section v-if="secondaryActiveSessions.length" class="sessionHub__section">
+                  <div class="sessionHub__sectionHead">
+                    <strong>다른 진행 중 세션</strong>
+                    <span>{{ secondaryActiveSessions.length }}개</span>
+                  </div>
+                  <div class="sessionHub__compactList">
+                    <ConversationSessionCard
+                      v-for="session in secondaryActiveSessions"
+                      :key="session.sessionId"
+                      :session="session"
+                      compact
+                      :busy="isActionBusy(session.sessionId)"
+                      :current-user-id="meId"
+                      :force-interactive="isSessionActivated(session.sessionId)"
+                      @activate-session="activateSessionControls($event, { scroll: true })"
+                      @touch-presence="onTouchPlaybackPresence"
+                    />
+                  </div>
+                </section>
+                <section v-if="recentSessions.length" class="sessionHub__section">
+                  <div class="sessionHub__sectionHead">
+                    <strong>세션 히스토리</strong>
+                    <div class="sessionHub__historyActions">
+                      <span>{{ recentSessions.length }}개</span>
+                      <button type="button" class="conversationSearchRail__chip" @click="toggleSessionHistory">{{ sessionHistoryOpen ? '접기' : '펼치기' }}</button>
+                    </div>
+                  </div>
+                  <div class="sessionHub__compactList">
+                    <ConversationSessionCard
+                      v-for="session in visibleRecentSessions"
+                      :key="session.sessionId"
+                      :session="session"
+                      compact
+                      :busy="isActionBusy(session.sessionId)"
+                      :current-user-id="meId"
+                      :force-interactive="isSessionActivated(session.sessionId)"
+                      @activate-session="activateSessionControls($event, { scroll: true })"
+                      @touch-presence="onTouchPlaybackPresence"
+                    />
+                  </div>
+                </section>
+              </div>
+              <div v-else class="sessionHub__empty">아직 공동 플레이 세션이 없어요. 첫 세션을 만들어 보세요.</div>
+            </div>
+          </section>
+        </section>
+      </div>
+    </teleport>
 
     <ConversationSessionComposer
       :open="sessionModalOpen"
@@ -5695,7 +5745,7 @@ onBeforeUnmount(() => {
 
 
 .sessionHub{display:grid;gap:12px;margin:0 0 14px;padding:14px 16px;border-radius:24px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(11,16,30,.94),rgba(7,11,22,.88))}
-.sessionHub__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.sessionHub__head p{margin:4px 0 0;font-size:12px;line-height:1.55;color:rgba(255,255,255,.68)}.sessionHub__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}.sessionHub__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.sessionHub__empty{padding:12px 0;font-size:13px;color:rgba(255,255,255,.68)}
+.sessionHub__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.sessionHub__head p{margin:4px 0 0;font-size:12px;line-height:1.55;color:rgba(255,255,255,.68)}.sessionHub__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}.sessionHub__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.sessionHub__compactList{display:grid;gap:10px}.sessionHub__empty{padding:12px 0;font-size:13px;color:rgba(255,255,255,.68)}
 
 .searchAnchorPulse{animation:searchAnchorPulse 1.8s ease}
 @keyframes searchAnchorPulse{0%{box-shadow:0 0 0 0 rgba(122,140,255,.42)}70%{box-shadow:0 0 0 12px rgba(122,140,255,0)}100%{box-shadow:0 0 0 0 rgba(122,140,255,0)}}
@@ -5710,5 +5760,84 @@ onBeforeUnmount(() => {
 }
 
 
-.sessionHub__stack{display:grid;gap:16px}.sessionHub__section{display:grid;gap:10px}.sessionHub__sectionHead{display:flex;align-items:center;justify-content:space-between;gap:12px}.sessionHub__sectionHead strong{font-size:14px}.sessionHub__sectionHead span{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);font-size:11px;font-weight:800;color:rgba(255,255,255,.72)}.sessionHub__sectionCopy{margin:0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.62)}
+.sessionHub__stack{display:grid;gap:16px}.sessionHub__section{display:grid;gap:10px}.sessionHub__section--featured{padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06)}.sessionHub__sectionHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.sessionHub__sectionHead strong{font-size:14px}.sessionHub__sectionHead span{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);font-size:11px;font-weight:800;color:rgba(255,255,255,.72)}.sessionHub__historyActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sessionHub__sectionCopy{margin:4px 0 0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.62)}
+
+
+
+.messageOrbitBar{display:grid;gap:12px;padding:14px 16px;margin-top:10px;border-radius:24px;background:linear-gradient(180deg,rgba(10,14,34,.94),rgba(8,11,24,.9));border:1px solid rgba(122,140,255,.16)}
+.messageOrbitBar__main{display:flex;align-items:center;gap:12px;justify-content:space-between}
+.messageOrbitBar__lens,.messageOrbitBar__chip,.messageStagePanel__mode,.messageStagePanel__filter,.messageSpotlight__jump{border:none;cursor:pointer;font:inherit}
+.messageOrbitBar__lens{min-height:40px;padding:0 16px;border-radius:999px;background:linear-gradient(135deg,rgba(124,92,255,.92),rgba(89,149,255,.86));color:#fff;font-weight:900;box-shadow:0 14px 28px rgba(70,53,146,.24)}
+.messageOrbitBar__copy{display:grid;gap:3px;min-width:0;flex:1}
+.messageOrbitBar__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.72);font-weight:800}
+.messageOrbitBar__copy strong{font-size:15px;line-height:1.3}
+.messageOrbitBar__chips{display:flex;flex-wrap:wrap;gap:8px}
+.messageOrbitBar__chip{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.05);color:rgba(255,255,255,.82);font-weight:800;border:1px solid rgba(255,255,255,.06)}
+.messageOrbitBar__chip small{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.66)}
+.messageOrbitBar__chip.on{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.32);color:#fff}
+.messageOrbitBar__chip--accent{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.32)}
+.messageOrbitBar__floating{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);cursor:pointer}
+.messageOrbitBar__floatingTag{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 8px;border-radius:999px;background:rgba(122,140,255,.18);color:#fff;font-size:11px;font-weight:900}
+.messageStagePanel{display:grid;gap:12px;padding:14px 16px;margin:6px 0 12px;border-radius:24px;background:linear-gradient(180deg,rgba(8,11,25,.92),rgba(8,10,20,.88));border:1px solid rgba(122,140,255,.14);position:sticky;top:8px;z-index:4;backdrop-filter:blur(12px)}
+.messageStagePanel.compact{padding:12px 14px}
+.messageStagePanel__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.messageStagePanel__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.7);font-weight:800}
+.messageStagePanel__head strong{display:block;font-size:16px;line-height:1.3}
+.messageStagePanel__head p{margin:4px 0 0;color:rgba(226,232,255,.68);font-size:12px;line-height:1.45}
+.messageStagePanel__actions{display:flex;gap:8px}
+.messageStagePanel__mode{min-height:34px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.04);color:rgba(255,255,255,.75);font-weight:800;border:1px solid rgba(255,255,255,.06)}
+.messageStagePanel__mode.on{background:rgba(122,140,255,.18);border-color:rgba(122,140,255,.34);color:#fff}
+.messageStagePanel__filters{display:flex;flex-wrap:wrap;gap:8px}
+.messageStagePanel__filter{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.72);font-weight:800;border:1px solid rgba(255,255,255,.05)}
+.messageStagePanel__filter small{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.66)}
+.messageStagePanel__filter.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.3);color:#fff}
+.messageSpotlight{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px 14px;border-radius:18px;background:linear-gradient(135deg,rgba(122,140,255,.14),rgba(68,92,180,.08));border:1px solid rgba(122,140,255,.18);cursor:pointer}
+.messageSpotlight__label{display:inline-flex;align-items:center;justify-content:center;min-width:62px;height:30px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.76)}
+.messageSpotlight__body strong{display:block;font-size:14px;line-height:1.3}
+.messageSpotlight__body p{margin:4px 0 0;color:rgba(226,232,255,.68);font-size:12px;line-height:1.45}
+.messageSpotlight__jump{min-height:36px;padding:0 12px;border-radius:12px;background:rgba(255,255,255,.08);color:#fff;font-weight:900}
+.sceneHero{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;margin-top:10px;border-radius:24px;background:linear-gradient(180deg,rgba(12,18,44,.94),rgba(9,13,33,.86));border:1px solid rgba(122,140,255,.16)}
+.sceneHero__copy{display:grid;gap:6px;max-width:720px}
+.sceneHero__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.72);font-weight:800}
+.sceneHero__copy strong{font-size:18px;line-height:1.25}
+.sceneHero__copy p{margin:0;color:rgba(226,232,255,.72);font-size:13px;line-height:1.5}
+.sceneHero__actions{display:flex;gap:10px;flex-wrap:wrap}
+.sceneHero__action{min-height:42px;padding:0 16px;border-radius:999px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);color:#eef2ff;font-weight:800}
+.sceneHero__action--primary{background:linear-gradient(135deg,rgba(124,92,255,.9),rgba(89,149,255,.86));border-color:rgba(164,177,255,.45);box-shadow:0 18px 38px rgba(72,54,140,.26)}
+.sceneStrip{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.sceneStrip__pill{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.76);font-size:13px;font-weight:800}
+.sceneStrip__pill small{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.64)}
+.sceneStrip__pill.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.34);color:#fff}
+.commandDeckBackdrop{position:fixed;inset:0;z-index:80;background:rgba(1,4,10,.42);backdrop-filter:blur(16px);display:flex;justify-content:center;align-items:flex-end;padding:18px}
+.commandDeck{width:min(980px,100%);max-height:min(84vh,920px);overflow:hidden;display:flex;flex-direction:column;border-radius:28px;border:1px solid rgba(122,140,255,.18);background:linear-gradient(180deg,rgba(10,14,32,.98),rgba(7,10,24,.96));box-shadow:0 28px 80px rgba(3,6,18,.56)}
+.commandDeck__grab{width:64px;height:6px;border-radius:999px;background:rgba(255,255,255,.14);margin:12px auto 0}
+.commandDeck__head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px 10px}
+.commandDeck__eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(164,177,255,.7);font-weight:800}
+.commandDeck__head strong{display:block;font-size:18px;line-height:1.3}
+.commandDeck__tabs{display:flex;gap:8px;flex-wrap:wrap;padding:0 20px 14px}
+.commandDeck__tab{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.76);font-weight:800}
+.commandDeck__tab small{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.64)}
+.commandDeck__tab.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.34);color:#fff}
+.commandDeck__panel{overflow:auto;padding:0 20px 20px 20px}
+.lensLauncher{display:none}
+.lensLauncher__toggle,.lensLauncher__chip{border:none;cursor:pointer;font:inherit}
+@media (max-width:720px){.messageOrbitBar{padding:12px 14px;border-radius:20px}.messageOrbitBar__main{align-items:flex-start;flex-direction:column}.messageOrbitBar__chips{display:none}.messageOrbitBar__floating{margin-top:-2px}.messageStagePanel{top:4px;padding:12px 14px;border-radius:20px}.messageStagePanel__head{flex-direction:column}.messageSpotlight{grid-template-columns:1fr;justify-items:start}.messageSpotlight__jump{width:100%}.sceneHero,.sceneStrip{display:none}.sessionMiniBar{margin-top:8px}.lensLauncher{display:block;position:absolute;right:12px;top:-56px;z-index:7}.lensLauncher__toggle{display:inline-flex;align-items:center;justify-content:center;min-width:72px;height:42px;padding:0 14px;border-radius:999px;background:linear-gradient(135deg,#8ea2ff,#6e7cff);color:#fff;font-weight:900;box-shadow:0 14px 32px rgba(66,84,180,.34)}.lensLauncher__menu{position:absolute;right:0;bottom:52px;display:grid;gap:8px;min-width:188px;padding:12px;border-radius:22px;border:1px solid rgba(122,140,255,.2);background:linear-gradient(180deg,rgba(9,13,32,.98),rgba(8,11,24,.95));box-shadow:0 24px 52px rgba(4,7,18,.46)}.lensLauncher__chip{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:42px;padding:0 14px;border-radius:14px;background:rgba(255,255,255,.04);color:#fff;font-weight:800}.lensLauncher__chip small{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.1);font-size:11px;color:rgba(255,255,255,.76)}.lensLauncher__chip--accent{background:rgba(122,140,255,.18);border:1px solid rgba(122,140,255,.3)}.sceneHero{padding:14px 16px;border-radius:20px;flex-direction:column;align-items:flex-start}.sceneHero__actions{width:100%}.sceneHero__action{flex:1 1 calc(50% - 5px);justify-content:center}.commandDeckBackdrop{padding:12px}.commandDeck{max-height:88vh;border-radius:24px}.commandDeck__head{padding:14px 16px 10px;align-items:flex-start;flex-direction:column}.commandDeck__tabs,.commandDeck__panel{padding-left:16px;padding-right:16px}}
+
+.focusModeBar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin-top:10px;border-radius:20px}
+.focusModeBar__tabs{display:flex;gap:8px;flex-wrap:wrap}
+.focusModeBar__tab{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.78);font-size:13px;font-weight:800}
+.focusModeBar__tab small{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:rgba(255,255,255,.62)}
+.focusModeBar__tab.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.3);color:#fff}
+.focusModeBar__actions{display:flex;gap:8px;flex-wrap:wrap}
+.sessionMiniBar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding:12px 14px;border-radius:20px;cursor:pointer;border:1px solid rgba(122,140,255,.18);background:linear-gradient(180deg,rgba(18,24,42,.9),rgba(10,13,26,.92))}
+.sessionMiniBar__copy{display:grid;gap:2px}.sessionMiniBar__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}
+.sessionMiniBar__copy strong{font-size:14px}.sessionMiniBar__copy span{font-size:12px;color:rgba(255,255,255,.62)}
+.sessionMiniBar__actions{display:flex;gap:8px;flex-wrap:wrap}.sessionMiniBar__pill{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.05);font-size:11px;font-weight:800;color:rgba(255,255,255,.82)}
+.sessionMiniBar__pill--accent{background:rgba(122,140,255,.16);color:#fff}
+.focusStage{display:grid;gap:12px;margin-top:10px}.focusStage__header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-radius:24px;border:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg,rgba(14,19,34,.92),rgba(9,12,24,.94))}
+.focusStage__header strong{display:block;font-size:18px}.focusStage__header p{margin:6px 0 0;font-size:13px;line-height:1.55;color:rgba(255,255,255,.62)}.focusStage__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}
+.focusStage__tabs{display:flex;gap:8px;flex-wrap:wrap}.focusStage__tab{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:rgba(255,255,255,.74);font-size:12px;font-weight:800}.focusStage__tab.on{background:rgba(122,140,255,.16);border-color:rgba(122,140,255,.28);color:#fff}
+.focusStage__panel{display:grid;gap:12px}.dockWrapInline{margin-top:0}.dockBarInline{border-bottom:none;padding:0 0 10px}.dockPanelInline{position:static;transform:none;opacity:1;pointer-events:auto;max-height:none;border-radius:24px;border:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg,rgba(14,19,34,.92),rgba(9,12,24,.94));padding:14px}
+.dockListInline{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.sessionHub{margin-top:10px}
+@media (max-width:720px){.focusModeBar,.sessionMiniBar,.focusStage__header{border-radius:18px}.focusModeBar{align-items:flex-start;flex-direction:column}.focusModeBar__actions{width:100%}.focusModeBar__actions .conversationSearchRail__chip{flex:1 1 calc(50% - 4px);justify-content:center}.sessionMiniBar{align-items:flex-start;flex-direction:column}.sessionMiniBar__actions{width:100%}.focusStage__header{padding:14px}.dockListInline{grid-template-columns:1fr}}
 </style>
