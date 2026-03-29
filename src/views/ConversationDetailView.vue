@@ -12,6 +12,9 @@ import MessageAttachmentPicker from "@/components/chat/MessageAttachmentPicker.v
 import MessageAttachmentPreview from "@/components/chat/MessageAttachmentPreview.vue";
 import CapsuleComposerModal from "@/components/chat/CapsuleComposerModal.vue";
 import ConversationPendingBridge from "@/components/chat/ConversationPendingBridge.vue";
+import ConversationSessionComposer from "@/components/chat/ConversationSessionComposer.vue";
+import ConversationSessionCard from "@/components/chat/ConversationSessionCard.vue";
+import ConversationSessionMessageCard from "@/components/chat/ConversationSessionMessageCard.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -38,6 +41,7 @@ import sse from "@/lib/sse";
 import { useConversationCapsules } from "@/lib/useConversationCapsules";
 import { useMessageContextMenu } from "@/lib/useMessageContextMenu";
 import { useConversationComposer } from "@/lib/useConversationComposer";
+import { useConversationSessions } from "@/lib/useConversationSessions";
 
 const route = useRoute();
 const router = useRouter();
@@ -63,6 +67,75 @@ const conversationSearchSummary = computed(() => {
   return parts.length ? parts.join(" · ") : "이 대화의 흐름을 빠르게 다시 찾을 수 있어요";
 });
 const hasSearchFocus = computed(() => Boolean(searchFocusTerm.value || searchFocusMid.value || searchFocusPinId.value || searchFocusCapsuleId.value));
+
+function safeJsonParse(value) {
+  if (!value || typeof value !== "string") return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function sessionMessageMeta(message) {
+  return safeJsonParse(message?.metadataJson) || null;
+}
+
+function isSessionMessage(message) {
+  const type = String(message?.type || '').toUpperCase();
+  if (type === 'SESSION') return true;
+  return sessionMessageMeta(message)?.kind === 'playback-session';
+}
+
+function sessionSnapshotFromMessage(message) {
+  const meta = sessionMessageMeta(message) || {};
+  const sessionId = message?.sessionId || meta?.sessionId;
+  if (!sessionId) return null;
+  return {
+    sessionId,
+    conversationId: conversationId.value,
+    messageId: message?.messageId || null,
+    mediaKind: meta?.mediaKind || 'LINK',
+    title: meta?.title || message?.content || '공동 플레이',
+    sourceUrl: meta?.sourceUrl || '',
+    thumbnailUrl: meta?.thumbnailUrl || null,
+    status: meta?.status || 'ACTIVE',
+    playbackState: meta?.playbackState || 'PAUSED',
+    positionSeconds: Number(meta?.positionSeconds || 0),
+    participants: [],
+  };
+}
+
+function sessionForMessage(message) {
+  const snapshot = sessionSnapshotFromMessage(message);
+  const sessionId = String(snapshot?.sessionId || '');
+  if (!sessionId) return snapshot;
+  const live = sessions.value.find((item) => String(item?.sessionId || '') === sessionId);
+  return live ? { ...snapshot, ...live } : snapshot;
+}
+
+function buildSessionMessageFromSession(session) {
+  if (!session?.sessionId || !session?.messageId) return null;
+  return {
+    messageId: session.messageId,
+    conversationId: session.conversationId || conversationId.value,
+    senderId: session.hostUserId || null,
+    type: 'SESSION',
+    content: (session.mediaKind === 'MUSIC' ? '같이 듣기 세션 · ' : '같이 보기 세션 · ') + (session.title || '공동 플레이'),
+    metadataJson: JSON.stringify({
+      kind: 'playback-session',
+      sessionId: session.sessionId,
+      mediaKind: session.mediaKind || 'LINK',
+      title: session.title || '공동 플레이',
+      sourceUrl: session.sourceUrl || '',
+      thumbnailUrl: session.thumbnailUrl || null,
+      status: session.status || 'ACTIVE',
+      playbackState: session.playbackState || 'PAUSED',
+      positionSeconds: Number(session.positionSeconds || 0),
+    }),
+    sessionId: session.sessionId,
+    createdAt: session.createdAt || new Date().toISOString(),
+    editedAt: null,
+    attachments: [],
+    pinCandidates: [],
+  };
+}
 
 function syncSearchRailMode() {
   searchRailExpanded.value = !isMobileViewport.value || hasSearchFocus.value;
@@ -176,6 +249,55 @@ async function focusCapsuleFromSearch(capsuleId) {
     setTimeout(() => target.classList.remove('searchAnchorPulse'), 2200);
   }
 }
+
+async function onCreatePlaybackSession(form) {
+  const created = await createSession(form);
+  const sessionMessage = buildSessionMessageFromSession(created);
+  if (sessionMessage && !hasMessage(sessionMessage.messageId)) appendIncomingMessage(sessionMessage);
+}
+
+async function onPlaybackPlay(session) {
+  await applySessionAction(session?.sessionId, {
+    playbackState: 'PLAYING',
+    positionSeconds: Number(session?.positionSeconds || 0),
+  });
+}
+
+async function onPlaybackPause(session) {
+  await applySessionAction(session?.sessionId, {
+    playbackState: 'PAUSED',
+    positionSeconds: Number(session?.positionSeconds || 0),
+  });
+}
+
+async function onPlaybackSeek(session) {
+  await applySessionAction(session?.sessionId, {
+    playbackState: String(session?.playbackState || 'PAUSED'),
+    positionSeconds: Number(session?.positionSeconds || 0) + 15,
+  });
+}
+
+async function onPlaybackEnd(session) {
+  await endSession(session?.sessionId, Number(session?.positionSeconds || 0));
+}
+
+const {
+  sessions,
+  activeSessions,
+  recentSessions,
+  loadingSessions,
+  sessionError,
+  sessionModalOpen,
+  sessionBusy,
+  openSessionModal,
+  closeSessionModal,
+  loadSessions,
+  createSession,
+  applySessionAction,
+  endSession,
+  isActionBusy,
+  handleSessionSse,
+} = useConversationSessions({ conversationId, toast });
 
 const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
 
@@ -911,6 +1033,7 @@ async function handleUnlockGate() {
     unlocked.value = true;
 
     await loadFirst();
+    await loadSessions();
     await loadPins();
   } catch (e) {
     toast.error?.("잠금 해제 실패", e?.response?.data?.message || "비밀번호가 올바르지 않습니다.");
@@ -1036,6 +1159,7 @@ function rememberPinAction(action, pin) {
 
 watch(conversationId, () => {
   syncPinActivity();
+  if (canViewConversation.value) loadSessions();
 }, { immediate: true });
 
 
@@ -2437,6 +2561,7 @@ onMounted(async () => {
   await refreshLockState();
   if (canViewConversation.value) {
     await loadFirst();
+    await loadSessions();
     await loadPins();
   }
 
@@ -2509,6 +2634,11 @@ onMounted(async () => {
     const type = evt?.type;
     const payload = evt?.data;
     if (!type) return;
+    if (type === "playback-session-created") {
+      const sessionMessage = buildSessionMessageFromSession(payload);
+      if (sessionMessage && !hasMessage(sessionMessage.messageId)) appendIncomingMessage(sessionMessage);
+    }
+    if (handleSessionSse(type, payload)) return;
 
     if (type === "message-created") {
       if (String(payload?.conversationId) !== String(conversationId.value)) return;
@@ -3009,6 +3139,32 @@ onBeforeUnmount(() => {
             <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus">닫기</button>
           </div>
         </div>
+        <section v-if="canViewConversation" class="sessionHub">
+          <div class="sessionHub__head">
+            <div>
+              <div class="sessionHub__eyebrow">Shared Play MVP</div>
+              <strong>같이 보기 · 같이 듣기</strong>
+              <p>링크 기반 세션을 만들고 play/pause/seek 상태만 가볍게 맞춥니다.</p>
+            </div>
+            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="openSessionModal">세션 만들기</button>
+          </div>
+          <div v-if="loadingSessions" class="sessionHub__empty">세션을 불러오는 중이에요…</div>
+          <div v-else-if="sessionError" class="sessionHub__empty">{{ sessionError }}</div>
+          <div v-else-if="activeSessions.length || recentSessions.length" class="sessionHub__grid">
+            <ConversationSessionCard
+              v-for="session in [...activeSessions, ...recentSessions]"
+              :key="session.sessionId"
+              :session="session"
+              :busy="isActionBusy(session.sessionId)"
+              @play="onPlaybackPlay"
+              @pause="onPlaybackPause"
+              @seek="onPlaybackSeek"
+              @end="onPlaybackEnd"
+            />
+          </div>
+          <div v-else class="sessionHub__empty">아직 공동 플레이 세션이 없어요. 첫 세션을 만들어 보세요.</div>
+        </section>
+
         <div class="more">
           <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
             이전 메시지 더 보기
@@ -3090,14 +3246,31 @@ onBeforeUnmount(() => {
 
               <!-- 일반 모드 -->
               <template v-else>
-                <div>
-                  <span v-html="renderMessageHtml(m)"></span>
-                  <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
-                </div>
+                <template v-if="isSessionMessage(m)">
+                  <div>
+                    <span v-html="renderMessageHtml(m)"></span>
+                    <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
+                  </div>
+                  <ConversationSessionMessageCard
+                    :message="m"
+                    :session="sessionForMessage(m)"
+                    :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
+                    @play="onPlaybackPlay"
+                    @pause="onPlaybackPause"
+                    @seek="onPlaybackSeek"
+                    @end="onPlaybackEnd"
+                  />
+                </template>
+                <template v-else>
+                  <div>
+                    <span v-html="renderMessageHtml(m)"></span>
+                    <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
+                  </div>
+                </template>
               </template>
             </div>
 
-            <MessageAttachmentPreview v-if="Array.isArray(m.attachments) && m.attachments.length" :items="m.attachments" class="messageAttachmentBlock" />
+            <MessageAttachmentPreview v-if="!isSessionMessage(m) && Array.isArray(m.attachments) && m.attachments.length" :items="m.attachments" class="messageAttachmentBlock" />
 
             <!-- ✅ optimistic send 상태 -->
             <div v-if="m._status" class="sendState" :data-status="m._status">
@@ -3148,6 +3321,7 @@ onBeforeUnmount(() => {
       <div class="composerRow">
         <MessageAttachmentPicker :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
         <button class="miniBtn" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
+        <button class="miniBtn" type="button" @click="openSessionModal" :disabled="sending || attachmentUploading" title="공동 플레이 세션 만들기">▶</button>
         <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
         <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading">
           {{ sending || attachmentUploading ? "..." : "전송" }}
@@ -3155,6 +3329,13 @@ onBeforeUnmount(() => {
       </div>
       <div class="composerHint">파일 첨부는 📎, 캡슐은 메시지를 입력한 뒤 ⏳ 버튼으로 만들 수 있어요. 업로드가 끝나면 서버 메타데이터로 카드가 바로 정리돼요.</div>
     </div>
+
+    <ConversationSessionComposer
+      :open="sessionModalOpen"
+      :busy="sessionBusy"
+      @close="closeSessionModal"
+      @submit="onCreatePlaybackSession"
+    />
 
     <CapsuleComposerModal
       :open="capsuleModalOpen"
@@ -5391,6 +5572,10 @@ onBeforeUnmount(() => {
 .dockCardTitleRow{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .dockSearchBadge,.searchReturnBar__chipPill{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:rgba(255,214,102,.14);border:1px solid rgba(255,214,102,.26);font-size:11px;font-weight:900;color:#ffd666;white-space:nowrap}
 .searchReturnBar__chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+
+
+.sessionHub{display:grid;gap:12px;margin:0 0 14px;padding:14px 16px;border-radius:24px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(11,16,30,.94),rgba(7,11,22,.88))}
+.sessionHub__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.sessionHub__head p{margin:4px 0 0;font-size:12px;line-height:1.55;color:rgba(255,255,255,.68)}.sessionHub__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}.sessionHub__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.sessionHub__empty{padding:12px 0;font-size:13px;color:rgba(255,255,255,.68)}
 
 .searchAnchorPulse{animation:searchAnchorPulse 1.8s ease}
 @keyframes searchAnchorPulse{0%{box-shadow:0 0 0 0 rgba(122,140,255,.42)}70%{box-shadow:0 0 0 12px rgba(122,140,255,0)}100%{box-shadow:0 0 0 0 rgba(122,140,255,0)}}

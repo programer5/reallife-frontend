@@ -13,3 +13,8 @@
    - Cookie / CORS
    - backup
    - docs / asciidoctor
+
+## 이번에 추가한 정리
+- 공동 플레이 MVP를 런칭 전 차별화 기능 후보로 명시
+- ConversationDetail 구조 정리 이후 shared play를 얹는 순서로 재정렬
+- 백엔드에는 Search / Elasticsearch 운영 체크를 별도 항목으로 보강
