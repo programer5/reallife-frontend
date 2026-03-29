@@ -38,6 +38,7 @@ export function getPlaybackSourceMeta(rawUrl, fallbackThumbnail = '') {
     return {
       provider: 'link',
       label: '링크',
+      mediaId: '',
       cleanUrl: rawUrl || '',
       embedUrl: '',
       previewKind: thumbnail ? 'image' : 'link',
@@ -50,8 +51,9 @@ export function getPlaybackSourceMeta(rawUrl, fallbackThumbnail = '') {
     return {
       provider: 'youtube',
       label: 'YouTube',
+      mediaId: youtubeId,
       cleanUrl: url.toString(),
-      embedUrl: `https://www.youtube.com/embed/${youtubeId}`,
+      embedUrl: `https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&playsinline=1&rel=0`,
       previewKind: 'iframe',
       thumbnailUrl: thumbnail || `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`,
     };
@@ -62,6 +64,7 @@ export function getPlaybackSourceMeta(rawUrl, fallbackThumbnail = '') {
     return {
       provider: 'spotify',
       label: 'Spotify',
+      mediaId: spotify.id,
       cleanUrl: url.toString(),
       embedUrl: `https://open.spotify.com/embed/${spotify.kind}/${spotify.id}`,
       previewKind: 'iframe',
@@ -72,6 +75,7 @@ export function getPlaybackSourceMeta(rawUrl, fallbackThumbnail = '') {
   return {
     provider: url.hostname.replace(/^www\./, ''),
     label: url.hostname.replace(/^www\./, ''),
+    mediaId: '',
     cleanUrl: url.toString(),
     embedUrl: '',
     previewKind: thumbnail ? 'image' : 'link',

@@ -68,6 +68,8 @@ const conversationSearchSummary = computed(() => {
   return parts.length ? parts.join(" · ") : "이 대화의 흐름을 빠르게 다시 찾을 수 있어요";
 });
 const hasSearchFocus = computed(() => Boolean(searchFocusTerm.value || searchFocusMid.value || searchFocusPinId.value || searchFocusCapsuleId.value));
+const joinedSessionIds = ref([]);
+const sessionHubRef = ref(null);
 
 function safeJsonParse(value) {
   if (!value || typeof value !== "string") return null;
@@ -256,8 +258,27 @@ async function focusCapsuleFromSearch(capsuleId) {
   }
 }
 
+
+function activateSessionControls(session, { scroll = false } = {}) {
+  const sessionId = String(session?.sessionId || '');
+  if (!sessionId) return;
+  if (!joinedSessionIds.value.includes(sessionId)) {
+    joinedSessionIds.value = [...joinedSessionIds.value, sessionId];
+  }
+  if (scroll) {
+    nextTick(() => {
+      sessionHubRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    });
+  }
+}
+
+function isSessionActivated(sessionId) {
+  return joinedSessionIds.value.includes(String(sessionId || ''));
+}
+
 async function onTouchPlaybackPresence(session) {
   if (!session?.sessionId || session?.status !== 'ACTIVE') return;
+  activateSessionControls(session);
   await touchSessionPresence(session.sessionId, { silent: true });
 }
 
@@ -267,33 +288,69 @@ async function onCreatePlaybackSession(form) {
   if (sessionMessage && !hasMessage(sessionMessage.messageId)) appendIncomingMessage(sessionMessage);
 }
 
-async function onPlaybackPlay(session) {
-  await onTouchPlaybackPresence(session);
-  await applySessionAction(session?.sessionId, {
+function resolveSessionActionPayload(input, fallbackState = null) {
+  const session = input?.session || input || null;
+  return {
+    session,
+    sessionId: session?.sessionId || input?.sessionId || null,
+    playbackState: String(input?.playbackState || session?.playbackState || fallbackState || 'PAUSED'),
+    positionSeconds: Number(input?.positionSeconds ?? session?.positionSeconds ?? 0),
+  };
+}
+
+async function onPlaybackPlay(input) {
+  const payload = resolveSessionActionPayload(input, 'PLAYING');
+  mergeSessionLocally(payload.sessionId, { playbackState: 'PLAYING', positionSeconds: payload.positionSeconds });
+  await onTouchPlaybackPresence(payload.session);
+  await applySessionAction(payload.sessionId, {
     playbackState: 'PLAYING',
-    positionSeconds: Number(session?.positionSeconds || 0),
+    positionSeconds: payload.positionSeconds,
   });
 }
 
-async function onPlaybackPause(session) {
-  await onTouchPlaybackPresence(session);
-  await applySessionAction(session?.sessionId, {
+async function onPlaybackPause(input) {
+  const payload = resolveSessionActionPayload(input, 'PAUSED');
+  mergeSessionLocally(payload.sessionId, { playbackState: 'PAUSED', positionSeconds: payload.positionSeconds });
+  await onTouchPlaybackPresence(payload.session);
+  await applySessionAction(payload.sessionId, {
     playbackState: 'PAUSED',
-    positionSeconds: Number(session?.positionSeconds || 0),
+    positionSeconds: payload.positionSeconds,
   });
 }
 
-async function onPlaybackSeek(session) {
-  await onTouchPlaybackPresence(session);
-  await applySessionAction(session?.sessionId, {
-    playbackState: String(session?.playbackState || 'PAUSED'),
-    positionSeconds: Number(session?.positionSeconds || 0) + 15,
+async function onPlaybackSeek(input) {
+  const payload = resolveSessionActionPayload(input);
+  mergeSessionLocally(payload.sessionId, { playbackState: payload.playbackState, positionSeconds: payload.positionSeconds + 15 });
+  await onTouchPlaybackPresence(payload.session);
+  await applySessionAction(payload.sessionId, {
+    playbackState: payload.playbackState,
+    positionSeconds: payload.positionSeconds + 15,
   });
 }
 
-async function onPlaybackEnd(session) {
-  await onTouchPlaybackPresence(session);
-  await endSession(session?.sessionId, Number(session?.positionSeconds || 0));
+async function onPlaybackEnd(input) {
+  const payload = resolveSessionActionPayload(input);
+  await onTouchPlaybackPresence(payload.session);
+  await endSession(payload.sessionId, payload.positionSeconds);
+}
+
+function onPlaybackTelemetry(input) {
+  const payload = resolveSessionActionPayload(input);
+  if (!payload.sessionId) return;
+  mergeSessionLocally(payload.sessionId, {
+    positionSeconds: payload.positionSeconds,
+    playbackState: payload.playbackState,
+  });
+}
+
+async function onPlaybackIntent(input) {
+  const payload = resolveSessionActionPayload(input);
+  if (!payload.sessionId) return;
+  if (payload.playbackState === 'PLAYING') {
+    await onPlaybackPlay(payload);
+    return;
+  }
+  await onPlaybackPause(payload);
 }
 
 
@@ -314,6 +371,7 @@ const {
   endSession,
   isActionBusy,
   handleSessionSse,
+  mergeSessionLocally,
 } = useConversationSessions({ conversationId, meId, toast });
 
 const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
@@ -3156,7 +3214,7 @@ onBeforeUnmount(() => {
             <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus">닫기</button>
           </div>
         </div>
-        <section v-if="canViewConversation" class="sessionHub">
+        <section v-if="canViewConversation" ref="sessionHubRef" class="sessionHub">
           <div class="sessionHub__head">
             <div>
               <div class="sessionHub__eyebrow">Shared Play MVP</div>
@@ -3167,18 +3225,57 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="loadingSessions" class="sessionHub__empty">세션을 불러오는 중이에요…</div>
           <div v-else-if="sessionError" class="sessionHub__empty">{{ sessionError }}</div>
-          <div v-else-if="activeSessions.length || recentSessions.length" class="sessionHub__grid">
-            <ConversationSessionCard
-              v-for="session in [...activeSessions, ...recentSessions]"
-              :key="session.sessionId"
-              :session="session"
-              :busy="isActionBusy(session.sessionId)"
-              :current-user-id="meId"
-              @play="onPlaybackPlay"
-              @pause="onPlaybackPause"
-              @seek="onPlaybackSeek"
-              @end="onPlaybackEnd"
-            />
+          <div v-else-if="activeSessions.length || recentSessions.length" class="sessionHub__stack">
+            <section v-if="activeSessions.length" class="sessionHub__section">
+              <div class="sessionHub__sectionHead">
+                <strong>진행 중인 세션</strong>
+                <span>{{ activeSessions.length }}개</span>
+              </div>
+              <p class="sessionHub__sectionCopy">대화 상세에 들어왔다고 바로 재생하지 않고, 참여를 누른 카드만 여기서 재생을 붙입니다.</p>
+              <div class="sessionHub__grid">
+                <ConversationSessionCard
+                  v-for="session in activeSessions"
+                  :key="session.sessionId"
+                  :session="session"
+                  :busy="isActionBusy(session.sessionId)"
+                  :current-user-id="meId"
+                  :force-interactive="isSessionActivated(session.sessionId)"
+                  @activate-session="activateSessionControls($event)"
+                  @play="onPlaybackPlay"
+                  @pause="onPlaybackPause"
+                  @seek="onPlaybackSeek"
+                  @end="onPlaybackEnd"
+                  @playback-intent="onPlaybackIntent"
+                  @position-sampled="onPlaybackTelemetry"
+                  @touch-presence="onTouchPlaybackPresence"
+                />
+              </div>
+            </section>
+            <section v-if="recentSessions.length" class="sessionHub__section">
+              <div class="sessionHub__sectionHead">
+                <strong>최근 종료되거나 멈춘 세션</strong>
+                <span>{{ recentSessions.length }}개</span>
+              </div>
+              <p class="sessionHub__sectionCopy">여기는 기록/재오픈 용도예요. 종료된 세션은 재생 제어하지 않고 링크만 다시 열 수 있어요.</p>
+              <div class="sessionHub__grid">
+                <ConversationSessionCard
+                  v-for="session in recentSessions"
+                  :key="session.sessionId"
+                  :session="session"
+                  :busy="isActionBusy(session.sessionId)"
+                  :current-user-id="meId"
+                  :force-interactive="isSessionActivated(session.sessionId)"
+                  @activate-session="activateSessionControls($event)"
+                  @play="onPlaybackPlay"
+                  @pause="onPlaybackPause"
+                  @seek="onPlaybackSeek"
+                  @end="onPlaybackEnd"
+                  @playback-intent="onPlaybackIntent"
+                  @position-sampled="onPlaybackTelemetry"
+                  @touch-presence="onTouchPlaybackPresence"
+                />
+              </div>
+            </section>
           </div>
           <div v-else class="sessionHub__empty">아직 공동 플레이 세션이 없어요. 첫 세션을 만들어 보세요.</div>
         </section>
@@ -3274,10 +3371,14 @@ onBeforeUnmount(() => {
                     :session="sessionForMessage(m)"
                     :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
                     :current-user-id="meId"
+                    @activate-session="activateSessionControls($event, { scroll: true })"
                     @play="onPlaybackPlay"
                     @pause="onPlaybackPause"
                     @seek="onPlaybackSeek"
                     @end="onPlaybackEnd"
+                    @playback-intent="onPlaybackIntent"
+                    @position-sampled="onPlaybackTelemetry"
+                    @touch-presence="onTouchPlaybackPresence"
                   />
                 </template>
                 <template v-else>
@@ -5608,4 +5709,6 @@ onBeforeUnmount(() => {
   .searchReturnBar__actions{width:100%}
 }
 
+
+.sessionHub__stack{display:grid;gap:16px}.sessionHub__section{display:grid;gap:10px}.sessionHub__sectionHead{display:flex;align-items:center;justify-content:space-between;gap:12px}.sessionHub__sectionHead strong{font-size:14px}.sessionHub__sectionHead span{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);font-size:11px;font-weight:800;color:rgba(255,255,255,.72)}.sessionHub__sectionCopy{margin:0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.62)}
 </style>

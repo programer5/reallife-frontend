@@ -41,6 +41,11 @@ export function useConversationSessions({ conversationId, meId, toast }) {
     sessions.value = [...sessions.value].sort((a, b) => String(b?.createdAt || "").localeCompare(String(a?.createdAt || "")));
   }
 
+  function mergeSessionLocally(sessionId, patch = {}) {
+    if (!sessionId) return;
+    upsertSession({ sessionId, ...patch });
+  }
+
   async function loadSessions() {
     if (!conversationId.value) return;
     loadingSessions.value = true;
@@ -215,5 +220,6 @@ export function useConversationSessions({ conversationId, meId, toast }) {
     endSession,
     isActionBusy,
     handleSessionSse,
+    mergeSessionLocally,
   };
 }
