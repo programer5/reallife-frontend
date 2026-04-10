@@ -94,11 +94,155 @@ function messageHasActionLayer(message) {
   return Boolean(messageHasActionCandidate?.(message));
 }
 
+const MESSAGE_LAYER_KIND = Object.freeze({
+  PLAIN: 'plain',
+  SESSION: 'session',
+  ACTION: 'action',
+  MEDIA: 'media',
+  FOCUS: 'focus',
+});
+
 function messageLayerKind(message) {
-  if (isSessionMessage(message)) return 'session';
-  if (messageHasActionLayer(message)) return 'action';
-  if (messageHasMediaLayer(message)) return 'media';
-  return 'plain';
+  if (isSessionMessage(message)) return MESSAGE_LAYER_KIND.SESSION;
+  if (messageHasActionLayer(message)) return MESSAGE_LAYER_KIND.ACTION;
+  if (messageHasMediaLayer(message)) return MESSAGE_LAYER_KIND.MEDIA;
+  return MESSAGE_LAYER_KIND.PLAIN;
+}
+
+function messageVisualTone(message, index) {
+  const layerKind = messageLayerKind(message);
+  const depthRank = messageDepthRank(index);
+  const isDepthFocus = messageDepthEnabled.value && depthRank === 'focus';
+  if (isDepthFocus && layerKind === MESSAGE_LAYER_KIND.PLAIN) {
+    return MESSAGE_LAYER_KIND.FOCUS;
+  }
+  return layerKind;
+}
+
+function messageShellClass(message, index) {
+  const depthRank = messageDepthRank(index);
+  const layerKind = messageLayerKind(message);
+  const visualTone = messageVisualTone(message, index);
+  return {
+    mine: isMineMessage(message),
+    'msg--flash': flashMid === String(message.messageId),
+    'msg--searchFocus': searchFocusMid === String(message.messageId),
+    'msg--groupPrev': isGroupWithPrev(index),
+    'msg--groupNext': isGroupWithNext(index),
+    depthOn: messageDepthEnabled.value,
+    depthFocused: String(focusedDepthMid.value) === String(message.messageId),
+    [`depthRank--${depthRank}`]: messageDepthEnabled.value,
+    [`msg--${layerKind}`]: true,
+    [`msgTone--${visualTone}`]: true,
+    stageMuted: messageStageMode.value === 'stage' && stageDeckOpen.value && !isStageCandidate(message),
+  };
+}
+
+function messageBubbleClass(message, index) {
+  const layerKind = messageLayerKind(message);
+  const visualTone = messageVisualTone(message, index);
+  return {
+    [`bubble--${layerKind}`]: true,
+    [`bubbleTone--${visualTone}`]: true,
+  };
+}
+
+function messageBodyClass(message, index) {
+  const layerKind = messageLayerKind(message);
+  const visualTone = messageVisualTone(message, index);
+  return {
+    messageBody: true,
+    [`messageBody--${layerKind}`]: true,
+    [`messageBodyTone--${visualTone}`]: true,
+  };
+}
+
+function shouldShowMessageEyebrow(message, index) {
+  return messageVisualTone(message, index) !== MESSAGE_LAYER_KIND.PLAIN;
+}
+
+function messageEyebrowLabel(message, index) {
+  const visualTone = messageVisualTone(message, index);
+  if (visualTone === MESSAGE_LAYER_KIND.SESSION) return 'SESSION';
+  if (visualTone === MESSAGE_LAYER_KIND.ACTION) return 'ACTION';
+  if (visualTone === MESSAGE_LAYER_KIND.MEDIA) return 'MEDIA';
+  if (visualTone === MESSAGE_LAYER_KIND.FOCUS) return 'FOCUS';
+  return 'MESSAGE';
+}
+
+function messageEyebrowHint(message, index) {
+  const visualTone = messageVisualTone(message, index);
+  if (visualTone === MESSAGE_LAYER_KIND.SESSION) {
+    return sessionForMessage(message)?.title || '공동 플레이 세션';
+  }
+  if (visualTone === MESSAGE_LAYER_KIND.ACTION) {
+    const count = Array.isArray(message?.pinCandidates) ? message.pinCandidates.length : 0;
+    return count > 0 ? `액션 후보 ${count}개` : '액션 후보';
+  }
+  if (visualTone === MESSAGE_LAYER_KIND.MEDIA) {
+    const count = Array.isArray(message?.attachments) ? message.attachments.length : 0;
+    return count > 0 ? `첨부 ${count}개` : '미디어 포함';
+  }
+  if (visualTone === MESSAGE_LAYER_KIND.FOCUS) {
+    return '지금 읽기 중심 메시지';
+  }
+  return '';
+}
+
+function hasMessageAttachmentBlock(message) {
+  return !isSessionMessage(message) && Array.isArray(message?.attachments) && message.attachments.length > 0;
+}
+
+function hasMessageSendState(message) {
+  return Boolean(message?._status);
+}
+
+function shouldRenderMessageFooter(message) {
+  return hasMessageAttachmentBlock(message) || hasMessageSendState(message);
+}
+
+function shouldShowMessageMeta(message, index) {
+  return Boolean(getReadLabel(message)) || !isGroupWithNext(index);
+}
+
+function messageMetaRowClass(message, index) {
+  const visualTone = messageVisualTone(message, index);
+  return {
+    messageMetaRow: true,
+    'messageMetaRow--mine': isMineMessage(message),
+    'messageMetaRow--stacked': isGroupWithNext(index),
+    [`messageMetaRow--${visualTone}`]: true,
+  };
+}
+
+function messageFooterClass(message, index) {
+  const visualTone = messageVisualTone(message, index);
+  return {
+    messageFooter: true,
+    [`messageFooter--${visualTone}`]: true,
+  };
+}
+
+function hasMessageTools(message) {
+  return Boolean(isMineMessage(message) || (Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0) || (message?.content && String(message.content).trim()));
+}
+
+function candidateToggleLabel(message) {
+  const count = Array.isArray(message?.pinCandidates) ? message.pinCandidates.length : 0;
+  if (count <= 0) return '후보';
+  return isCandidatesOpen(message?.messageId) ? `후보 닫기 · ${count}` : `후보 보기 · ${count}`;
+}
+
+function messageUtilitySummary(message) {
+  const parts = [];
+  if (isMineMessage(message)) parts.push('수정 가능');
+  if (Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0) {
+    parts.push(`후보 ${message.pinCandidates.length}개`);
+  }
+  if (messageHasAttachment?.(message)) {
+    parts.push(`첨부 ${Array.isArray(message?.attachments) ? message.attachments.length : 0}개`);
+  }
+  return parts.join(' · ');
 }
 
 function sessionSnapshotFromMessage(message) {
@@ -2027,18 +2171,18 @@ function messageDepthStyle(index) {
   const peel = depthPeel.value;
   const styles = {
     focus: { '--depth-scale': '1', '--depth-blur': '0px', '--depth-opacity': '1', '--depth-y': '0px', '--depth-z': '0px' },
-    'near-prev': { '--depth-scale': '0.998', '--depth-blur': `${0.2 + peel * 0.45}px`, '--depth-opacity': `${0.985 - peel * 0.02}`, '--depth-y': '-2px', '--depth-z': '-2px' },
-    'near-next': { '--depth-scale': '0.998', '--depth-blur': `${0.2 + peel * 0.45}px`, '--depth-opacity': `${0.985 - peel * 0.02}`, '--depth-y': '2px', '--depth-z': '-2px' },
-    'mid-prev': { '--depth-scale': '0.994', '--depth-blur': `${0.65 + peel * 0.7}px`, '--depth-opacity': `${0.94 - peel * 0.04}`, '--depth-y': '-4px', '--depth-z': '-6px' },
-    'mid-next': { '--depth-scale': '0.994', '--depth-blur': `${0.65 + peel * 0.7}px`, '--depth-opacity': `${0.945 - peel * 0.04}`, '--depth-y': '4px', '--depth-z': '-6px' },
-    'far-prev': { '--depth-scale': '0.99', '--depth-blur': `${0.9 + peel * 0.8}px`, '--depth-opacity': `${0.9 - peel * 0.05}`, '--depth-y': '-5px', '--depth-z': '-8px' },
-    'far-next': { '--depth-scale': '0.99', '--depth-blur': `${0.9 + peel * 0.8}px`, '--depth-opacity': `${0.91 - peel * 0.05}`, '--depth-y': '5px', '--depth-z': '-8px' },
+    'near-prev': { '--depth-scale': '0.999', '--depth-blur': `${0.08 + peel * 0.18}px`, '--depth-opacity': `${0.992 - peel * 0.01}`, '--depth-y': '-1px', '--depth-z': '-1px' },
+    'near-next': { '--depth-scale': '0.999', '--depth-blur': `${0.08 + peel * 0.18}px`, '--depth-opacity': `${0.992 - peel * 0.01}`, '--depth-y': '1px', '--depth-z': '-1px' },
+    'mid-prev': { '--depth-scale': '0.996', '--depth-blur': `${0.18 + peel * 0.26}px`, '--depth-opacity': `${0.976 - peel * 0.02}`, '--depth-y': '-2px', '--depth-z': '-3px' },
+    'mid-next': { '--depth-scale': '0.996', '--depth-blur': `${0.18 + peel * 0.26}px`, '--depth-opacity': `${0.978 - peel * 0.02}`, '--depth-y': '2px', '--depth-z': '-3px' },
+    'far-prev': { '--depth-scale': '0.992', '--depth-blur': `${0.3 + peel * 0.32}px`, '--depth-opacity': `${0.95 - peel * 0.025}`, '--depth-y': '-3px', '--depth-z': '-5px' },
+    'far-next': { '--depth-scale': '0.992', '--depth-blur': `${0.3 + peel * 0.32}px`, '--depth-opacity': `${0.954 - peel * 0.025}`, '--depth-y': '3px', '--depth-z': '-5px' },
     flat: { '--depth-scale': '1', '--depth-blur': '0px', '--depth-opacity': '1', '--depth-y': '0px', '--depth-z': '0px' },
   };
   const result = styles[rank] || styles.flat;
-  if (rank === 'near-prev' || rank === 'near-next') result['--depth-overlap'] = '1px';
-  else if (rank === 'mid-prev' || rank === 'mid-next') result['--depth-overlap'] = '2px';
-  else if (rank === 'far-prev' || rank === 'far-next') result['--depth-overlap'] = '3px';
+  if (rank === 'near-prev' || rank === 'near-next') result['--depth-overlap'] = '0px';
+  else if (rank === 'mid-prev' || rank === 'mid-next') result['--depth-overlap'] = '1px';
+  else if (rank === 'far-prev' || rank === 'far-next') result['--depth-overlap'] = '1px';
   else result['--depth-overlap'] = '0px';
   return result;
 }
@@ -3193,22 +3337,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <section v-if="canViewConversation" class="messageOrbitBar rl-cardish">
-      <button type="button" class="messageOrbitBar__lens" @click="toggleCommandDeck(commandDeckOpen ? commandDeckTab : 'search')">
-        <span class="messageOrbitBar__lensBadge">{{ commandDeckOpen ? '닫기' : '렌즈' }}</span>
-        <strong>{{ commandDeckOpen ? '도구 패널 닫기' : '도구 꺼내기' }}</strong>
-      </button>
-      <div class="messageOrbitBar__chips messageOrbitBar__chips--compact">
-        <button type="button" class="messageOrbitBar__chip" :class="{ on: messageDepthEnabled }" @click="messageDepthEnabled = !messageDepthEnabled">깊이감 <small>{{ messageDepthEnabled ? 'ON' : 'OFF' }}</small></button>
-        <button type="button" class="messageOrbitBar__chip" @click="openStageSheet('overview')">무대 <small>{{ stageStats.total }}</small></button>
-        <button v-if="railPrimarySession" type="button" class="messageOrbitBar__chip messageOrbitBar__chip--accent" @click="openRailSession">현재 세션</button>
-      </div>
-      <button v-if="railPrimarySession" type="button" class="messageOrbitBar__sessionPill" @click="openRailSession">
-        <span class="messageOrbitBar__floatingTag">Now</span>
-        <strong>{{ railPrimarySession.title || '공동 플레이' }}</strong>
-      </button>
-    </section>
-
     <SseStatusBanner />
 
 <!-- ✅ 잠금 게이트 -->
@@ -3278,29 +3406,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section v-if="canViewConversation" class="messageStageRailSlim rl-cardish">
-          <div class="messageStageRailSlim__main">
-            <div class="messageStageRailSlim__copy">
-              <div class="messageStageRailSlim__eyebrow">Conversation stage</div>
-              <strong>{{ spotlightMessage ? '지금 다시 보기 좋은 장면' : '핵심 장면만 얇게 안내합니다' }}</strong>
-            </div>
-            <div class="messageStageRailSlim__actions">
-              <button type="button" class="messageStageRailSlim__pill" @click="openStageSheet('overview')">무대 열기</button>
-            </div>
-          </div>
-          <div class="messageStageRailSlim__lane messageStageRailSlim__lane--minimal">
-            <button v-if="spotlightMessage" type="button" class="messageStageRailSlim__focus" @click="focusDepthMessage(spotlightMessage.messageId)">
-              <span class="messageStageRailSlim__focusTag">Now focus</span>
-              <strong>{{ spotlightMessage.content || '핵심 장면' }}</strong>
-            </button>
-            <div class="messageStageRailSlim__stats">
-              <span class="messageStageRailSlim__stat">세션 {{ stageStats.sessions }}</span>
-              <span class="messageStageRailSlim__stat">액션 {{ stageStats.actions }}</span>
-              <span class="messageStageRailSlim__stat">미디어 {{ stageStats.media }}</span>
-            </div>
-          </div>
-        </section>
-
         <div class="more">
           <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
             이전 메시지 더 보기
@@ -3311,10 +3416,7 @@ onBeforeUnmount(() => {
             v-for="(m, i) in visibleMessages"
             :key="m.messageId"
             class="msg"
-            :class="{ mine: isMineMessage(m), 'msg--flash': flashMid === String(m.messageId),
-            'msg--searchFocus': searchFocusMid === String(m.messageId),
-            'msg--groupPrev': isGroupWithPrev(i), 'msg--groupNext': isGroupWithNext(i),
-            depthOn: messageDepthEnabled, depthFocused: String(focusedDepthMid) === String(m.messageId), [`depthRank--${messageDepthRank(i)}`]: messageDepthEnabled, [`msg--${messageLayerKind(m)}`]: true, stageMuted: messageStageMode === 'stage' && stageDeckOpen && !isStageCandidate(m) }"
+            :class="messageShellClass(m, i)"
             :style="messageDepthStyle(i)"
             :data-mid="m.messageId"
         >
@@ -3325,38 +3427,52 @@ onBeforeUnmount(() => {
             <span>읽지 않은 메시지</span>
           </div>
 
-          <div class="bubble"
+          <div class="bubble" :class="messageBubbleClass(m, i)"
             @contextmenu.prevent.stop="openMsgMenu($event, m)"
             @touchstart.passive="onBubbleTouchStart($event, m)"
             @touchend="onBubbleTouchEnd"
             @touchcancel="onBubbleTouchEnd"
             @click="onBubbleClick($event, m)"
           >
-            <!-- ✅ Hover Action Bar (RealLife v1) -->
+            <button
+              v-if="!editingMid || String(m.messageId) !== String(editingMid)"
+              class="msgMenuTrigger"
+              type="button"
+              aria-label="메시지 메뉴 열기"
+              @click.stop="openMsgMenu($event, m)"
+            >⋯</button>
+
+            <!-- ✅ Hover Action Bar (calmer) -->
             <div
                 class="hoverActions"
-                v-if="!editingMid || String(m.messageId) !== String(editingMid)"
+                v-if="(!editingMid || String(m.messageId) !== String(editingMid)) && hasMessageTools(m)"
             >
-              <!-- 복사: 내/상대 모두 가능 -->
-              <button class="haBtn" type="button" title="복사" @click.stop="copyMessage(m)">⧉</button>
+              <button class="haBtn" type="button" title="복사" @click.stop="copyMessage(m)">
+                <span class="haBtn__icon">⧉</span>
+                <span class="haBtn__label">복사</span>
+              </button>
 
-              <!-- 수정: 내 메시지만 -->
               <button
                   v-if="isMineMessage(m)"
                   class="haBtn"
                   type="button"
                   title="수정"
                   @click.stop="startEdit(m)"
-              >✎</button>
+              >
+                <span class="haBtn__icon">✎</span>
+                <span class="haBtn__label">수정</span>
+              </button>
 
-              <!-- 후보(약속/핀) 펼치기: 후보 있을 때만 -->
               <button
                   v-if="m.pinCandidates && m.pinCandidates.length"
-                  class="haBtn"
+                  class="haBtn haBtn--accent"
                   type="button"
-                  :title="isCandidatesOpen(m.messageId) ? '후보 닫기' : '후보 보기'"
+                  :title="candidateToggleLabel(m)"
                   @click.stop="toggleCandidates(m.messageId)"
-              >✨</button>
+              >
+                <span class="haBtn__icon">✨</span>
+                <span class="haBtn__label">{{ candidateToggleLabel(m) }}</span>
+              </button>
             </div>
 
             <!-- ✅ 저장됨 배지 -->
@@ -3364,7 +3480,7 @@ onBeforeUnmount(() => {
             <span v-if="searchFocusMid === String(m.messageId)" class="messageSearchHitBadge" aria-live="polite">검색 결과</span>
 
             <!-- ✅ 본문 -->
-            <div class="text">
+            <div class="text" :class="messageBodyClass(m, i)">
               <!-- 편집 모드 -->
               <template v-if="editingMid && String(m.messageId) === String(editingMid)">
                 <textarea
@@ -3384,51 +3500,74 @@ onBeforeUnmount(() => {
 
               <!-- 일반 모드 -->
               <template v-else>
+                <div v-if="shouldShowMessageEyebrow(m, i)" class="messageEyebrow">
+                  <span class="messageEyebrow__tag">{{ messageEyebrowLabel(m, i) }}</span>
+                  <small v-if="messageEyebrowHint(m, i)" class="messageEyebrow__hint">{{ messageEyebrowHint(m, i) }}</small>
+                </div>
+
                 <template v-if="isSessionMessage(m)">
-                  <div>
+                  <div class="messageTextBlock messageTextBlock--session">
                     <span v-html="renderMessageHtml(m)"></span>
                     <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
                   </div>
-                  <ConversationSessionMessageCard
-                    :message="m"
-                    :session="sessionForMessage(m)"
-                    :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
-                    :current-user-id="meId"
-                    @activate-session="activateSessionControls($event, { scroll: true })"
-                    @play="onPlaybackPlay"
-                    @pause="onPlaybackPause"
-                    @seek="onPlaybackSeek"
-                    @end="onPlaybackEnd"
-                    @playback-intent="onPlaybackIntent"
-                    @position-sampled="onPlaybackTelemetry"
-                    @touch-presence="onTouchPlaybackPresence"
-                  />
+                  <div class="messageSessionBlock">
+                    <ConversationSessionMessageCard
+                      :message="m"
+                      :session="sessionForMessage(m)"
+                      :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
+                      :current-user-id="meId"
+                      @activate-session="activateSessionControls($event, { scroll: true })"
+                      @play="onPlaybackPlay"
+                      @pause="onPlaybackPause"
+                      @seek="onPlaybackSeek"
+                      @end="onPlaybackEnd"
+                      @playback-intent="onPlaybackIntent"
+                      @position-sampled="onPlaybackTelemetry"
+                      @touch-presence="onTouchPlaybackPresence"
+                    />
+                  </div>
                 </template>
                 <template v-else>
-                  <div>
+                  <div class="messageTextBlock">
                     <span v-html="renderMessageHtml(m)"></span>
                     <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
                   </div>
+
+                  <div v-if="messageHasActionCandidate(m)" class="messageInlineMeta messageInlineMeta--action">
+                    <span class="messageInlineMeta__chip">후보 {{ Array.isArray(m.pinCandidates) ? m.pinCandidates.length : 0 }}개</span>
+                    <small>약속/할 일 후보를 바로 펼쳐볼 수 있어요.</small>
+                  </div>
                 </template>
               </template>
+
+              <div v-if="messageUtilitySummary(m) && (!editingMid || String(m.messageId) !== String(editingMid))" class="messageToolSummary">
+                <small>{{ messageUtilitySummary(m) }}</small>
+              </div>
             </div>
 
-            <MessageAttachmentPreview v-if="!isSessionMessage(m) && Array.isArray(m.attachments) && m.attachments.length" :items="m.attachments" class="messageAttachmentBlock" />
+            <div v-if="shouldRenderMessageFooter(m)" :class="messageFooterClass(m, i)">
+              <MessageAttachmentPreview
+                v-if="hasMessageAttachmentBlock(m)"
+                :items="m.attachments"
+                class="messageAttachmentBlock"
+              />
 
-            <!-- ✅ optimistic send 상태 -->
-            <div v-if="m._status" class="sendState" :data-status="m._status">
-              <template v-if="m._status === 'sending'">전송 중…</template>
+              <!-- ✅ optimistic send 상태 -->
+              <div v-if="hasMessageSendState(m)" class="sendState" :data-status="m._status">
+                <template v-if="m._status === 'sending'">전송 중…</template>
 
-              <template v-else-if="m._status === 'failed'">
-                전송 실패
-                <button class="retryBtn" type="button" @click="retrySend(m)">재시도</button>
-              </template>
+                <template v-else-if="m._status === 'failed'">
+                  전송 실패
+                  <button class="retryBtn" type="button" @click="retrySend(m)">재시도</button>
+                </template>
+              </div>
             </div>
           </div>
 
-          <div v-if="getReadLabel(m)" class="readReceipt">{{ getReadLabel(m) }}</div>
-
-          <div v-if="!isGroupWithNext(i)" class="time">{{ messageTimeText(m) }}</div>
+          <div v-if="shouldShowMessageMeta(m, i)" :class="messageMetaRowClass(m, i)">
+            <span v-if="getReadLabel(m)" class="readReceipt">{{ getReadLabel(m) }}</span>
+            <span v-if="!isGroupWithNext(i)" class="time">{{ messageTimeText(m) }}</span>
+          </div>
         </div>
 
         <div class="bottomSpacer"></div>
@@ -3462,7 +3601,7 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="stageSheetTab === 'overview'" class="messageStageSheetBody">
               <button v-if="spotlightMessage" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(spotlightMessage.messageId, 4); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">NOW FOCUS</span>
+                <span class="messageStageSheetCard__tag">FOCUS</span>
                 <strong>{{ spotlightMessage.content || '핵심 장면' }}</strong>
                 <p>지금 가장 중요한 장면으로 바로 점프해요.</p>
               </button>
@@ -3519,6 +3658,14 @@ onBeforeUnmount(() => {
         <button type="button" class="composerUtilityBar__pill composerUtilityBar__pill--lens" @click="openCommandDeck('search')">
           <span class="composerUtilityBar__pillTag">렌즈</span>
           <strong>{{ commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.label || '검색' }}</strong>
+        </button>
+        <button type="button" class="composerUtilityBar__pill" @click="openStageSheet('overview')">
+          <span class="composerUtilityBar__pillTag">무대</span>
+          <strong>핵심 {{ stageStats.total }}</strong>
+        </button>
+        <button type="button" class="composerUtilityBar__pill" :class="{ 'composerUtilityBar__pill--active': messageDepthEnabled }" @click="messageDepthEnabled = !messageDepthEnabled">
+          <span class="composerUtilityBar__pillTag">깊이</span>
+          <strong>{{ messageDepthEnabled ? '읽기 초점 ON' : '읽기 초점 OFF' }}</strong>
         </button>
         <button v-if="railPrimarySession" type="button" class="composerUtilityBar__pill composerUtilityBar__pill--session" @click="openRailSession">
           <span class="composerUtilityBar__pillTag">Now</span>
@@ -4082,7 +4229,31 @@ onBeforeUnmount(() => {
   border-color:color-mix(in oklab,var(--accent) 40%,var(--border));
 }
 .text{white-space:pre-wrap}
-.time{font-size:11px;color:var(--muted);margin-top:4px}
+.messageFooter{
+  display:grid;
+  gap:8px;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid color-mix(in oklab, var(--border) 70%, transparent);
+}
+.messageFooter--session{border-top-color:color-mix(in oklab, var(--accent) 20%, var(--border));}
+.messageFooter--action{border-top-color:color-mix(in oklab, #ffd98a 18%, var(--border));}
+.messageFooter--media{border-top-color:color-mix(in oklab, #86f5d4 18%, var(--border));}
+.messageFooter--focus{border-top-color:color-mix(in oklab, var(--accent) 16%, var(--border));}
+.messageMetaRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:6px;
+  padding-inline:4px;
+  min-height:16px;
+  color:var(--muted);
+}
+.messageMetaRow--mine{justify-content:flex-end;}
+.messageMetaRow--stacked{margin-top:4px;}
+.time,.readReceipt{font-size:11px;color:inherit;line-height:1.2;}
+.time{opacity:.8;}
+.readReceipt{font-weight:900;opacity:.76;}
 .candidates{ margin-top: 10px; display: grid; gap: 8px; }
 .bottomSpacer{height:10px}
 
@@ -4440,7 +4611,10 @@ onBeforeUnmount(() => {
 .pinEditLabel { font-size:12px; font-weight:900; color: var(--muted); }
 
 .sendState{
-  margin-top: 6px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:20px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -4614,14 +4788,6 @@ onBeforeUnmount(() => {
 }
 .msg.msg--groupNext.mine .bubble {
   border-bottom-right-radius: 10px;
-}
-.readReceipt{
-  margin-top: 6px;
-  font-size: 11px;
-  font-weight: 900;
-  color: var(--muted);
-  opacity: .75;
-  text-align: right;
 }
 .editTrigger{
   margin-top: 6px;
@@ -4822,10 +4988,34 @@ onBeforeUnmount(() => {
 }
 
 /* 기본은 안 보이게, hover 시 보이게 */
+.msgMenuTrigger{
+  position:absolute;
+  top:8px;
+  right:8px;
+  width:26px;
+  height:26px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:none;
+  border-radius:10px;
+  background:color-mix(in oklab, var(--panel) 76%, transparent);
+  color:rgba(255,255,255,.62);
+  cursor:pointer;
+  opacity:.42;
+  transition:opacity .15s ease, background .15s ease, color .15s ease;
+}
+.msg:hover .msgMenuTrigger,
+.msg:focus-within .msgMenuTrigger{
+  opacity:.92;
+  background:color-mix(in oklab, var(--panel) 88%, rgba(255,255,255,.06));
+  color:rgba(255,255,255,.9);
+}
+
 .hoverActions{
   position: absolute;
-  top: -10px;
-  right: 6px;
+  top: 8px;
+  right: 40px;
   display: flex;
   gap: 6px;
   opacity: 0;
@@ -4834,39 +5024,66 @@ onBeforeUnmount(() => {
   transition: opacity .15s ease, transform .15s ease;
 }
 
-.msg:hover .hoverActions{
+.msg:hover .hoverActions,
+.msg:focus-within .hoverActions{
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
 }
 
-/* 터치 환경에서는 hover가 없으니 “살짝 보이게” */
-
-
 .haBtn{
-  width: 30px;
+  min-width: 32px;
   height: 28px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.08);
-  backdrop-filter: blur(10px);
-  color: rgba(255,255,255,.92);
+  padding: 0 9px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 82%, rgba(255,255,255,.14));
+  background: color-mix(in oklab, var(--panel) 86%, rgba(255,255,255,.05));
+  color: rgba(255,255,255,.86);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
 }
+.haBtn__icon{font-size:12px; line-height:1;}
+.haBtn__label{font-size:11px; font-weight:700; letter-spacing:.01em;}
+.haBtn--accent{
+  border-color:color-mix(in oklab, var(--accent) 30%, var(--border));
+  color:color-mix(in oklab, white 84%, var(--accent));
+}
 
-.haBtn:hover{
-  background: rgba(255,255,255,.12);
+.haBtn:hover,
+.msgMenuTrigger:hover{
+  background: color-mix(in oklab, var(--panel) 72%, rgba(255,255,255,.08));
+}
+
+.messageToolSummary{
+  margin-top:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.messageToolSummary small{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:22px;
+  padding:0 8px;
+  border-radius:999px;
+  border:1px solid color-mix(in oklab, var(--border) 86%, rgba(255,255,255,.08));
+  background:color-mix(in oklab, var(--panel) 88%, transparent);
+  color:var(--muted);
 }
 
 /* 모바일에서는 hover 액션 숨김 */
 @media (hover: none) {
-
   .hoverActions{
     display:none;
   }
-
+  .msgMenuTrigger{
+    opacity:.78;
+  }
 }
 
 
@@ -5712,7 +5929,22 @@ onBeforeUnmount(() => {
 
 /* Final Creative Conversation Polish */
 .hiddenFileInput{display:none}
-.messageAttachmentBlock{margin-top:8px}
+.messageAttachmentBlock{margin-top:0}
+.messageBody{display:grid;gap:10px}
+.messageBody--session{gap:12px}
+.messageEyebrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.messageEyebrow__tag{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 9px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:rgba(232,238,255,.82);font-size:10px;font-weight:800;letter-spacing:.14em}
+.messageEyebrow__hint{color:var(--sub);font-size:11px;line-height:1.35}
+.messageTextBlock{display:grid;gap:6px;color:inherit}
+.messageTextBlock--session{gap:8px}
+.messageSessionBlock{display:grid;gap:8px}
+.messageInlineMeta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--sub)}
+.messageInlineMeta__chip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);font-size:11px;font-weight:700;color:rgba(238,242,255,.84)}
+.messageInlineMeta--action .messageInlineMeta__chip{background:rgba(255,210,118,.12);border-color:rgba(255,210,118,.16);color:rgba(255,233,182,.92)}
+.messageBodyTone--session .messageEyebrow__tag{background:rgba(122,140,255,.14);border-color:rgba(122,140,255,.2);color:rgba(223,228,255,.96)}
+.messageBodyTone--action .messageEyebrow__tag{background:rgba(255,210,118,.12);border-color:rgba(255,210,118,.18);color:rgba(255,233,182,.92)}
+.messageBodyTone--media .messageEyebrow__tag{background:rgba(122,255,216,.11);border-color:rgba(122,255,216,.16);color:rgba(204,255,241,.92)}
+.messageBodyTone--focus .messageEyebrow__tag{background:rgba(138,156,255,.12);border-color:rgba(138,156,255,.18);color:rgba(228,234,255,.96)}
 .page{
   position:relative;
   top:auto;left:auto;right:auto;bottom:auto;
@@ -5978,7 +6210,7 @@ onBeforeUnmount(() => {
 
 
 
-.messageOrbitBar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;margin-top:8px;border-radius:16px;background:linear-gradient(180deg,rgba(10,14,34,.84),rgba(8,11,24,.78));border:1px solid rgba(122,140,255,.10);position:sticky;top:8px;z-index:8;backdrop-filter:blur(10px)}
+.messageOrbitBar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;margin-top:8px;border-radius:16px;background:linear-gradient(180deg,rgba(10,14,34,.84),rgba(8,11,24,.78));border:1px solid rgba(122,140,255,.10)}
 .messageOrbitBar__lens,.messageOrbitBar__chip,.messageStagePanel__mode,.messageStagePanel__filter,.messageSpotlight__jump{border:none;cursor:pointer;font:inherit}
 .messageOrbitBar__lens{display:inline-flex;align-items:center;gap:10px;min-height:42px;padding:0 16px;border-radius:999px;background:linear-gradient(135deg,rgba(124,92,255,.92),rgba(89,149,255,.86));color:#fff;font-weight:900;box-shadow:0 14px 28px rgba(70,53,146,.24)}
 .messageOrbitBar__lensBadge{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.18);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
@@ -6056,10 +6288,15 @@ onBeforeUnmount(() => {
 .messageStageStack__card strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;line-height:1.4}
 .messageStageStack__card small{color:rgba(226,232,255,.66);font-size:12px;line-height:1.4}
 
-.msg--session .bubble{border-color:rgba(122,140,255,.28);background:linear-gradient(180deg,rgba(26,33,60,.96),rgba(12,16,33,.94));box-shadow:0 16px 32px rgba(16,21,40,.26)}
-.msg--action .bubble{border-color:rgba(255,210,118,.18);box-shadow:0 10px 24px rgba(32,24,8,.18)}
-.msg--media .bubble{border-color:rgba(122,255,216,.14)}
-.msg--session.depthFocused .bubble{box-shadow:0 22px 40px rgba(18,24,52,.34),0 0 0 1px rgba(132,150,255,.16)}
+.msg--session .bubble{border-color:rgba(122,140,255,.2);background:linear-gradient(180deg,rgba(24,31,56,.94),rgba(12,16,32,.92));box-shadow:0 10px 22px rgba(16,21,40,.18)}
+.msg--action .bubble{border-color:rgba(255,210,118,.14);box-shadow:0 6px 16px rgba(32,24,8,.12)}
+.msg--media .bubble{border-color:rgba(122,255,216,.12)}
+.msg--session.depthFocused .bubble{box-shadow:0 14px 26px rgba(18,24,52,.22),0 0 0 1px rgba(132,150,255,.14)}
+.msgTone--plain .bubble,.bubbleTone--plain{background:linear-gradient(180deg,rgba(18,22,38,.94),rgba(10,13,24,.94))}
+.msgTone--focus .bubble,.bubbleTone--focus{border-color:rgba(138,156,255,.2);box-shadow:0 12px 24px rgba(16,21,40,.16),0 0 0 1px rgba(126,144,255,.1)}
+.msgTone--session .bubble,.bubbleTone--session{border-color:rgba(122,140,255,.22);background:linear-gradient(180deg,rgba(24,31,56,.95),rgba(12,16,32,.93));box-shadow:0 10px 22px rgba(16,21,40,.18)}
+.msgTone--action .bubble,.bubbleTone--action{border-color:rgba(255,210,118,.15);background:linear-gradient(180deg,rgba(32,27,16,.9),rgba(17,14,10,.92));box-shadow:0 8px 18px rgba(32,24,8,.12)}
+.msgTone--media .bubble,.bubbleTone--media{border-color:rgba(122,255,216,.13);background:linear-gradient(180deg,rgba(13,28,31,.9),rgba(10,18,21,.92))}
 
 .msg.stageMuted{opacity:.78;transform:none}
 .msg.stageMuted .bubble{filter:saturate(.92)}
@@ -6082,10 +6319,10 @@ onBeforeUnmount(() => {
 .messageDepthHero strong{display:block;font-size:14px}
 .messageDepthHero p{margin:4px 0 0;font-size:12px;line-height:1.45;color:rgba(231,236,255,.7)}
 .messageDepthHero__actions{display:flex;flex-wrap:wrap;gap:8px}
-.msg.depthOn{transform:translate3d(0,var(--depth-y,0),var(--depth-z,0)) scale(var(--depth-scale,1));opacity:var(--depth-opacity,1);filter:blur(var(--depth-blur,0));transition:transform .22s ease, opacity .22s ease, filter .22s ease, box-shadow .22s ease;transform-origin:center center;will-change:transform,opacity,filter;position:relative;margin-top:calc(var(--depth-overlap,0px) * -1.0)}
-.msg.depthOn::after{content:"";position:absolute;inset:auto 18px -4px;height:12px;border-radius:999px;background:radial-gradient(circle at center,rgba(77,92,179,.18),transparent 72%);opacity:calc(var(--depth-opacity,1) * .45);pointer-events:none;filter:blur(7px)}
-.msg.depthFocused{z-index:3;filter:none !important;opacity:1 !important}
-.msg.depthFocused .bubble{box-shadow:0 20px 38px rgba(5,8,18,.28),0 0 0 1px rgba(132,150,255,.14)}
+.msg.depthOn{transform:translate3d(0,var(--depth-y,0),var(--depth-z,0)) scale(var(--depth-scale,1));opacity:var(--depth-opacity,1);filter:blur(var(--depth-blur,0));transition:transform .18s ease, opacity .18s ease, filter .18s ease, box-shadow .18s ease;transform-origin:center center;will-change:transform,opacity,filter;position:relative;margin-top:calc(var(--depth-overlap,0px) * -1.0)}
+.msg.depthOn::after{content:"";position:absolute;inset:auto 18px -3px;height:8px;border-radius:999px;background:radial-gradient(circle at center,rgba(77,92,179,.12),transparent 72%);opacity:calc(var(--depth-opacity,1) * .2);pointer-events:none;filter:blur(6px)}
+.msg.depthFocused{z-index:2;filter:none !important;opacity:1 !important}
+.msg.depthFocused .bubble{box-shadow:0 12px 24px rgba(5,8,18,.18),0 0 0 1px rgba(132,150,255,.12)}
 .msg.depthRank--near-prev,.msg.depthRank--near-next{z-index:2}
 .msg.depthRank--mid-prev,.msg.depthRank--mid-next{z-index:1}
 .msg.depthRank--far-prev,.msg.depthRank--far-next{pointer-events:none}
@@ -6093,7 +6330,7 @@ onBeforeUnmount(() => {
 @keyframes depthSpotPulse{0%{box-shadow:0 0 0 0 rgba(122,140,255,.38)}100%{box-shadow:0 0 0 16px rgba(122,140,255,0)}}
 @media (max-width:720px){.messageDepthHero{align-items:flex-start;flex-direction:column}.messageDepthHero__actions{width:100%}.messageDepthHero__actions .messageStagePanel__filter{flex:1 1 calc(50% - 4px);justify-content:center}.msg.depthOn{transform:translate3d(0,calc(var(--depth-y,0) * .55),var(--depth-z,0)) scale(calc(.98 + (var(--depth-scale,1) - .98) * .7))}}
 
-.composerUtilityBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}.composerUtilityBar--compact{justify-content:flex-start}.composerUtilityBar__pill{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;max-width:100%;min-height:38px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);cursor:pointer}.composerUtilityBar__pillTag{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:22px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.08);font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#fff}.composerUtilityBar__pill strong{font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}.composerUtilityBar__pill--lens{background:linear-gradient(135deg,rgba(121,96,255,.26),rgba(79,156,255,.2));border-color:rgba(132,150,255,.24)}.composerUtilityBar__pill--session{background:rgba(255,255,255,.05)}.composerUtilityBar__pill--ghost{background:transparent;border-style:dashed}
+.composerUtilityBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}.composerUtilityBar--compact{justify-content:flex-start}.composerUtilityBar__pill{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;max-width:100%;min-height:38px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);cursor:pointer}.composerUtilityBar__pillTag{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:22px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.08);font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#fff}.composerUtilityBar__pill strong{font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}.composerUtilityBar__pill--lens{background:linear-gradient(135deg,rgba(121,96,255,.26),rgba(79,156,255,.2));border-color:rgba(132,150,255,.24)}.composerUtilityBar__pill--active{background:rgba(122,140,255,.12);border-color:rgba(122,140,255,.24)}.composerUtilityBar__pill--session{background:rgba(255,255,255,.05)}.composerUtilityBar__pill--ghost{background:transparent;border-style:dashed}
 .lensLauncher{display:none}
 .messageStageSheetTabs{display:flex;flex-wrap:wrap;gap:8px}
 .messageStageSheetTabs__tab{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.05);color:rgba(236,241,255,.78);border:1px solid rgba(255,255,255,.08);font-weight:800}
