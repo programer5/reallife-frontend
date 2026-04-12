@@ -154,6 +154,16 @@ function messageBodyClass(message, index) {
     messageBody: true,
     [`messageBody--${layerKind}`]: true,
     [`messageBodyTone--${visualTone}`]: true,
+    'messageBody--grouped': isGroupWithPrev(index) || isGroupWithNext(index),
+  };
+}
+
+function messageSessionBlockClass(message, index) {
+  return {
+    messageSessionBlock: true,
+    'messageSessionBlock--compact': true,
+    'messageSessionBlock--focus': messageVisualTone(message, index) === MESSAGE_LAYER_KIND.FOCUS,
+    'messageSessionBlock--grouped': isGroupWithPrev(index) || isGroupWithNext(index),
   };
 }
 
@@ -1220,15 +1230,16 @@ dockMode.value = "active";
   dockOpen.value = !dockOpen.value;
 }
 
-function openSuggestionsDock(message) {
+async function openSuggestionsDock(message) {
   if (!message || !message.pinCandidates || !message.pinCandidates.length) return;
 
-  // 같은 메시지 제안을 다시 누르면 닫기
   const mid = String(message.messageId);
   const curMid = dockSourceMsg.value ? String(dockSourceMsg.value.messageId) : null;
+  const sameTarget = dockOpen.value && dockMode.value === "suggestions" && curMid === mid && commandDeckOpen.value && commandDeckTab.value === "actions";
 
-  if (dockOpen.value && dockMode.value === "suggestions" && curMid === mid) {
+  if (sameTarget) {
     dockOpen.value = false;
+    closeCommandDeck();
     return;
   }
 
@@ -1236,6 +1247,15 @@ function openSuggestionsDock(message) {
   dockOpen.value = true;
   dockSourceMsg.value = message;
   dockCandidates.value = Array.isArray(message.pinCandidates) ? message.pinCandidates : [];
+
+  openCommandDeck("actions");
+  await nextTick();
+
+  const selector = `[data-message-id="${mid}"]`;
+  const target = document.querySelector(selector);
+  if (target?.scrollIntoView) {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 }
 
 // hoverActions의 ✨ 버튼이 호출
@@ -3510,12 +3530,13 @@ onBeforeUnmount(() => {
                     <span v-html="renderMessageHtml(m)"></span>
                     <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
                   </div>
-                  <div class="messageSessionBlock">
+                  <div :class="messageSessionBlockClass(m, i)">
                     <ConversationSessionMessageCard
                       :message="m"
                       :session="sessionForMessage(m)"
                       :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
                       :current-user-id="meId"
+                      compact
                       @activate-session="activateSessionControls($event, { scroll: true })"
                       @play="onPlaybackPlay"
                       @pause="onPlaybackPause"
@@ -3535,13 +3556,14 @@ onBeforeUnmount(() => {
 
                   <div v-if="messageHasActionCandidate(m)" class="messageInlineMeta messageInlineMeta--action">
                     <span class="messageInlineMeta__chip">후보 {{ Array.isArray(m.pinCandidates) ? m.pinCandidates.length : 0 }}개</span>
-                    <small>약속/할 일 후보를 바로 펼쳐볼 수 있어요.</small>
+                    <small>후보 보기/닫기를 누르면 아래 액션 패널에서 저장/확정할 수 있어요.</small>
                   </div>
                 </template>
               </template>
 
               <div v-if="messageUtilitySummary(m) && (!editingMid || String(m.messageId) !== String(editingMid))" class="messageToolSummary">
                 <small>{{ messageUtilitySummary(m) }}</small>
+                <small v-if="messageHasActionCandidate(m)">저장은 아래 액션 패널에서 진행돼요.</small>
               </div>
             </div>
 
@@ -3748,6 +3770,9 @@ onBeforeUnmount(() => {
                 <RlButton size="sm" variant="ghost" class="dockMore" @click="clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck()">전체</RlButton>
               </div>
               <div class="dockPanel dockPanelInline">
+                <div class="commandDeck__helper">
+                  액션은 별도 생성 버튼이 아니라 <strong>메시지를 보낸 뒤 제안으로 생성</strong>돼요. 지금은 ⏳ 버튼이 액션이 아니라 <strong>타임 캡슐</strong>입니다.
+                </div>
                 <div v-if="dockMode==='active'" class="dockGrid">
                   <div class="dockFilterBar">
                     <button class="dockPill" :class="{ on: activeFilter==='ALL' }" type="button" @click="activeFilter='ALL'">전체 <span class="dockPillCount">{{ activeCount }}</span></button>
@@ -3766,7 +3791,11 @@ onBeforeUnmount(() => {
                 </div>
                 <div v-else class="dockGrid">
                   <div v-if="dockCandidates && dockCandidates.length" class="dockSuggestList">
-                    <div v-for="c in sortedDockCandidates.slice(0, 3)" :key="c.candidateId" class="dockSlot">
+                    <div class="dockSuggestList__head">
+                      <strong>저장 가능한 후보 {{ sortedDockCandidates.length }}개</strong>
+                      <small>여기서 바로 저장 / 수정 / 무시할 수 있어요.</small>
+                    </div>
+                    <div v-for="c in sortedDockCandidates" :key="c.candidateId" class="dockSlot">
                       <PinCandidateCard :candidate="c" :busy="dockSourceMsg ? isConfirmBusy(dockSourceMsg.messageId) : false" @confirm="dockSourceMsg && confirmCandidate(dockSourceMsg, $event)" @dismiss="dockSourceMsg && dismissCandidate(dockSourceMsg, $event)" />
                     </div>
                   </div>
@@ -3827,6 +3856,10 @@ onBeforeUnmount(() => {
                       :current-user-id="meId"
                       :force-interactive="isSessionActivated(session.sessionId)"
                       @activate-session="activateSessionControls($event, { scroll: true })"
+                      @play="onPlaybackPlay"
+                      @pause="onPlaybackPause"
+                      @seek="onPlaybackSeek"
+                      @end="onPlaybackEnd"
                       @touch-presence="onTouchPlaybackPresence"
                     />
                   </div>
@@ -3849,6 +3882,10 @@ onBeforeUnmount(() => {
                       :current-user-id="meId"
                       :force-interactive="isSessionActivated(session.sessionId)"
                       @activate-session="activateSessionControls($event, { scroll: true })"
+                      @play="onPlaybackPlay"
+                      @pause="onPlaybackPause"
+                      @seek="onPlaybackSeek"
+                      @end="onPlaybackEnd"
                       @touch-presence="onTouchPlaybackPresence"
                     />
                   </div>
@@ -4209,8 +4246,14 @@ onBeforeUnmount(() => {
   font-weight:900;
 }
 
-.msg{display:flex;flex-direction:column;align-items:flex-start}
+.msg{display:flex;flex-direction:column;align-items:flex-start;--msg-gap:10px;--msg-meta-gap:6px}
 .msg.mine{align-items:flex-end}
+.msg--plain{--msg-gap:10px}
+.msg--action,.msg--media{--msg-gap:9px}
+.msg--session{--msg-gap:8px;--msg-meta-gap:5px}
+.msg + .msg{margin-top:var(--msg-gap)}
+.msg--session + .msg:not(.msg--session){margin-top:9px}
+.msg:not(.msg--session) + .msg--session{margin-top:12px}
 
 .bubble{
   position: relative;
@@ -4244,7 +4287,7 @@ onBeforeUnmount(() => {
   display:flex;
   align-items:center;
   gap:8px;
-  margin-top:6px;
+  margin-top:var(--msg-meta-gap,6px);
   padding-inline:4px;
   min-height:16px;
   color:var(--muted);
@@ -5059,6 +5102,14 @@ onBeforeUnmount(() => {
 }
 
 .messageToolSummary{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.msg--action .messageToolSummary{margin-top:-2px}
+.msg--action .messageToolSummary small{background:rgba(255,210,118,.08);border-color:rgba(255,210,118,.12);color:rgba(255,238,206,.78)}
+
+.messageToolSummary{
   margin-top:10px;
   display:flex;
   align-items:center;
@@ -5269,16 +5320,37 @@ onBeforeUnmount(() => {
 }
 
 .dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
 @media (max-width: 520px){
-  .dockSuggestList{ grid-template-columns: repeat(1, minmax(0, 1fr)); }
+  .dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{ grid-template-columns: repeat(1, minmax(0, 1fr)); }
 }
 @media (min-width: 521px) and (max-width: 900px){
-  .dockSuggestList{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 
@@ -5423,16 +5495,37 @@ onBeforeUnmount(() => {
 }
 
 .dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
 @media (max-width: 520px){
-  .dockSuggestList{ grid-template-columns: repeat(1, minmax(0, 1fr)); }
+  .dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{ grid-template-columns: repeat(1, minmax(0, 1fr)); }
 }
 @media (min-width: 521px) and (max-width: 900px){
-  .dockSuggestList{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 
@@ -5503,6 +5596,13 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 900;
 }
+
+.dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
 
 .dockSuggestList{
   padding: 10px 12px 14px;
@@ -5576,12 +5676,26 @@ onBeforeUnmount(() => {
 /* Suggestions: 1~3 slots */
 .dockSuggestList{
   display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{
+  display:grid;
   grid-template-columns: 1fr;
   gap: 10px;
   padding: 10px;
 }
 @media (min-width: 720px){
-  .dockSuggestList{ grid-template-columns: 1fr 1fr 1fr; }
+  .dockSuggestList{
+  display:grid;
+  gap:10px;
+}
+.dockSlot{display:grid}
+.dockSlot .wrap[data-compact="true"]{margin-top:0}
+
+.dockSuggestList{ grid-template-columns: 1fr 1fr 1fr; }
 }
 
 /* fly animation ghost */
@@ -5931,16 +6045,32 @@ onBeforeUnmount(() => {
 .hiddenFileInput{display:none}
 .messageAttachmentBlock{margin-top:0}
 .messageBody{display:grid;gap:10px}
-.messageBody--session{gap:12px}
+.messageBody--grouped{gap:8px}
+.messageBody--session{gap:10px}
+.messageBody--session.messageBody--grouped{gap:8px}
 .messageEyebrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .messageEyebrow__tag{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 9px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:rgba(232,238,255,.82);font-size:10px;font-weight:800;letter-spacing:.14em}
 .messageEyebrow__hint{color:var(--sub);font-size:11px;line-height:1.35}
 .messageTextBlock{display:grid;gap:6px;color:inherit}
-.messageTextBlock--session{gap:8px}
+.messageTextBlock--session{gap:5px}
 .messageSessionBlock{display:grid;gap:8px}
+.messageSessionBlock--compact{gap:6px}
+.messageSessionBlock--grouped{gap:5px}
 .messageInlineMeta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--sub)}
+.messageInlineMeta--action{gap:6px;align-items:flex-start}
 .messageInlineMeta__chip{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);font-size:11px;font-weight:700;color:rgba(238,242,255,.84)}
+.messageInlineMeta--action small{font-size:11px;line-height:1.45;color:rgba(255,236,196,.74)}
 .messageInlineMeta--action .messageInlineMeta__chip{background:rgba(255,210,118,.12);border-color:rgba(255,210,118,.16);color:rgba(255,233,182,.92)}
+.messageSessionBlock .sessionMessageCard{margin-top:0;padding:10px 12px;border-radius:16px;gap:8px;box-shadow:none}
+.messageSessionBlock--compact .sessionMessageCard__head{gap:10px}
+.messageSessionBlock--compact .sessionMessageCard__head strong{font-size:13px;line-height:1.34}
+.messageSessionBlock--compact .sessionMessageCard__state{min-height:22px;padding:0 8px;font-size:10px}
+.messageSessionBlock--compact .sessionMessageCard__meta{gap:6px;font-size:10.5px}
+.messageSessionBlock--compact .sessionMessageCard__actions{gap:6px}
+.messageSessionBlock--compact .sessionMessageCard__primary,.messageSessionBlock--compact .sessionMessageCard__ghost,.messageSessionBlock--compact .sessionMessageCard__link{min-height:30px;padding:0 10px;font-size:11px}
+.messageSessionBlock--compact .sessionMessageCard__sync{font-size:10.5px;line-height:1.4}
+.messageSessionBlock--compact .sessionMessageCard__notice{font-size:10.5px;line-height:1.45}
+.messageSessionBlock--grouped .sessionMessageCard{padding:9px 11px;border-radius:15px}
 .messageBodyTone--session .messageEyebrow__tag{background:rgba(122,140,255,.14);border-color:rgba(122,140,255,.2);color:rgba(223,228,255,.96)}
 .messageBodyTone--action .messageEyebrow__tag{background:rgba(255,210,118,.12);border-color:rgba(255,210,118,.18);color:rgba(255,233,182,.92)}
 .messageBodyTone--media .messageEyebrow__tag{background:rgba(122,255,216,.11);border-color:rgba(122,255,216,.16);color:rgba(204,255,241,.92)}
@@ -6294,8 +6424,11 @@ onBeforeUnmount(() => {
 .msg--session.depthFocused .bubble{box-shadow:0 14px 26px rgba(18,24,52,.22),0 0 0 1px rgba(132,150,255,.14)}
 .msgTone--plain .bubble,.bubbleTone--plain{background:linear-gradient(180deg,rgba(18,22,38,.94),rgba(10,13,24,.94))}
 .msgTone--focus .bubble,.bubbleTone--focus{border-color:rgba(138,156,255,.2);box-shadow:0 12px 24px rgba(16,21,40,.16),0 0 0 1px rgba(126,144,255,.1)}
-.msgTone--session .bubble,.bubbleTone--session{border-color:rgba(122,140,255,.22);background:linear-gradient(180deg,rgba(24,31,56,.95),rgba(12,16,32,.93));box-shadow:0 10px 22px rgba(16,21,40,.18)}
-.msgTone--action .bubble,.bubbleTone--action{border-color:rgba(255,210,118,.15);background:linear-gradient(180deg,rgba(32,27,16,.9),rgba(17,14,10,.92));box-shadow:0 8px 18px rgba(32,24,8,.12)}
+.msgTone--session .bubble,.bubbleTone--session{border-color:rgba(122,140,255,.2);background:linear-gradient(180deg,rgba(22,28,52,.95),rgba(12,16,32,.93));box-shadow:0 8px 18px rgba(16,21,40,.16)}
+.msg--session .bubble{max-width:78%;padding:9px 12px 10px;border-radius:20px}
+.msg--action .bubble{max-width:72%;padding:8px 11px 9px;border-radius:18px}
+.msg--plain .bubble,.msg--focus .bubble{max-width:72%}
+.msgTone--action .bubble,.bubbleTone--action{border-color:rgba(255,210,118,.13);background:linear-gradient(180deg,rgba(30,26,18,.88),rgba(16,14,10,.9));box-shadow:0 6px 14px rgba(32,24,8,.1)}
 .msgTone--media .bubble,.bubbleTone--media{border-color:rgba(122,255,216,.13);background:linear-gradient(180deg,rgba(13,28,31,.9),rgba(10,18,21,.92))}
 
 .msg.stageMuted{opacity:.78;transform:none}
@@ -6346,6 +6479,2524 @@ onBeforeUnmount(() => {
   .lensLauncher{width:100%}
   .lensLauncher__menu{left:0;right:auto;min-width:min(86vw,320px)}
   .composerUtilityBar__pill{width:auto}
+}
+
+
+
+/* =========================
+   vNext: message shell rhythm tune
+   ========================= */
+.msg{
+  --msg-gap: 9px;
+  --msg-meta-gap: 5px;
+}
+.msg--plain{ --msg-gap: 9px; }
+.msg--action,
+.msg--media{ --msg-gap: 8px; }
+.msg--session{ --msg-gap: 7px; --msg-meta-gap: 4px; }
+.msg + .msg{ margin-top: var(--msg-gap); }
+.msg--session + .msg:not(.msg--session){ margin-top: 8px; }
+.msg:not(.msg--session) + .msg--session{ margin-top: 10px; }
+
+.messageFooter{
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.messageMetaRow{
+  gap: 6px;
+  margin-top: var(--msg-meta-gap, 5px);
+  padding-inline: 2px;
+  min-height: 14px;
+}
+
+.candidates{
+  margin-top: 8px;
+  gap: 6px;
+}
+
+.bottomSpacer{
+  height: 8px;
+}
+
+.msgMenuTrigger{
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+}
+
+.hoverActions{
+  top: 10px;
+  right: 38px;
+  gap: 5px;
+}
+
+.haBtn{
+  height: 26px;
+  padding: 0 8px;
+  gap: 5px;
+}
+
+.haBtn__label{
+  font-size: 10.5px;
+}
+
+.messageToolSummary{
+  margin-top: 8px;
+  gap: 6px;
+}
+
+.messageToolSummary small{
+  min-height: 20px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.msg--action .messageToolSummary{
+  margin-top: 6px;
+}
+
+.messageFooter + .messageMetaRow{
+  margin-top: 4px;
+}
+
+.dockWrap{
+  padding: 8px 12px 0;
+}
+
+.dockBar{
+  gap: 6px;
+  border-radius: 14px;
+  padding: 7px;
+}
+
+.dockTab{
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 12px;
+}
+
+.dockPanel{
+  margin: 8px auto 0;
+  border-radius: 16px;
+  padding: 8px;
+}
+
+.dockGrid{
+  gap: 8px;
+}
+
+.dockFilterBar{
+  gap: 6px;
+  padding: 8px 8px 4px;
+}
+
+.dockPill{
+  gap: 5px;
+  padding: 6px 9px;
+}
+
+.dockListInline,
+.dockSuggestList{
+  gap: 8px;
+}
+
+.dockSuggestList{
+  padding: 8px;
+}
+
+.dockRowWrap{
+  gap: 8px;
+}
+
+.dockRow{
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.dockCard{
+  border-radius: 14px;
+  padding: 9px;
+}
+
+.dockCardHint{
+  margin-top: 4px;
+}
+
+.dockSlot{
+  display: grid;
+  align-content: start;
+}
+
+.dockSlot .wrap[data-compact="true"]{
+  margin-top: 0;
+}
+
+@media (max-width: 720px){
+  .hoverActions{
+    right: 34px;
+  }
+
+  .dockWrap{
+    padding-top: 6px;
+  }
+
+  .dockBar{
+    padding: 6px;
+  }
+
+  .dockPanel{
+    padding: 7px;
+  }
+
+  .dockSuggestList{
+    padding: 6px;
+  }
+}
+
+
+
+/* =========================
+   vNext: bubble proportion tune
+   ========================= */
+.msg{
+  --bubble-max: 71%;
+  --bubble-pad-y: 8px;
+  --bubble-pad-x: 12px;
+  --bubble-radius: 18px;
+}
+
+.msg .bubble{
+  max-width: var(--bubble-max);
+  padding: var(--bubble-pad-y) var(--bubble-pad-x) calc(var(--bubble-pad-y) + 1px);
+  border-radius: var(--bubble-radius);
+}
+
+.msg--plain,
+.msg--focus{
+  --bubble-max: 70%;
+  --bubble-pad-y: 8px;
+  --bubble-pad-x: 12px;
+  --bubble-radius: 18px;
+}
+
+.msg--action,
+.msg--media{
+  --bubble-max: 68%;
+  --bubble-pad-y: 7px;
+  --bubble-pad-x: 11px;
+  --bubble-radius: 17px;
+}
+
+.msg--session{
+  --bubble-max: 74%;
+  --bubble-pad-y: 8px;
+  --bubble-pad-x: 11px;
+  --bubble-radius: 19px;
+}
+
+.messageBody{
+  gap: 9px;
+}
+.messageBody--grouped{
+  gap: 7px;
+}
+.messageBody--session{
+  gap: 9px;
+}
+.messageBody--session.messageBody--grouped{
+  gap: 7px;
+}
+
+.messageEyebrow{
+  gap: 6px;
+}
+
+.messageEyebrow__tag{
+  min-height: 20px;
+  padding: 0 8px;
+  font-size: 9.5px;
+  letter-spacing: .12em;
+}
+
+.messageEyebrow__hint{
+  font-size: 10.5px;
+}
+
+.messageTextBlock{
+  gap: 5px;
+}
+
+.messageInlineMeta{
+  gap: 6px;
+}
+
+.messageInlineMeta__chip{
+  min-height: 22px;
+  padding: 0 9px;
+  font-size: 10.5px;
+}
+
+.messageSessionBlock{
+  gap: 7px;
+}
+
+.messageSessionBlock .sessionMessageCard{
+  padding: 9px 11px;
+  border-radius: 15px;
+}
+
+.messageSessionBlock--compact .sessionMessageCard__head{
+  gap: 8px;
+}
+
+.messageSessionBlock--compact .sessionMessageCard__head strong{
+  font-size: 12.5px;
+}
+
+.messageSessionBlock--compact .sessionMessageCard__meta{
+  gap: 5px;
+  font-size: 10px;
+}
+
+.messageSessionBlock--compact .sessionMessageCard__actions{
+  gap: 5px;
+}
+
+.messageSessionBlock--compact .sessionMessageCard__primary,
+.messageSessionBlock--compact .sessionMessageCard__ghost,
+.messageSessionBlock--compact .sessionMessageCard__link{
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 10.5px;
+}
+
+.msg--plain .messageToolSummary,
+.msg--focus .messageToolSummary{
+  margin-top: 7px;
+}
+
+.msg--session .messageToolSummary,
+.msg--action .messageToolSummary,
+.msg--media .messageToolSummary{
+  margin-top: 6px;
+}
+
+@media (max-width: 720px){
+  .msg{
+    --bubble-max: 82%;
+  }
+
+  .msg--plain,
+  .msg--focus{
+    --bubble-max: 81%;
+  }
+
+  .msg--action,
+  .msg--media{
+    --bubble-max: 79%;
+  }
+
+  .msg--session{
+    --bubble-max: 84%;
+  }
+
+  .msg .bubble{
+    padding: 8px 11px 9px;
+  }
+}
+
+
+
+/* =========================
+   vNext: grouped message rhythm tune
+   ========================= */
+.msg{
+  --group-gap: 5px;
+  --type-shift-gap: 11px;
+  --author-break-gap: 13px;
+}
+
+.msg + .msg{
+  margin-top: var(--msg-gap, 9px);
+}
+
+.msg.msg--grouped{
+  margin-top: var(--group-gap);
+}
+
+.msg.msg--grouped .bubble{
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+
+.msg.mine.msg--grouped .bubble{
+  border-bottom-right-radius: 14px;
+}
+
+.msg:not(.mine).msg--grouped .bubble{
+  border-bottom-left-radius: 14px;
+}
+
+.msg.msg--grouped .messageMetaRow{
+  margin-top: 4px;
+}
+
+.msg + .msg:not(.msg--grouped){
+  margin-top: max(var(--msg-gap, 9px), 9px);
+}
+
+.msg--plain + .msg--session,
+.msg--plain + .msg--action,
+.msg--plain + .msg--media,
+.msg--focus + .msg--session,
+.msg--focus + .msg--action,
+.msg--focus + .msg--media{
+  margin-top: var(--type-shift-gap);
+}
+
+.msg--session + .msg--plain,
+.msg--session + .msg--focus,
+.msg--action + .msg--plain,
+.msg--action + .msg--focus,
+.msg--media + .msg--plain,
+.msg--media + .msg--focus{
+  margin-top: calc(var(--type-shift-gap) - 1px);
+}
+
+.msg + .msg .avatar{
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.msg.msg--grouped + .msg.msg--grouped .avatar,
+.msg.msg--grouped .author{
+  opacity: .88;
+}
+
+.msg:not(.msg--grouped) .author{
+  margin-bottom: 5px;
+}
+
+.msg.msg--grouped .messageBody--grouped{
+  padding-top: 1px;
+}
+
+.msg.msg--grouped .messageToolSummary{
+  margin-top: 6px;
+}
+
+.msg.msg--grouped .candidates{
+  margin-top: 7px;
+}
+
+.msg--session.msg--grouped .messageSessionBlock{
+  gap: 6px;
+}
+
+.msg--action.msg--grouped .messageInlineMeta{
+  gap: 5px;
+}
+
+.msg--grouped + .msg:not(.msg--grouped){
+  margin-top: var(--author-break-gap);
+}
+
+.msg:not(.msg--grouped) + .msg.msg--grouped{
+  margin-top: 6px;
+}
+
+.msg--session + .msg--session.msg--grouped,
+.msg--action + .msg--action.msg--grouped,
+.msg--media + .msg--media.msg--grouped{
+  margin-top: 6px;
+}
+
+.msg--session + .msg--session:not(.msg--grouped),
+.msg--action + .msg--action:not(.msg--grouped),
+.msg--media + .msg--media:not(.msg--grouped){
+  margin-top: 9px;
+}
+
+@media (max-width: 720px){
+  .msg{
+    --group-gap: 4px;
+    --type-shift-gap: 10px;
+    --author-break-gap: 11px;
+  }
+
+  .msg.msg--grouped .bubble{
+    border-top-left-radius: 13px;
+    border-top-right-radius: 13px;
+  }
+
+  .msg.mine.msg--grouped .bubble{
+    border-bottom-right-radius: 13px;
+  }
+
+  .msg:not(.mine).msg--grouped .bubble{
+    border-bottom-left-radius: 13px;
+  }
+}
+
+
+
+/* =========================
+   vNext: bottom interaction hierarchy tune
+   ========================= */
+.composerUtilityBar{
+  margin-top: 10px;
+  padding: 0 14px;
+  gap: 8px;
+}
+
+.composerUtilityBar__row{
+  gap: 8px;
+}
+
+.composerUtilityBar__group{
+  gap: 6px;
+}
+
+.composerUtilityBar__chip,
+.composerUtilityBar__ghost,
+.composerUtilityBar__toggle{
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 14px;
+}
+
+.composerUtilityBar__chipLabel,
+.composerUtilityBar__ghostLabel,
+.composerUtilityBar__toggleLabel{
+  font-size: 11px;
+}
+
+
+
+
+
+
+
+
+
+.dockWrap{
+  padding: 8px 14px 0;
+}
+
+.dockBar{
+  min-height: 42px;
+  gap: 6px;
+}
+
+.dockBar + .dockPanel{
+  margin-top: 8px;
+}
+
+.dockSectionTitle{
+  margin-bottom: 6px;
+}
+
+.dockPanel{
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+}
+
+.dockPanel__head{
+  gap: 6px;
+  padding: 2px 2px 6px;
+}
+
+.dockPanel__title{
+  font-size: 12px;
+}
+
+.dockPanel__hint{
+  font-size: 10.5px;
+}
+
+.dockFilterBar{
+  margin-top: 2px;
+}
+
+.dockGrid + .dockGrid,
+.dockListInline + .dockListInline,
+.dockSuggestList + .dockSuggestList{
+  margin-top: 8px;
+}
+
+.bottomInteractionStack{
+  display: grid;
+  gap: 8px;
+}
+
+.bottomInteractionStack--tight{
+  gap: 6px;
+}
+
+.bottomInteractionStack .dockWrap:first-child,
+.bottomInteractionStack .composerUtilityBar:first-child{
+  margin-top: 0;
+}
+
+.composerShell{
+  gap: 8px;
+}
+
+@media (max-width: 720px){
+  .composerUtilityBar{
+    margin-top: 8px;
+    padding: 0 12px;
+    gap: 7px;
+  }
+
+  .composerUtilityBar__row{
+    gap: 7px;
+  }
+
+  .composerUtilityBar__chip,
+  .composerUtilityBar__ghost,
+  .composerUtilityBar__toggle{
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 13px;
+  }
+
+
+
+  .dockWrap{
+    padding: 7px 12px 0;
+  }
+
+  .dockBar{
+    min-height: 40px;
+  }
+
+  .dockBar + .dockPanel{
+    margin-top: 7px;
+  }
+
+  .bottomInteractionStack{
+    gap: 7px;
+  }
+}
+
+
+
+/* =========================
+   vNext: top entry rhythm tune
+   ========================= */
+.topbar{
+  padding: 8px 14px 6px;
+  gap: 9px;
+  align-items: center;
+}
+
+.topbar .rl-btn,
+.topbar .peer,
+.topbar .right .rl-btn{
+  min-height: 36px;
+}
+
+.peer{
+  padding: 7px 10px;
+  border-radius: 15px;
+  gap: 9px;
+}
+
+.peerAva{
+  width: 32px;
+  height: 32px;
+}
+
+.peerName{
+  font-size: 13px;
+}
+
+.peerHandle{
+  font-size: 11px;
+}
+
+.scroller{
+  padding-top: 6px;
+  padding-inline: 14px;
+  padding-bottom: calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 24px);
+}
+
+.inner{
+  display: grid;
+  align-content: start;
+  gap: 0;
+}
+
+.searchReturnBar{
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+}
+
+.searchReturnBar__copy{
+  gap: 5px;
+}
+
+.searchReturnBar__actions{
+  margin-top: 8px;
+  gap: 6px;
+}
+
+.more{
+  margin: 2px 0 10px;
+}
+
+.moreBtn{
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.unreadDivider{
+  margin: 8px 0 10px;
+}
+
+.bottomSpacer{
+  height: 10px;
+}
+
+.composerWrap{
+  padding-top: 8px;
+}
+
+.composerInner--stack{
+  gap: 7px;
+}
+
+.composerUtilityBar{
+  margin-bottom: 2px;
+}
+
+.composerHint{
+  padding-inline: 2px;
+}
+
+@media (max-width: 720px){
+  .topbar{
+    padding: 7px 12px 5px;
+    gap: 7px;
+  }
+
+  .peer{
+    padding: 7px 9px;
+    border-radius: 14px;
+  }
+
+  .peerAva{
+    width: 30px;
+    height: 30px;
+  }
+
+  .peerName{
+    font-size: 12.5px;
+  }
+
+  .scroller{
+    padding-top: 4px;
+    padding-inline: 12px;
+    padding-bottom: calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 22px);
+  }
+
+  .searchReturnBar{
+    margin-bottom: 8px;
+    padding: 9px 10px;
+    border-radius: 15px;
+  }
+
+  .more{
+    margin: 0 0 8px;
+  }
+
+  .bottomSpacer{
+    height: 8px;
+  }
+
+  .composerWrap{
+    padding-top: 7px;
+  }
+}
+
+
+
+/* =========================
+   vNext: overlay tone reduction
+   ========================= */
+.messageStageSheet{
+  padding: 10px 12px 12px;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(14px);
+}
+
+.messageStageSheet__head{
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.messageStageSheet__title{
+  font-size: 13px;
+}
+
+.messageStageSheet__hint{
+  font-size: 10.5px;
+  opacity: .72;
+}
+
+.messageStageSheet__actions{
+  gap: 6px;
+}
+
+
+.messageStageSheet .stageCard,
+.messageStageSheet .focusCard,
+.messageStageSheet .stackCard{
+  border-radius: 16px;
+  padding: 9px 10px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.10);
+}
+
+.commandDeck{
+  padding: 8px 10px 10px;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -10px 24px rgba(15, 23, 42, 0.15);
+  backdrop-filter: blur(12px);
+}
+
+.commandDeck__head{
+  gap: 7px;
+  margin-bottom: 7px;
+}
+
+.commandDeck__title{
+  font-size: 12.5px;
+}
+
+.commandDeck__hint{
+  font-size: 10.5px;
+  opacity: .72;
+}
+
+.commandDeck__tabs{
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.commandDeck__tab{
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 12px;
+}
+
+
+.commandDeck .deckSection,
+.commandDeck .deckCard,
+.commandDeck .deckList,
+.commandDeck .deckComposer{
+  border-radius: 15px;
+  box-shadow: none;
+}
+
+.commandDeck .deckSection,
+.commandDeck .deckCard{
+  padding: 8px 9px;
+}
+
+.commandDeck .deckList{
+  padding: 7px;
+}
+
+.commandDeck .deckSectionTitle{
+  margin-bottom: 6px;
+}
+
+.sessionHub,
+.sessionPanel,
+.sessionSheet{
+  border-radius: 18px 18px 0 0;
+  padding: 9px 10px 10px;
+  box-shadow: 0 -10px 26px rgba(15, 23, 42, 0.15);
+  backdrop-filter: blur(12px);
+}
+
+.sessionHub__head,
+.sessionPanel__head,
+.sessionSheet__head{
+  gap: 7px;
+  margin-bottom: 7px;
+}
+
+.sessionHub__title,
+.sessionPanel__title,
+.sessionSheet__title{
+  font-size: 12.5px;
+}
+
+.sessionHub__hint,
+.sessionPanel__hint,
+.sessionSheet__hint{
+  font-size: 10.5px;
+  opacity: .72;
+}
+
+
+.sessionHub .sessionCard,
+.sessionPanel .sessionCard,
+.sessionSheet .sessionCard,
+.sessionHub .sessionBlock,
+.sessionPanel .sessionBlock,
+.sessionSheet .sessionBlock{
+  border-radius: 15px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.10);
+}
+
+.sessionHub .sessionCard,
+.sessionPanel .sessionCard,
+.sessionSheet .sessionCard{
+  padding: 8px 9px;
+}
+
+.overlayScrim,
+.sheetScrim,
+.deckScrim{
+  background: rgba(15, 23, 42, 0.32);
+}
+
+@media (max-width: 720px){
+  .messageStageSheet{
+    padding: 9px 10px 11px;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .commandDeck{
+    padding: 7px 8px 9px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .sessionHub,
+  .sessionPanel,
+  .sessionSheet{
+    padding: 8px 9px 9px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .messageStageSheet .stageCard,
+  .messageStageSheet .focusCard,
+  .messageStageSheet .stackCard,
+  .commandDeck .deckSection,
+  .commandDeck .deckCard,
+  .sessionHub .sessionCard,
+  .sessionPanel .sessionCard,
+  .sessionSheet .sessionCard{
+    border-radius: 14px;
+  }
+}
+
+
+
+/* =========================
+   vNext: stabilization pass for leftover experimental traces
+   ========================= */
+.searchReturnBar{
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  background: color-mix(in srgb, var(--surface, #fff) 90%, transparent);
+}
+
+.searchReturnBar__eyebrow,
+.messageStageRail__eyebrow,
+.messageStageSheet__eyebrow,
+.commandDeck__eyebrow,
+.sessionHub__eyebrow{
+  font-size: 10px;
+  letter-spacing: .12em;
+  opacity: .6;
+}
+
+.searchReturnBar__chips,
+.messageStageSheetTabs,
+.commandDeck__tabs{
+  gap: 6px;
+}
+
+.searchReturnBar__chipPill,
+.messageStageSheetTabs__tab,
+.commandDeck__tab{
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 12px;
+  font-size: 10.5px;
+}
+
+.messageStageSheet__grab,
+.commandDeck__grab,
+.sessionSheet__grab,
+.sessionHub__grab{
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  margin: 0 auto 8px;
+  opacity: .45;
+}
+
+.messageStageSheet__close,
+.commandDeck__close,
+.sessionSheet__close,
+.sessionHub__close{
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 12px;
+  font-size: 10.5px;
+}
+
+.newMsg{
+  right: 14px;
+  bottom: calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 14px);
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  font-size: 11px;
+}
+
+.moreBtn,
+.unreadDivider__label{
+  box-shadow: none;
+}
+
+.unreadDivider__label{
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+}
+
+.messageStageSheet .stageCard__eyebrow,
+.messageStageSheet .focusCard__eyebrow,
+.messageStageSheet .stackCard__eyebrow,
+.commandDeck .deckCard__eyebrow,
+.sessionHub .sessionCard__eyebrow,
+.sessionPanel .sessionCard__eyebrow{
+  font-size: 9.5px;
+  opacity: .56;
+}
+
+.messageStageSheet strong,
+.commandDeck strong,
+.sessionHub strong,
+.sessionPanel strong,
+.sessionSheet strong{
+  line-height: 1.3;
+}
+
+.commandDeck .deckEmpty,
+.sessionHub .sessionEmpty,
+.sessionPanel .sessionEmpty{
+  border-radius: 14px;
+  padding: 10px;
+  opacity: .82;
+}
+
+.scroller{
+  scroll-padding-top: 14px;
+  scroll-padding-bottom: calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 24px);
+}
+
+.inner > :first-child{
+  margin-top: 0;
+}
+
+.bottomSpacer{
+  height: 6px;
+}
+
+@media (max-width: 720px){
+  .newMsg{
+    right: 12px;
+    bottom: calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 12px);
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 13px;
+  }
+
+  .searchReturnBar__chipPill,
+  .messageStageSheetTabs__tab,
+  .commandDeck__tab{
+    min-height: 27px;
+    padding: 0 8px;
+  }
+
+  .messageStageSheet__grab,
+  .commandDeck__grab,
+  .sessionSheet__grab,
+  .sessionHub__grab{
+    margin-bottom: 7px;
+  }
+
+  .bottomSpacer{
+    height: 4px;
+  }
+}
+
+
+
+/* =========================
+   vNext: finish pass for collision prevention
+   ========================= */
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 18;
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--surface, #fff) 88%, transparent);
+}
+
+.scroller{
+  overscroll-behavior-y: contain;
+}
+
+.inner{
+  min-height: 100%;
+}
+
+.msg{
+  position: relative;
+  z-index: 1;
+}
+
+.msg:hover,
+.msg:focus-within{
+  z-index: 2;
+}
+
+.msgMenu,
+.hoverActions{
+  z-index: 6;
+}
+
+.msgMenu{
+  max-width: min(220px, calc(100vw - 28px));
+}
+
+.hoverActions{
+  pointer-events: none;
+}
+
+.msg:hover .hoverActions,
+.msg:focus-within .hoverActions{
+  pointer-events: auto;
+}
+
+.messageToolSummary,
+.candidates,
+.messageFooter,
+.messageMetaRow{
+  position: relative;
+  z-index: 1;
+}
+
+.candidates{
+  scroll-margin-top: 18px;
+}
+
+.composerWrap{
+  position: sticky;
+  bottom: 0;
+  z-index: 22;
+  background:
+    linear-gradient(to top,
+      color-mix(in srgb, var(--surface, #fff) 94%, transparent) 0%,
+      color-mix(in srgb, var(--surface, #fff) 90%, transparent) 58%,
+      transparent 100%);
+  backdrop-filter: blur(12px);
+}
+
+.composerShell{
+  position: relative;
+  z-index: 2;
+}
+
+.composerUtilityBar,
+.dockWrap{
+  position: relative;
+  z-index: 2;
+}
+
+.dockPanel,
+.messageStageSheet,
+.commandDeck,
+.sessionHub,
+.sessionPanel,
+.sessionSheet{
+  max-height: min(72vh, 680px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.dockPanel{
+  scrollbar-gutter: stable;
+}
+
+.overlayScrim,
+.sheetScrim,
+.deckScrim{
+  z-index: 30;
+}
+
+.messageStageSheet,
+.commandDeck,
+.sessionHub,
+.sessionPanel,
+.sessionSheet{
+  z-index: 31;
+}
+
+.newMsg{
+  z-index: 17;
+}
+
+.searchReturnBar{
+  scroll-margin-top: 18px;
+}
+
+.unreadDivider{
+  scroll-margin-top: 16px;
+}
+
+.bottomSpacer{
+  pointer-events: none;
+}
+
+@media (max-width: 720px){
+  .topbar{
+    z-index: 16;
+  }
+
+  .composerWrap{
+    z-index: 24;
+  }
+
+  .msgMenu{
+    max-width: calc(100vw - 22px);
+  }
+
+  .dockPanel,
+  .messageStageSheet,
+  .commandDeck,
+  .sessionHub,
+  .sessionPanel,
+  .sessionSheet{
+    max-height: min(74vh, 720px);
+  }
+}
+
+
+
+/* =========================
+   vNext: final visual calm-down pass
+   ========================= */
+:root{
+  --ui-calm-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  --ui-calm-border: color-mix(in srgb, var(--line, rgba(148,163,184,.28)) 88%, transparent);
+}
+
+.topbar,
+.composerWrap,
+.searchReturnBar,
+.dockBar,
+.dockPanel,
+.messageStageSheet,
+.commandDeck,
+.sessionHub,
+.sessionPanel,
+.sessionSheet{
+  box-shadow: var(--ui-calm-shadow);
+}
+
+.peer,
+.searchReturnBar,
+.dockBar,
+.dockPanel,
+.messageStageSheet .stageCard,
+.messageStageSheet .focusCard,
+.messageStageSheet .stackCard,
+.commandDeck .deckSection,
+.commandDeck .deckCard,
+.commandDeck .deckList,
+.sessionHub .sessionCard,
+.sessionPanel .sessionCard,
+.sessionSheet .sessionCard{
+  border-color: var(--ui-calm-border);
+}
+
+.msg .bubble{
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+}
+
+.msg--plain .bubble,
+.msg--focus .bubble{
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.msg--session .bubble,
+.msg--action .bubble,
+.msg--media .bubble{
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+}
+
+.hoverActions{
+  opacity: .92;
+  transform: translateY(0);
+}
+
+.msg:not(:hover):not(:focus-within) .hoverActions{
+  opacity: .0;
+  transform: translateY(2px);
+}
+
+.msgMenuTrigger{
+  opacity: .82;
+}
+
+.msg:hover .msgMenuTrigger,
+.msg:focus-within .msgMenuTrigger{
+  opacity: 1;
+}
+
+.messageEyebrow__tag,
+.messageInlineMeta__chip,
+.messageToolSummary small,
+.unreadDivider__label,
+.searchReturnBar__chipPill,
+.messageStageSheetTabs__tab,
+.commandDeck__tab,
+.dockPill,
+.composerUtilityBar__ghost,
+.composerUtilityBar__toggle{
+  box-shadow: none;
+}
+
+.messageEyebrow__tag,
+.messageInlineMeta__chip,
+.messageToolSummary small{
+  border-color: color-mix(in srgb, var(--line, rgba(148,163,184,.28)) 84%, transparent);
+}
+
+.messageToolSummary{
+  opacity: .92;
+}
+
+.candidates{
+  padding-top: 2px;
+}
+
+.candidates > * + *{
+  margin-top: 0;
+}
+
+.messageFooter{
+  opacity: .96;
+}
+
+.messageMetaRow{
+  opacity: .72;
+}
+
+.msg:hover .messageMetaRow,
+.msg:focus-within .messageMetaRow{
+  opacity: .84;
+}
+
+.moreBtn,
+.newMsg,
+.msgMenuTrigger,
+.commandDeck__tab,
+.messageStageSheet__close,
+.commandDeck__close,
+.sessionSheet__close,
+.sessionHub__close{
+  transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease;
+}
+
+.moreBtn:hover,
+.newMsg:hover,
+.msgMenuTrigger:hover,
+.commandDeck__tab:hover{
+  transform: translateY(-1px);
+}
+
+.searchReturnBar__actions,
+.composerUtilityBar__group,
+.dockFilterBar,
+.commandDeck__tabs{
+  flex-wrap: wrap;
+}
+
+.searchReturnBar__actions > *,
+.composerUtilityBar__group > *,
+.dockFilterBar > *,
+.commandDeck__tabs > *{
+  min-width: 0;
+}
+
+.bottomInteractionStack{
+  padding-bottom: 2px;
+}
+
+.scroller{
+  scrollbar-gutter: stable both-edges;
+}
+
+@media (max-width: 720px){
+  .topbar,
+  .composerWrap,
+  .searchReturnBar,
+  .dockBar,
+  .dockPanel{
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
+  }
+
+  .msg .bubble{
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  }
+
+  .msgMenuTrigger{
+    opacity: 1;
+  }
+
+  .msg .hoverActions{
+    opacity: 0 !important;
+    transform: none !important;
+  }
+
+  .bottomInteractionStack{
+    padding-bottom: 1px;
+  }
+}
+
+
+
+/* =========================
+   vNext: final micro-cleanup pass
+   ========================= */
+.msg{
+  contain: layout style;
+}
+
+.msg .bubble{
+  overflow: clip;
+}
+
+.messageBody,
+.messageFooter,
+.messageMetaRow,
+.messageToolSummary,
+.candidates{
+  min-width: 0;
+}
+
+.messageTextBlock{
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.messageInlineMeta,
+.messageToolSummary,
+.searchReturnBar__actions,
+.composerUtilityBar__row,
+.composerUtilityBar__group,
+.dockFilterBar,
+.commandDeck__tabs,
+.sessionHub__actions,
+.sessionPanel__actions,
+.sessionSheet__actions{
+  align-items: center;
+}
+
+.messageToolSummary small,
+.messageInlineMeta__chip,
+.messageEyebrow__tag{
+  white-space: nowrap;
+}
+
+.messageToolSummary{
+  row-gap: 5px;
+}
+
+.candidates{
+  padding-bottom: 2px;
+}
+
+.candidates :where(.wrap, .candidate, .candidateCard){
+  min-width: 0;
+}
+
+.msgMenu{
+  overflow: clip;
+}
+
+.msgMenu__item,
+.msgMenu button,
+.msgMenu a{
+  min-height: 32px;
+}
+
+.topbar .left,
+.topbar .right,
+.peer,
+.searchReturnBar__copy,
+
+.peerMeta,
+.searchReturnBar__copy{
+  overflow: hidden;
+}
+
+.peerName,
+.peerHandle,
+.searchReturnBar__title,
+.searchReturnBar__hint,
+.messageStageSheet__title,
+.messageStageSheet__hint,
+.commandDeck__title,
+.commandDeck__hint,
+.sessionHub__title,
+.sessionHub__hint,
+.sessionPanel__title,
+.sessionPanel__hint,
+.sessionSheet__title,
+.sessionSheet__hint{
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.more,
+.unreadDivider,
+.searchReturnBar,
+.dockWrap{
+  scroll-margin-top: 16px;
+}
+
+.composerWrap{
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+}
+
+.composerHint{
+  opacity: .7;
+}
+
+.bottomSpacer{
+  height: 2px;
+}
+
+@media (max-width: 720px){
+  .messageTextBlock{
+    word-break: break-word;
+  }
+
+  .messageToolSummary small,
+  .messageInlineMeta__chip{
+    max-width: 100%;
+  }
+
+  .peerName,
+  .peerHandle,
+  .searchReturnBar__title,
+  .searchReturnBar__hint,
+
+  .msgMenu__item,
+  .msgMenu button,
+  .msgMenu a{
+    min-height: 34px;
+  }
+
+  .composerWrap{
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+  }
+}
+
+
+
+/* =========================
+   vNext: final polish for stable reading flow
+   ========================= */
+.scroller{
+  content-visibility: auto;
+}
+
+.inner{
+  padding-bottom: 2px;
+}
+
+.msgList,
+.messageList,
+.timeline{
+  min-width: 0;
+}
+
+.msg{
+  isolation: isolate;
+}
+
+.msg .bubble{
+  max-inline-size: min(var(--bubble-max, 72%), 100%);
+}
+
+.msg.mine .bubble{
+  margin-left: auto;
+}
+
+.msg:not(.mine) .bubble{
+  margin-right: auto;
+}
+
+.messageBody{
+  align-items: stretch;
+}
+
+.messageTextBlock > :last-child,
+.messageFooter > :last-child,
+.messageToolSummary > :last-child,
+.candidates > :last-child{
+  margin-bottom: 0;
+}
+
+.messageMetaRow{
+  justify-content: flex-end;
+}
+
+.msg:not(.mine) .messageMetaRow{
+  justify-content: flex-start;
+}
+
+.messageMetaRow > *{
+  min-width: 0;
+}
+
+.messageFooter{
+  align-items: flex-start;
+}
+
+.messageFooter :where(.attachment, .file, .chip, .status){
+  min-width: 0;
+}
+
+.messageToolSummary{
+  align-items: center;
+}
+
+.messageToolSummary small{
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.candidates{
+  align-items: stretch;
+}
+
+.candidates :where(.wrap, .candidate, .candidateCard){
+  width: 100%;
+}
+
+.dockPanel,
+.messageStageSheet,
+.commandDeck,
+.sessionHub,
+.sessionPanel,
+.sessionSheet{
+  scrollbar-width: thin;
+}
+
+.topbar,
+.composerWrap{
+  background-clip: padding-box;
+}
+
+.newMsg{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.msgMenuTrigger,
+.moreBtn,
+.composerUtilityBar__chip,
+.composerUtilityBar__ghost,
+.composerUtilityBar__toggle,
+.commandDeck__tab{
+  white-space: nowrap;
+}
+
+.searchReturnBar__actions,
+.composerUtilityBar__row,
+.composerUtilityBar__group,
+.dockFilterBar,
+.commandDeck__tabs{
+  row-gap: 6px;
+}
+
+@media (max-width: 720px){
+  .inner{
+    padding-bottom: 1px;
+  }
+
+  .msg .bubble{
+    max-inline-size: min(var(--bubble-max, 84%), 100%);
+  }
+
+  .messageMetaRow{
+    row-gap: 3px;
+  }
+
+  .searchReturnBar__actions,
+  .composerUtilityBar__row,
+  .composerUtilityBar__group,
+  .dockFilterBar,
+  .commandDeck__tabs{
+    row-gap: 5px;
+  }
+}
+
+
+
+/* =========================
+   vNext: live class alignment cleanup
+   ========================= */
+.newBanner{
+  right: 14px;
+  bottom: calc(var(--composer-h, 152px) + env(safe-area-inset-bottom) + 14px);
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  font-size: 11px;
+  z-index: 17;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease;
+}
+.newBanner:hover{
+  transform: translateY(-1px);
+}
+.messageStageSheetBody,
+
+@media (max-width: 720px){
+  .newBanner{
+    right: 12px;
+    bottom: calc(var(--composer-h, 148px) + env(safe-area-inset-bottom) + 12px);
+    min-height: 30px;
+    padding: 0 10px;
+    border-radius: 13px;
+  }
+}
+
+
+
+/* =========================
+   vNext: live class alignment cleanup 2
+   ========================= */
+.messageStageSheetBackdrop,
+.commandDeckBackdrop{
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.messageStageSheet,
+.commandDeck{
+  z-index: 31;
+  max-height: min(72vh, 680px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.messageStageSheetBody,
+.commandDeck__panel{
+  display: grid;
+  gap: 8px;
+}
+
+.commandDeck__panel > :last-child,
+.messageStageSheetBody > :last-child,
+.sessionHub__stack > :last-child{
+  margin-bottom: 0;
+}
+
+.sessionHub__stack{
+  gap: 12px;
+}
+
+.sessionHub__compactList{
+  gap: 8px;
+}
+
+.sessionHub__section{
+  gap: 8px;
+}
+
+.sessionHub__empty,
+.messageStageSheetEmpty{
+  box-shadow: none;
+}
+
+@media (max-width: 720px){
+  .messageStageSheet,
+  .commandDeck{
+    max-height: min(74vh, 720px);
+  }
+
+  .sessionHub__stack{
+    gap: 10px;
+  }
+}
+
+
+
+/* =========================
+   vNext: dead selector trim pass
+   ========================= */
+.messageStageSheetBody,
+.commandDeck__panel,
+.sessionHub__section,
+.sessionHub__compactList{
+  min-width: 0;
+}
+
+.sessionHub__stack{
+  min-width: 0;
+}
+
+.messageStageSheetBody > *,
+.commandDeck__panel > *,
+.sessionHub__section > *{
+  min-width: 0;
+}
+
+
+
+/* =========================
+   vNext: command deck tabs fix
+   ========================= */
+.commandDeck__tabs{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;
+  margin-bottom:8px;
+}
+
+.commandDeck__tab{
+  appearance:none;
+  -webkit-appearance:none;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  width:100%;
+  min-width:0;
+  min-height:38px;
+  padding:0 12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.06);
+  color:rgba(236,241,255,.88);
+  font-size:12px;
+  font-weight:800;
+  line-height:1;
+  text-align:center;
+  cursor:pointer;
+}
+
+.commandDeck__tab small{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:18px;
+  padding:0 6px;
+  border-radius:999px;
+  background:rgba(255,255,255,.08);
+  color:inherit;
+  font-size:10px;
+  font-weight:900;
+}
+
+.commandDeck__tab.on{
+  background:linear-gradient(180deg, rgba(94,114,255,.28), rgba(68,84,194,.24));
+  border-color:rgba(132,150,255,.30);
+  color:#fff;
+  box-shadow:0 6px 16px rgba(58,74,180,.18);
+}
+
+.commandDeck__tab:disabled{
+  opacity:.48;
+  cursor:not-allowed;
+}
+
+.commandDeck__helper{
+  margin-bottom:8px;
+  padding:9px 10px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+  color:rgba(236,241,255,.72);
+  font-size:11px;
+  line-height:1.5;
+}
+
+.commandDeck__helper strong{
+  color:#fff;
+  font-weight:800;
+}
+
+@media (max-width:720px){
+  .commandDeck__tabs{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:6px;
+  }
+
+  .commandDeck__tab{
+    min-height:36px;
+    padding:0 8px;
+    border-radius:13px;
+    font-size:11px;
+  }
+
+  .commandDeck__tab small{
+    min-width:16px;
+    height:16px;
+    padding:0 5px;
+    font-size:9px;
+  }
+
+  .commandDeck__helper{
+    margin-bottom:7px;
+    padding:8px 9px;
+    border-radius:13px;
+    font-size:10.5px;
+  }
+}
+
+
+
+/* =========================
+   vNext: action creation guide near composer
+   ========================= */
+.composerActionGuide{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  padding:0 14px 8px;
+}
+
+.composerActionGuide__chip{
+  appearance:none;
+  -webkit-appearance:none;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:28px;
+  padding:0 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.05);
+  color:rgba(236,241,255,.84);
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.composerActionGuide__chip:hover{
+  background:rgba(104,124,255,.12);
+  border-color:rgba(132,150,255,.24);
+  color:#fff;
+}
+
+.composerHint strong{
+  color:#fff;
+  font-weight:800;
+}
+
+.composerHint em{
+  font-style:normal;
+  color:rgba(236,241,255,.84);
+}
+
+@media (max-width:720px){
+  .composerActionGuide{
+    gap:6px;
+    padding:0 12px 7px;
+  }
+
+  .composerActionGuide__chip{
+    min-height:27px;
+    padding:0 9px;
+    font-size:10.5px;
+  }
+}
+
+
+
+/* =========================
+   vNext: candidate dock visibility fix
+   ========================= */
+.messageToolSummary small + small{
+  opacity:.86;
+}
+
+.messageInlineMeta--action small,
+.messageToolSummary small{
+  line-height:1.45;
+}
+
+
+
+/* =========================
+   vNext: mobile action deck visibility fix
+   ========================= */
+.commandDeckBackdrop{
+  background: rgba(7, 11, 24, 0.52);
+}
+
+.commandDeck{
+  width: min(100%, 560px);
+  max-height: min(78vh, 760px);
+}
+
+.commandDeck__head{
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin: -8px -10px 8px;
+  padding: 10px 10px 8px;
+  background: linear-gradient(180deg, rgba(9, 14, 31, 0.98), rgba(9, 14, 31, 0.92));
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.commandDeck__tabs{
+  position: sticky;
+  top: 66px;
+  z-index: 4;
+  margin: 0 -2px 8px;
+  padding: 0 2px 8px;
+  background: linear-gradient(180deg, rgba(9, 14, 31, 0.96), rgba(9, 14, 31, 0.82));
+  backdrop-filter: blur(12px);
+}
+
+.commandDeck__panel{
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 2px;
+}
+
+.dockWrapInline{
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.dockBarInline{
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: linear-gradient(180deg, rgba(9, 14, 31, 0.98), rgba(9, 14, 31, 0.88));
+  backdrop-filter: blur(12px);
+}
+
+.dockPanelInline{
+  max-height: min(48vh, 420px);
+  overflow: auto;
+  padding-bottom: 12px;
+  scroll-padding-bottom: 12px;
+}
+
+.commandDeck__helper{
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.dockSuggestList{
+  gap: 10px;
+}
+
+.dockSlot{
+  width: 100%;
+}
+
+.dockSlot .wrap,
+.dockSlot .candidate,
+.dockSlot .candidateCard{
+  width: 100%;
+}
+
+@media (max-width: 720px){
+  .commandDeckBackdrop{
+    background: rgba(7, 11, 24, 0.62);
+  }
+
+  .commandDeck{
+    width: 100%;
+    max-height: min(84vh, 820px);
+    border-radius: 18px 18px 0 0;
+  }
+
+  .commandDeck__head{
+    top: 0;
+    margin: -7px -8px 7px;
+    padding: 9px 8px 7px;
+  }
+
+  .commandDeck__tabs{
+    top: 62px;
+    margin-bottom: 7px;
+    padding-bottom: 7px;
+  }
+
+  .commandDeck__panel{
+    padding-bottom: 4px;
+  }
+
+  .dockWrapInline{
+    gap: 8px;
+  }
+
+  .dockBarInline{
+    top: 0;
+  }
+
+  .dockPanelInline{
+    max-height: min(56vh, 540px);
+    padding-bottom: 10px;
+  }
+
+  .commandDeck__helper{
+    font-size: 10.5px;
+    line-height: 1.45;
+  }
+}
+
+
+
+/* =========================
+   vNext: message stage mini stack css fix
+   ========================= */
+.messageStageSheetMiniStack{
+  display:grid;
+  gap:8px;
+}
+
+.messageStageSheetMiniStack__card{
+  appearance:none;
+  -webkit-appearance:none;
+  display:grid;
+  gap:5px;
+  width:100%;
+  padding:12px 13px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.08);
+  background:linear-gradient(180deg, rgba(18, 24, 45, .92), rgba(10, 15, 29, .90));
+  text-align:left;
+  color:#fff;
+  box-shadow:0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.messageStageSheetMiniStack__card span{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:max-content;
+  min-width:54px;
+  height:20px;
+  padding:0 8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.07);
+  color:rgba(236,241,255,.76);
+  font-size:9.5px;
+  font-weight:900;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+
+.messageStageSheetMiniStack__card strong{
+  font-size:13px;
+  line-height:1.4;
+  color:#fff;
+}
+
+.messageStageSheetMiniStack__card:hover{
+  border-color:rgba(132,150,255,.26);
+  background:linear-gradient(180deg, rgba(26, 34, 62, .96), rgba(12, 18, 34, .94));
+}
+
+@media (max-width:720px){
+  .messageStageSheetMiniStack{
+    gap:7px;
+  }
+
+  .messageStageSheetMiniStack__card{
+    padding:11px 12px;
+    border-radius:15px;
+  }
+
+  .messageStageSheetMiniStack__card strong{
+    font-size:12.5px;
+  }
+}
+
+
+
+/* =========================
+   vNext: stage card + candidate usability fix
+   ========================= */
+.messageStageSheetMiniStack{
+  display:grid;
+  gap:8px;
+}
+
+.messageStageSheetMiniStack__card{
+  appearance:none;
+  -webkit-appearance:none;
+  display:grid;
+  gap:5px;
+  width:100%;
+  padding:12px 13px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.08);
+  background:linear-gradient(180deg, rgba(18, 24, 45, .92), rgba(10, 15, 29, .90));
+  text-align:left;
+  color:#fff;
+  box-shadow:0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.messageStageSheetMiniStack__card span{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:max-content;
+  min-width:54px;
+  height:20px;
+  padding:0 8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.07);
+  color:rgba(236,241,255,.76);
+  font-size:9.5px;
+  font-weight:900;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+
+.messageStageSheetMiniStack__card strong{
+  font-size:13px;
+  line-height:1.4;
+  color:#fff;
+}
+
+.dockSuggestList{
+  gap:10px;
+}
+
+.dockSuggestList__head{
+  display:grid;
+  gap:4px;
+  padding:2px 2px 4px;
+}
+
+.dockSuggestList__head strong{
+  font-size:12.5px;
+  line-height:1.35;
+  color:#fff;
+}
+
+.dockSuggestList__head small{
+  color:rgba(236,241,255,.72);
+  font-size:11px;
+  line-height:1.45;
+}
+
+.dockPanelInline{
+  max-height:min(62vh, 620px);
+}
+
+.dockSlot .wrap[data-compact="false"]{
+  margin-top:0;
+}
+
+@media (max-width:720px){
+  .messageStageSheetMiniStack{
+    gap:7px;
+  }
+
+  .messageStageSheetMiniStack__card{
+    padding:11px 12px;
+    border-radius:15px;
+  }
+
+  .messageStageSheetMiniStack__card strong{
+    font-size:12.5px;
+  }
+
+  .dockSuggestList__head strong{
+    font-size:12px;
+  }
+
+  .dockSuggestList__head small{
+    font-size:10.5px;
+  }
+
+  .dockPanelInline{
+    max-height:min(66vh, 620px);
+  }
+}
+
+
+
+/* =========================
+   vNext: mobile overlay reset
+   ========================= */
+.messageStageSheetBackdrop,
+.commandDeckBackdrop,
+.overlayScrim,
+.sheetScrim,
+.deckScrim{
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(5, 9, 20, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.messageStageSheet,
+.commandDeck,
+.sessionHub,
+.sessionPanel,
+.sessionSheet{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  width: 100%;
+  max-width: 100%;
+  min-height: 78vh;
+  max-height: 88vh;
+  margin: 0;
+  border-radius: 22px 22px 0 0;
+  padding: 10px 12px 14px;
+  background:
+    linear-gradient(180deg,
+      rgba(8, 13, 29, 0.98) 0%,
+      rgba(7, 11, 24, 0.985) 60%,
+      rgba(6, 10, 20, 0.99) 100%);
+  border: 1px solid rgba(255,255,255,.06);
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
+}
+
+.messageStageSheet__head,
+.commandDeck__head,
+.sessionHub__head,
+.sessionPanel__head,
+.sessionSheet__head{
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin: -10px -12px 10px;
+  padding: 10px 12px 8px;
+  background: linear-gradient(180deg, rgba(8, 13, 29, 0.99), rgba(8, 13, 29, 0.94));
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.messageStageSheetTabs,
+.commandDeck__tabs{
+  position: sticky;
+  top: 66px;
+  z-index: 4;
+  margin: 0 -2px 10px;
+  padding: 0 2px 10px;
+  background: linear-gradient(180deg, rgba(8, 13, 29, 0.96), rgba(8, 13, 29, 0.88));
+}
+
+.messageStageSheetBody,
+.commandDeck__panel{
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+}
+
+.messageStageSheetCard,
+.messageStageSheetMiniStack__card{
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  text-align: left;
+  padding: 12px 13px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: linear-gradient(180deg, rgba(19, 26, 47, .96), rgba(11, 17, 32, .96));
+  color: #fff;
+  box-shadow: none;
+}
+
+.messageStageSheetCard strong,
+.messageStageSheetMiniStack__card strong{
+  display: block;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #fff;
+}
+
+.messageStageSheetCard p{
+  margin-top: 5px;
+  color: rgba(236,241,255,.72);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.messageStageSheetCard__tag,
+.messageStageSheetMiniStack__card span{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-width: 54px;
+  height: 20px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.07);
+  color: rgba(236,241,255,.76);
+  font-size: 9.5px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.dockWrapInline{
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.dockBarInline{
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(15, 22, 42, 0.92);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.dockPanelInline{
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  padding: 2px 2px 12px;
+}
+
+.commandDeck__helper{
+  position: static;
+  margin-bottom: 8px;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.07);
+}
+
+.dockSuggestList{
+  display: grid;
+  gap: 10px;
+}
+
+.dockSuggestList__head{
+  display: grid;
+  gap: 4px;
+  padding: 2px 2px 4px;
+}
+
+.dockSuggestList__head strong{
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.dockSuggestList__head small{
+  color: rgba(236,241,255,.72);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.dockSlot,
+.dockSlot .wrap,
+.dockSlot .candidate,
+.dockSlot .candidateCard{
+  width: 100%;
+}
+
+@media (max-width: 720px){
+  .messageStageSheet,
+  .commandDeck,
+  .sessionHub,
+  .sessionPanel,
+  .sessionSheet{
+    min-height: 84vh;
+    max-height: 92vh;
+    border-radius: 20px 20px 0 0;
+    padding: 9px 10px 12px;
+  }
+
+  .messageStageSheet__head,
+  .commandDeck__head,
+  .sessionHub__head,
+  .sessionPanel__head,
+  .sessionSheet__head{
+    margin: -9px -10px 9px;
+    padding: 9px 10px 7px;
+  }
+
+  .messageStageSheetTabs,
+  .commandDeck__tabs{
+    top: 62px;
+    margin-bottom: 9px;
+    padding-bottom: 9px;
+  }
+
+  .messageStageSheetBody,
+  .commandDeck__panel{
+    gap: 9px;
+    padding-bottom: 8px;
+  }
+
+  .messageStageSheetCard,
+  .messageStageSheetMiniStack__card{
+    padding: 11px 12px;
+    border-radius: 15px;
+  }
+
+  .dockBarInline{
+    padding: 7px;
+    border-radius: 15px;
+  }
+
+  .commandDeck__helper{
+    padding: 9px 10px;
+    border-radius: 13px;
+  }
 }
 
 </style>

@@ -7,6 +7,7 @@ import RlModal from "@/components/ui/RlModal.vue";
 const props = defineProps({
   candidate: { type: Object, required: true },
   busy: { type: Boolean, default: false },
+  compact: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["confirm", "dismiss"]);
@@ -222,7 +223,7 @@ watch(
 </script>
 
 <template>
-  <div class="wrap" :data-kind="candidateKind">
+  <div class="wrap" :data-kind="candidateKind" :data-compact="props.compact ? 'true' : 'false'">
     <div class="top">
       <div class="titleRow">
         <div class="titleWrap">
@@ -240,7 +241,7 @@ watch(
         </span>
       </div>
 
-      <div class="followupHint">{{ followupCopy }}</div>
+      <div v-if="!props.compact" class="followupHint">{{ followupCopy }}</div>
     </div>
 
     <div class="remindSlim">
@@ -260,12 +261,12 @@ watch(
         </button>
 
         <button class="chip more" type="button" :disabled="busy" @click="openEdit">
-          더보기
+          {{ props.compact ? "편집" : "더보기" }}
         </button>
       </div>
     </div>
 
-    <div class="actionsSlim">
+    <div class="actionsSlim" :class="{ 'actionsSlim--compact': props.compact }">
       <RlButton size="sm" variant="soft" :loading="busy" @click="confirmDefault">
         저장
       </RlButton>
@@ -378,6 +379,29 @@ watch(
   flex-direction:column;
   gap:6px;
 }
+
+.wrap[data-compact="true"]{
+  margin-top: 6px;
+  padding: 10px 10px 9px;
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
+}
+
+.wrap[data-compact="true"] .top{gap:5px}
+.wrap[data-compact="true"] .titleRow{gap:8px}
+.wrap[data-compact="true"] .titleWrap{gap:7px}
+.wrap[data-compact="true"] .typeIcon{width:22px;height:22px;font-size:11px}
+.wrap[data-compact="true"] .title{font-size:12px;line-height:1.32}
+.wrap[data-compact="true"] .kindPill{min-height:22px;padding:0 8px;font-size:10px}
+.wrap[data-compact="true"] .meta{gap:8px;font-size:11px}
+.wrap[data-compact="true"] .remindSlim{margin-top:2px}
+.wrap[data-compact="true"] .remindSlimLabel{font-size:10px;letter-spacing:.12em}
+.wrap[data-compact="true"] .remindQuick{gap:6px}
+.wrap[data-compact="true"] .chip{padding:6px 9px;font-size:11px}
+.wrap[data-compact="true"] .actionsSlim{margin-top:2px;gap:6px}
+.wrap[data-compact="true"] .actionsSlim :deep(button){min-height:28px}
+.wrap[data-compact="true"] .actionsSlim :deep(.rl-btn){min-height:28px;padding:0 10px;border-radius:12px;font-size:11px}
+
 
 .titleRow{
   display:flex;
