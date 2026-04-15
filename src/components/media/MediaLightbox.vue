@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { normalizeMediaItems } from "@/lib/mediaModel";
+import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -63,13 +64,15 @@ function onPointerUp(e) {
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) dx > 0 ? prev() : next();
 }
 
+const { setLocked: setBodyLocked } = useBodyScrollLock();
+
 onMounted(() => {
   document.addEventListener("keydown", onKey);
-  document.body.style.overflow = "hidden";
+  setBodyLocked(true);
 });
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", onKey);
-  document.body.style.overflow = "";
+  setBodyLocked(false);
 });
 </script>
 
@@ -142,7 +145,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.overlay{position:fixed;inset:0;z-index:9999;background:rgba(2,4,10,.88);backdrop-filter:blur(12px);display:grid;grid-template-rows:auto 1fr auto}
+.overlay{position:fixed;inset:0;z-index:var(--z-lightbox);background:rgba(2,4,10,.88);backdrop-filter:blur(12px);display:grid;grid-template-rows:auto 1fr auto}
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px}
 .meta{min-width:0;display:grid;gap:4px}
 .count{font-size:12px;font-weight:900;color:rgba(255,255,255,.82)}

@@ -48,7 +48,7 @@ function handleClick(t) {
   bottom: 70px;
   display: grid;
   gap: 10px;
-  z-index: 1000;
+  z-index: var(--z-toast);
   width: min(360px, calc(100vw - 28px));
 }
 

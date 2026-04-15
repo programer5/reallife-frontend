@@ -23,7 +23,8 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
+import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -57,6 +58,16 @@ function onKeydown(e) {
   }
 }
 
+const { setLocked: setBodyLocked } = useBodyScrollLock();
+
+watch(
+  () => props.open,
+  (open) => {
+    setBodyLocked(open);
+  },
+  { immediate: true }
+);
+
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
@@ -66,7 +77,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,.55);
-  z-index: 100120;
+  z-index: var(--z-modal);
   display:grid;
   place-items:center;
   padding: 14px;

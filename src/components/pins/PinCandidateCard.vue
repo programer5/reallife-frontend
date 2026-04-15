@@ -162,7 +162,7 @@ const remindLabel = computed(() => {
 });
 
 const overrideRemindMinutesToSend = computed(() => {
-  return remindMinutes.value === 0 ? null : remindMinutes.value;
+  return [0, 5, 10, 30, 60].includes(remindMinutes.value) ? remindMinutes.value : 30;
 });
 
 /* =========================

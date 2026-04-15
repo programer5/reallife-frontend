@@ -1064,7 +1064,7 @@ watch(sortMode, () => loadCommentsFirst());
 .replyBtn:disabled{opacity:.6}
 .cSentinel{display:grid;place-items:center;padding:10px 0 2px}
 .cMoreHint{opacity:.75;font-size:12px}.cEnd{font-size:12px;color:var(--muted)}
-.sheetBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(4px);z-index:90;display:grid;place-items:end center;padding:16px}
+.sheetBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(4px);z-index:var(--z-sheet);display:grid;place-items:end center;padding:16px}
 .sheet{width:min(520px,100%);border-radius:22px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.94);padding:14px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
 .sheetTitle{font-size:16px;font-weight:950}
 .sheetSub{margin-top:4px;font-size:12px;opacity:.72}
@@ -1072,14 +1072,14 @@ watch(sortMode, () => loadCommentsFirst());
 .sheetActions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
 .sheetBtn{height:46px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:rgba(255,255,255,.95);font-weight:950;cursor:pointer}
 .sheetClose{margin-top:10px;width:100%;height:42px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:transparent;color:rgba(255,255,255,.88);font-weight:900}
-.composerBar{position:fixed;left:0;right:0;bottom:0;z-index:80;padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to bottom,color-mix(in oklab,var(--bg) 0%,transparent),color-mix(in oklab,var(--bg) 96%,transparent));backdrop-filter:blur(18px);border-top:1px solid rgba(255,255,255,.08)}
+.composerBar{position:fixed;left:0;right:0;bottom:0;z-index:var(--z-sticky);padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(to bottom,color-mix(in oklab,var(--bg) 0%,transparent),color-mix(in oklab,var(--bg) 96%,transparent));backdrop-filter:blur(18px);border-top:1px solid rgba(255,255,255,.08)}
 .composerInner{max-width:980px;margin:0 auto;display:grid;grid-template-columns:1fr;gap:10px;align-items:end;padding:8px;border:1px solid rgba(255,255,255,.10);border-radius:20px;background:rgba(7,12,28,.78);box-shadow:0 12px 34px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.03)}
 .composerField{display:grid;gap:6px}
 .cInput{min-height:46px;max-height:120px;resize:none;border-radius:16px;border:1px solid var(--border);background:color-mix(in oklab,var(--surface-2) 88%,transparent);padding:11px 12px;color:var(--text);line-height:1.35}
 .composerHint{font-size:11.5px;color:rgba(255,255,255,.62);padding:0 2px}
 .cBtn{height:42px;min-width:0;width:100%;padding:0 18px;border-radius:16px;border:1px solid color-mix(in oklab,var(--accent) 45%,var(--border));background:color-mix(in oklab,var(--accent) 16%,transparent);font-weight:950;color:var(--text);font-size:14px}
 .cBtn:disabled{opacity:.6}
-.mentionPopup{position:fixed;left:14px;right:14px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:90;border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.92);backdrop-filter:blur(16px);padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.35);max-width:980px;margin:0 auto}
+.mentionPopup{position:fixed;left:14px;right:14px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:var(--z-sheet);border-radius:16px;border:1px solid rgba(255,255,255,.12);background:rgba(10,14,22,.92);backdrop-filter:blur(16px);padding:6px;box-shadow:0 16px 40px rgba(0,0,0,.35);max-width:980px;margin:0 auto}
 .mentionItem{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border-radius:12px;border:0;background:transparent;color:rgba(255,255,255,.92);cursor:pointer}
 .mentionItem.on{background:rgba(255,255,255,.10)}
 .mh{font-weight:950}.mn{opacity:.7;font-size:12px}

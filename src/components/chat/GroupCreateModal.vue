@@ -37,7 +37,7 @@ function goCreate() {
 </template>
 
 <style scoped>
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.46);backdrop-filter:blur(10px);display:grid;place-items:center;padding:20px;z-index:80}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.46);backdrop-filter:blur(10px);display:grid;place-items:center;padding:20px;z-index:var(--z-modal)}
 .sheet{width:min(560px,100%);padding:18px;border-radius:24px;display:grid;gap:12px}
 .eyebrow{font-size:11px;font-weight:900;color:var(--muted);letter-spacing:.08em}
 .head{font-size:24px;font-weight:950}

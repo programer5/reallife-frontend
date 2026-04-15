@@ -1,6 +1,7 @@
 <!-- src/components/media/Lightbox.vue -->
 <script setup>
 import { Teleport, computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
@@ -33,8 +34,9 @@ function onPointerUp(e){
   const dx = e.clientX - startX; const dy = e.clientY - startY;
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) dx > 0 ? prev() : next();
 }
-onMounted(() => { document.addEventListener('keydown', onKey); document.body.style.overflow = 'hidden'; });
-onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; });
+const { setLocked: setBodyLocked } = useBodyScrollLock();
+onMounted(() => { document.addEventListener('keydown', onKey); setBodyLocked(true); });
+onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); setBodyLocked(false); });
 </script>
 
 <template>
@@ -60,7 +62,7 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', onKey); document
 .overlay{
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-lightbox);
   background: rgba(2,4,10,.88);
   backdrop-filter: blur(12px);
   display:grid;

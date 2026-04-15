@@ -20,6 +20,20 @@ body {
   color: var(--text);
 }
 
+
+:root {
+  --z-base: 0;
+  --z-banner: 20;
+  --z-bottom-tabs: 50;
+  --z-header: 60;
+  --z-sticky: 70;
+  --z-sheet-backdrop: 840;
+  --z-sheet: 850;
+  --z-modal: 900;
+  --z-lightbox: 950;
+  --z-toast: 1000;
+}
+
 a {
   color: inherit;
 }

@@ -32,6 +32,7 @@ import { useToastStore } from "@/stores/toast";
 import { useConversationsStore } from "@/stores/conversations";
 import { useAuthStore } from "@/stores/auth";
 import { useConversationPinsStore } from "@/stores/conversationPins";
+import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 import { readNotification } from "@/api/notifications";
 import { useNotificationsStore } from "@/stores/notifications";
 import { fetchConversationReadReceipts } from "@/api/conversations";
@@ -785,10 +786,10 @@ function closeDockSheet(){
   dockOpen.value = false;
 }
 
+const { setLocked: setDockSheetBodyLocked } = useBodyScrollLock();
 watch([dockOpen, useDockSheet], ([open, sheet]) => {
-  if (typeof document === "undefined") return;
-  document.body.style.overflow = open && sheet ? "hidden" : "";
-});
+  setDockSheetBodyLocked(open && sheet);
+}, { immediate: true });
 
 // ✅ v2.10: placeholder slot for clearer FLIP destination
 const flipPlaceholder = ref(null); // { pinId, title, time, place, type }
@@ -2985,7 +2986,10 @@ if (_cid) {
       overrideTitle: payload?.overrideTitle ?? null,
       overrideStartAt: payload?.overrideStartAt ?? null,
       overridePlaceText: payload?.overridePlaceText ?? null,
-      overrideRemindMinutes: payload?.overrideRemindMinutes ?? 60, // ✅ NEW
+      overrideRemindMinutes:
+        payload && Object.prototype.hasOwnProperty.call(payload, "overrideRemindMinutes")
+          ? payload.overrideRemindMinutes
+          : 60, // 0(없음)도 그대로 전달
     });
 
     if (created?.pinId) {
@@ -3723,7 +3727,7 @@ onBeforeUnmount(() => {
               <div class="commandDeck__eyebrow">Command lens</div>
               <strong>대화를 가리지 않고 필요한 기능만 꺼내서 씁니다</strong>
             </div>
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="closeCommandDeck">닫기</button>
+            <button type="button" class="commandDeck__close" @click="closeCommandDeck">닫기</button>
           </div>
           <div class="commandDeck__tabs">
             <button v-for="tab in commandDeckTabs" :key="tab.key" type="button" class="commandDeck__tab" :class="{ on: commandDeckTab === tab.key }" @click="commandDeckTab = tab.key">
@@ -3761,7 +3765,7 @@ onBeforeUnmount(() => {
             <ConversationCapsulePanel :items="capsuleItems" :loading="capsuleLoading" @refresh="refreshCapsules" @relay="relayFromCapsule" @delete="deleteCapsuleItem" :highlight-capsule-id="searchFocusCapsuleId" />
           </section>
 
-          <section v-else-if="commandDeckTab === 'actions'" class="commandDeck__panel">
+          <section v-else-if="commandDeckTab === 'actions'" class="commandDeck__panel commandDeck__panel--actions">
             <div class="dockWrap dockWrapInline" :class="{ dockPulse: dockPulseOn }">
               <div class="dockBar dockBarInline">
                 <button class="dockTab" :class="{ on: dockMode==='active' }" type="button" @click="dockMode='active'; dockOpen=true">📌 액션 <span class="dockCount">{{ activeCount }}</span></button>
@@ -3770,7 +3774,7 @@ onBeforeUnmount(() => {
                 <RlButton size="sm" variant="ghost" class="dockMore" @click="clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck()">전체</RlButton>
               </div>
               <div class="dockPanel dockPanelInline">
-                <div class="commandDeck__helper">
+                <div class="commandDeck__helper commandDeck__helper--actions">
                   액션은 별도 생성 버튼이 아니라 <strong>메시지를 보낸 뒤 제안으로 생성</strong>돼요. 지금은 ⏳ 버튼이 액션이 아니라 <strong>타임 캡슐</strong>입니다.
                 </div>
                 <div v-if="dockMode==='active'" class="dockGrid">
@@ -4993,7 +4997,7 @@ onBeforeUnmount(() => {
 .msgMenuOverlay{
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-lightbox);
 }
 
 .msgMenuPopover{
@@ -6123,18 +6127,18 @@ onBeforeUnmount(() => {
   border-radius:18px;
 }
 .dockWrapSheet{z-index:40}
-.dockSheetPortal{position:fixed;inset:0;z-index:99999;background:linear-gradient(180deg, rgba(5,8,18,.98), rgba(4,7,16,.98));}
+.dockSheetPortal{position:fixed;inset:0;z-index:var(--z-sheet);background:linear-gradient(180deg, rgba(5,8,18,.98), rgba(4,7,16,.98));}
 .dockSheetBackdrop{
   position:fixed;
   inset:0;
-  z-index:99998;
+  z-index:var(--z-sheet-backdrop);
   background:rgba(3,6,16,.18);
   backdrop-filter:blur(2px);
 }
 .dockPanelSheet{
   position:fixed !important;
   inset:max(8px, calc(env(safe-area-inset-top) + 8px)) max(8px, env(safe-area-inset-right)) max(8px, calc(env(safe-area-inset-bottom) + 8px)) max(8px, env(safe-area-inset-left));
-  z-index:100000;
+  z-index:calc(var(--z-sheet) + 1);
   margin-top:0 !important;
   max-height:none !important;
   min-height:0;
@@ -8999,4 +9003,982 @@ onBeforeUnmount(() => {
   }
 }
 
+
+
+/* =========================
+   hotfix: mobile command lens / stage readability
+   ========================= */
+.commandDeckBackdrop,
+.messageStageSheetBackdrop{
+  z-index: var(--z-sheet-backdrop);
+  background: rgba(5, 9, 20, 0.78);
+  backdrop-filter: blur(12px);
+}
+
+.commandDeck,
+.messageStageSheet{
+  z-index: var(--z-sheet);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: stretch;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 100%;
+  min-height: min(84vh, 900px);
+  max-height: min(90vh, 980px);
+  padding: 12px 14px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 24px 24px 0 0;
+  border: 1px solid rgba(255,255,255,.08);
+  background: linear-gradient(180deg, rgba(8, 13, 29, .985), rgba(6, 10, 20, .99));
+  box-shadow: 0 -24px 56px rgba(0,0,0,.42);
+  overflow: hidden;
+}
+
+.commandDeck__head,
+.messageStageSheet__head{
+  position: static;
+  margin: -12px -14px 10px;
+  padding: 12px 14px 10px;
+  background: linear-gradient(180deg, rgba(8,13,29,.995), rgba(8,13,29,.955));
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+
+.commandDeck__title,
+.messageStageSheet__title{
+  font-size: clamp(22px, 4.4vw, 30px);
+  line-height: 1.2;
+}
+
+.commandDeck__hint,
+.messageStageSheet__hint{
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(236,241,255,.82);
+}
+
+.commandDeck__close,
+.messageStageSheet__close{
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+}
+
+.commandDeck__tabs,
+.messageStageSheetTabs{
+  position: static;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  background: transparent;
+}
+
+.commandDeck__tab,
+.messageStageSheetTabs__tab{
+  min-height: 42px;
+  padding: 0 10px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+
+.commandDeck__panel,
+.messageStageSheetBody{
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  gap: 12px;
+  padding: 2px 2px calc(12px + env(safe-area-inset-bottom));
+}
+
+.commandDeck__helper{
+  position: static;
+  margin-bottom: 10px;
+  padding: 11px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.dockWrapInline,
+.dockGrid,
+.dockSuggestList{
+  min-height: 0;
+}
+
+.dockBarInline{
+  position: static;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.dockPanelInline{
+  max-height: none;
+  overflow: visible;
+  padding-bottom: 0;
+  scroll-padding-bottom: 0;
+}
+
+.dockFilterBar{
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.dockListInline,
+.dockSuggestList{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.dockCard,
+.messageStageSheetCard,
+.messageStageSheetMiniStack__card{
+  border-radius: 18px;
+  padding: 14px 15px;
+}
+
+.dockCardTitle,
+.messageStageSheetCard strong,
+.messageStageSheetMiniStack__card strong{
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.dockCardMeta,
+.dockCardHint,
+.messageStageSheetCard p,
+.messageStageSheetMiniStack__card span{
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+@media (max-width: 720px){
+  .commandDeck,
+  .messageStageSheet{
+    min-height: calc(100dvh - var(--app-header-h, 64px) - 10px);
+    max-height: calc(100dvh - var(--app-header-h, 64px) - 2px);
+    padding: 12px 12px calc(14px + env(safe-area-inset-bottom));
+    border-radius: 22px 22px 0 0;
+  }
+
+  .commandDeck__head,
+  .messageStageSheet__head{
+    margin: -12px -12px 10px;
+    padding: 12px 12px 10px;
+  }
+
+  .commandDeck__title,
+  .messageStageSheet__title{
+    font-size: 18px;
+  }
+
+  .commandDeck__hint,
+  .messageStageSheet__hint{
+    font-size: 13px;
+  }
+
+  .commandDeck__tabs,
+  .messageStageSheetTabs{
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .commandDeck__tab,
+  .messageStageSheetTabs__tab{
+    min-height: 38px;
+    padding: 0 8px;
+    border-radius: 13px;
+    font-size: 11px;
+  }
+
+  .commandDeck__tab small{
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    font-size: 9px;
+  }
+
+  .commandDeck__panel,
+  .messageStageSheetBody{
+    gap: 10px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .commandDeck__helper,
+  .dockCardMeta,
+  .dockCardHint,
+  .messageStageSheetCard p,
+  .messageStageSheetMiniStack__card span{
+    font-size: 12px;
+  }
+}
+
+
+/* =========================
+   mobile lens/stage hard override
+   ========================= */
+@media (max-width: 720px){
+  .commandDeck,
+  .messageStageSheet{
+    min-height: 70dvh !important;
+    max-height: 82dvh !important;
+    padding: 10px 10px calc(12px + env(safe-area-inset-bottom)) !important;
+    border-radius: 22px 22px 0 0 !important;
+  }
+
+  .commandDeck__head,
+  .messageStageSheet__head{
+    margin: -10px -10px 8px !important;
+    padding: 10px 10px 8px !important;
+    gap: 8px !important;
+  }
+
+  .commandDeck__head,
+  .messageStageSheet__head{
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    align-items: start !important;
+  }
+
+  .commandDeck__eyebrow,
+  .messageStageSheet__eyebrow{
+    font-size: 10px !important;
+  }
+
+  .commandDeck__title,
+  .commandDeck__head strong,
+  .messageStageSheet__title,
+  .messageStageSheet__head strong{
+    font-size: 16px !important;
+    line-height: 1.3 !important;
+  }
+
+  .commandDeck__hint,
+  .messageStageSheet__hint{
+    margin-top: 6px !important;
+    font-size: 12px !important;
+    line-height: 1.45 !important;
+  }
+
+  .commandDeck__close,
+  .messageStageSheet__close{
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    min-height: 32px !important;
+    padding: 0 10px !important;
+    border-radius: 999px !important;
+    border: 1px solid rgba(255,255,255,.12) !important;
+    background: rgba(255,255,255,.08) !important;
+    color: #fff !important;
+    box-shadow: none !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+  }
+
+  .commandDeck__tabs,
+  .messageStageSheetTabs{
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 6px !important;
+    margin: 0 0 10px !important;
+    padding: 0 0 2px !important;
+    scrollbar-width: none;
+  }
+
+  .commandDeck__tabs::-webkit-scrollbar,
+  .messageStageSheetTabs::-webkit-scrollbar,
+  .dockFilterBar::-webkit-scrollbar{
+    display: none;
+  }
+
+  .commandDeck__tab,
+  .messageStageSheetTabs__tab{
+    flex: 0 0 auto !important;
+    min-width: max-content !important;
+    min-height: 36px !important;
+    padding: 0 12px !important;
+    border-radius: 12px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+  }
+
+  .commandDeck__panel,
+  .messageStageSheetBody{
+    gap: 10px !important;
+    padding: 0 0 calc(8px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .commandDeck__helper--actions{
+    display: none !important;
+  }
+
+  .dockBarInline{
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    align-items: stretch !important;
+    margin-bottom: 10px !important;
+  }
+
+  .dockBarInline .dockSpacer{
+    display: none !important;
+  }
+
+  .dockBarInline .dockTab,
+  .dockBarInline .dockMore{
+    min-width: 0 !important;
+    min-height: 40px !important;
+    padding: 0 10px !important;
+    border-radius: 14px !important;
+    font-size: 12px !important;
+  }
+
+  .dockPanelInline{
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .dockFilterBar{
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 8px !important;
+    margin-bottom: 8px !important;
+    padding-bottom: 2px !important;
+  }
+
+  .dockPill{
+    flex: 0 0 auto !important;
+    min-height: 36px !important;
+    white-space: nowrap !important;
+  }
+
+  .dockListInline,
+  .dockSuggestList,
+  .messageStageSheetBody{
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .dockSuggestList__head{
+    display: none !important;
+  }
+
+  .dockCard,
+  .messageStageSheetCard,
+  .messageStageSheetMiniStack__card{
+    border-radius: 16px !important;
+    padding: 13px 14px !important;
+  }
+
+  .dockCardTitle,
+  .messageStageSheetCard strong,
+  .messageStageSheetMiniStack__card strong{
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+  }
+
+  .dockCardMeta,
+  .dockCardHint,
+  .messageStageSheetCard p,
+  .messageStageSheetMiniStack__card span{
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+  }
+}
+
+
+/* =========================
+   vNext: mobile sheet hotfix v3
+   ========================= */
+@media (max-width: 720px){
+  .commandDeck,
+  .messageStageSheet{
+    width:100% !important;
+    max-height:calc(100dvh - 88px) !important;
+    min-height:min(560px, calc(100dvh - 88px)) !important;
+    border-radius:22px 22px 0 0 !important;
+    overflow:hidden !important;
+    display:grid !important;
+    grid-template-rows:auto auto 1fr !important;
+  }
+
+  .commandDeck__head,
+  .messageStageSheet__head{
+    position:relative !important;
+    top:auto !important;
+    margin:0 !important;
+    padding:14px 14px 10px !important;
+    background:linear-gradient(180deg, rgba(9,14,31,.98), rgba(9,14,31,.94)) !important;
+    border-bottom:1px solid rgba(255,255,255,.06) !important;
+  }
+
+  .commandDeck__title,
+  .messageStageSheet__title{
+    font-size:15px !important;
+    line-height:1.35 !important;
+  }
+
+  .commandDeck__hint,
+  .messageStageSheet__hint{
+    margin-top:6px !important;
+    font-size:12px !important;
+    line-height:1.5 !important;
+    color:rgba(228,235,255,.8) !important;
+  }
+
+  .commandDeck__close,
+  .messageStageSheet__close{
+    min-height:34px !important;
+    padding:0 12px !important;
+    border-radius:999px !important;
+    border:1px solid rgba(255,255,255,.14) !important;
+    background:rgba(255,255,255,.08) !important;
+    color:#fff !important;
+    font-size:12px !important;
+    font-weight:800 !important;
+    box-shadow:none !important;
+  }
+
+  .commandDeck__tabs,
+  .messageStageSheetTabs{
+    position:relative !important;
+    top:auto !important;
+    z-index:auto !important;
+    margin:0 !important;
+    padding:10px 12px !important;
+    overflow-x:auto !important;
+    overflow-y:hidden !important;
+    white-space:nowrap !important;
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    gap:8px !important;
+    background:linear-gradient(180deg, rgba(9,14,31,.98), rgba(9,14,31,.92)) !important;
+    border-bottom:1px solid rgba(255,255,255,.05) !important;
+    -webkit-overflow-scrolling:touch !important;
+    scrollbar-width:none !important;
+  }
+
+  .commandDeck__tabs::-webkit-scrollbar,
+  .messageStageSheetTabs::-webkit-scrollbar,
+  .dockFilterBar::-webkit-scrollbar{
+    display:none !important;
+  }
+
+  .commandDeck__tab,
+  .messageStageSheetTabs__tab{
+    flex:0 0 auto !important;
+    min-width:max-content !important;
+    min-height:38px !important;
+    padding:0 14px !important;
+  }
+
+  .commandDeck__panel,
+  .messageStageSheetBody{
+    min-height:0 !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    padding:12px !important;
+    -webkit-overflow-scrolling:touch !important;
+  }
+
+  .commandDeck__panel--actions{
+    padding-top:10px !important;
+  }
+
+  .dockWrapInline{
+    gap:10px !important;
+    min-height:auto !important;
+  }
+
+  .dockBarInline{
+    position:relative !important;
+    top:auto !important;
+    display:grid !important;
+    grid-template-columns:1fr 1fr auto !important;
+    gap:8px !important;
+    padding:0 !important;
+    background:transparent !important;
+    backdrop-filter:none !important;
+  }
+
+  .dockSpacer{
+    display:none !important;
+  }
+
+  .dockMore{
+    min-height:40px !important;
+    padding:0 14px !important;
+    border-radius:14px !important;
+  }
+
+  .dockPanelInline{
+    max-height:none !important;
+    overflow:visible !important;
+    padding-bottom:0 !important;
+    scroll-padding-bottom:0 !important;
+  }
+
+  .commandDeck__helper--actions{
+    display:none !important;
+  }
+
+  .dockFilterBar{
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    gap:8px !important;
+    overflow-x:auto !important;
+    overflow-y:hidden !important;
+    padding-bottom:2px !important;
+    -webkit-overflow-scrolling:touch !important;
+  }
+
+  .dockPill{
+    flex:0 0 auto !important;
+    min-width:max-content !important;
+  }
+
+  .dockListInline,
+  .dockSuggestList{
+    display:grid !important;
+    gap:10px !important;
+  }
+
+  .dockCard,
+  .dockSlot,
+  .dockSlot .wrap,
+  .dockSlot .candidate,
+  .dockSlot .candidateCard{
+    width:100% !important;
+  }
+}
+
+/* =========================
+   FINAL mobile command lens / stage emergency override
+   ========================= */
+@media (max-width: 720px){
+  .commandDeckBackdrop,
+  .messageStageSheetBackdrop{
+    align-items:flex-end !important;
+    padding:0 !important;
+    background:rgba(4,8,18,.72) !important;
+  }
+
+  .commandDeck,
+  .messageStageSheet{
+    width:100% !important;
+    max-width:none !important;
+    height:min(86vh, 860px) !important;
+    max-height:min(86vh, 860px) !important;
+    min-height:68vh !important;
+    margin:0 !important;
+    border-radius:22px 22px 0 0 !important;
+    padding:12px 12px calc(env(safe-area-inset-bottom, 0px) + 14px) !important;
+    display:grid !important;
+    grid-template-rows:auto auto minmax(0,1fr) !important;
+    gap:10px !important;
+    overflow:hidden !important;
+  }
+
+  .commandDeck__head,
+  .messageStageSheet__head{
+    position:static !important;
+    top:auto !important;
+    margin:0 !important;
+    padding:0 0 2px !important;
+    background:transparent !important;
+    border:0 !important;
+    backdrop-filter:none !important;
+  }
+
+  .commandDeck__title,
+  .messageStageSheet__title,
+  .commandDeck__head strong,
+  .messageStageSheet__head strong{
+    font-size:28px !important;
+    line-height:1.2 !important;
+  }
+
+  .commandDeck__hint,
+  .messageStageSheet__hint{
+    font-size:13px !important;
+    line-height:1.55 !important;
+    margin-top:4px !important;
+  }
+
+  .commandDeck__tabs,
+  .messageStageSheetTabs,
+  .dockBarInline,
+  .dockFilterBar,
+  .conversationSearchRail__actions{
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    overflow-x:auto !important;
+    overflow-y:hidden !important;
+    gap:8px !important;
+    -webkit-overflow-scrolling:touch !important;
+    scrollbar-width:none !important;
+  }
+  .commandDeck__tabs::-webkit-scrollbar,
+  .messageStageSheetTabs::-webkit-scrollbar,
+  .dockBarInline::-webkit-scrollbar,
+  .dockFilterBar::-webkit-scrollbar,
+  .conversationSearchRail__actions::-webkit-scrollbar{display:none !important;}
+
+  .commandDeck__tabs,
+  .messageStageSheetTabs{
+    position:static !important;
+    top:auto !important;
+    margin:0 !important;
+    padding:0 0 2px !important;
+    background:transparent !important;
+    border:0 !important;
+    backdrop-filter:none !important;
+  }
+
+  .commandDeck__tab,
+  .messageStageSheetTabs__tab,
+  .dockTab,
+  .dockPill,
+  .conversationSearchRail__chip{
+    flex:0 0 auto !important;
+    white-space:nowrap !important;
+    min-height:38px !important;
+  }
+
+  .commandDeck__close,
+  .messageStageSheet__close{
+    appearance:none !important;
+    -webkit-appearance:none !important;
+    border:1px solid rgba(255,255,255,.14) !important;
+    background:rgba(255,255,255,.06) !important;
+    color:#fff !important;
+    border-radius:999px !important;
+    min-height:36px !important;
+    padding:0 12px !important;
+    box-shadow:none !important;
+  }
+
+  .commandDeck__panel,
+  .messageStageSheetBody{
+    min-height:0 !important;
+    height:auto !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    padding:0 0 4px !important;
+    overscroll-behavior:contain !important;
+  }
+
+  .commandDeck__panel--actions,
+  .dockWrapInline,
+  .dockPanelInline{
+    min-height:0 !important;
+    height:auto !important;
+    max-height:none !important;
+    overflow:visible !important;
+  }
+
+  .commandDeck__helper,
+  .commandDeck__helper--actions{
+    display:none !important;
+  }
+
+  .conversationSearchRail,
+  .dockPanel,
+  .dockCard,
+  .messageStageSheetCard,
+  .messageStageSheetMiniStack__card{
+    border-radius:18px !important;
+  }
+
+  .conversationSearchRail__inputWrap{
+    display:grid !important;
+    grid-template-columns:1fr !important;
+    gap:10px !important;
+  }
+
+  .conversationSearchRail__submit{
+    width:100% !important;
+    min-height:46px !important;
+  }
+
+  .dockGrid,
+  .dockSuggestList,
+  .messageStageSheetBody{
+    gap:10px !important;
+  }
+
+  .dockListInline,
+  .dockSuggestList,
+  .messageStageSheetMiniStack{
+    display:grid !important;
+    gap:10px !important;
+  }
+
+  .dockCard,
+  .messageStageSheetCard,
+  .messageStageSheetMiniStack__card{
+    padding:14px !important;
+  }
+}
+
+
+/* =========================
+   v5: mobile command lens action panel real height fix
+   ========================= */
+@media (max-width: 720px){
+  .commandDeck__close,
+  .messageStageSheet__close{
+    appearance:none !important;
+    -webkit-appearance:none !important;
+    display:inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    align-self:flex-start !important;
+    min-width:72px !important;
+    min-height:40px !important;
+    padding:0 16px !important;
+    border-radius:999px !important;
+    border:1px solid rgba(255,255,255,.16) !important;
+    background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.06)) !important;
+    color:#fff !important;
+    font:inherit !important;
+    font-size:14px !important;
+    font-weight:800 !important;
+    line-height:1 !important;
+    letter-spacing:-.01em !important;
+    box-shadow:0 10px 24px rgba(0,0,0,.22) !important;
+    text-shadow:none !important;
+    cursor:pointer !important;
+  }
+
+  .commandDeck__panel--actions{
+    display:flex !important;
+    flex-direction:column !important;
+    min-height:0 !important;
+  }
+
+  .dockWrapInline{
+    display:flex !important;
+    flex-direction:column !important;
+    flex:1 1 auto !important;
+    min-height:0 !important;
+    gap:10px !important;
+  }
+
+  .dockBarInline{
+    flex:0 0 auto !important;
+  }
+
+  .dockPanelInline{
+    display:flex !important;
+    flex-direction:column !important;
+    flex:1 1 auto !important;
+    min-height:0 !important;
+    height:100% !important;
+    max-height:none !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    padding:0 2px 8px 0 !important;
+    -webkit-overflow-scrolling:touch !important;
+  }
+
+  .dockGrid,
+  .dockSuggestList,
+  .dockListInline{
+    display:grid !important;
+    align-content:start !important;
+    gap:10px !important;
+    min-height:0 !important;
+  }
+
+  .dockFilterBar{
+    flex:0 0 auto !important;
+    margin-bottom:2px !important;
+  }
+
+  .commandDeck__helper,
+  .commandDeck__helper--actions{
+    display:none !important;
+  }
+}
+
+
+/* =========================
+   v6: actual mounted mobile overrides
+   ========================= */
+@media (max-width: 720px){
+  .commandDeckBackdrop,
+  .messageStageSheetBackdrop{
+    display:flex !important;
+    align-items:flex-end !important;
+    justify-content:stretch !important;
+    padding:0 !important;
+  }
+
+  .commandDeck,
+  .messageStageSheet{
+    left:0 !important;
+    right:0 !important;
+    bottom:0 !important;
+    width:100% !important;
+    max-width:none !important;
+    min-height:72dvh !important;
+    height:84dvh !important;
+    max-height:84dvh !important;
+    margin:0 !important;
+    padding:12px 12px calc(env(safe-area-inset-bottom, 0px) + 14px) !important;
+    display:grid !important;
+    grid-template-rows:auto auto minmax(0, 1fr) !important;
+    gap:10px !important;
+    border-radius:22px 22px 0 0 !important;
+    overflow:hidden !important;
+  }
+
+  .commandDeck__head,
+  .messageStageSheet__head{
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) auto !important;
+    align-items:start !important;
+    column-gap:10px !important;
+    margin:0 !important;
+    padding:0 !important;
+    background:transparent !important;
+    border:0 !important;
+  }
+
+  .commandDeck__head > div,
+  .messageStageSheet__head > div{
+    min-width:0 !important;
+  }
+
+  .commandDeck__close,
+  .messageStageSheet__close{
+    appearance:none !important;
+    -webkit-appearance:none !important;
+    display:inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    align-self:flex-start !important;
+    margin:0 !important;
+    min-width:76px !important;
+    height:40px !important;
+    padding:0 14px !important;
+    border-radius:999px !important;
+    border:1px solid rgba(255,255,255,.14) !important;
+    background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.06)) !important;
+    color:#fff !important;
+    box-shadow:0 10px 24px rgba(0,0,0,.22) !important;
+    font-family:inherit !important;
+    font-size:13px !important;
+    font-weight:800 !important;
+    line-height:1 !important;
+    letter-spacing:-0.01em !important;
+    text-shadow:none !important;
+  }
+
+  .commandDeck__tabs,
+  .messageStageSheetTabs{
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    overflow-x:auto !important;
+    overflow-y:hidden !important;
+    gap:8px !important;
+    margin:0 !important;
+    padding:0 0 2px !important;
+    background:transparent !important;
+    border:0 !important;
+  }
+
+  .commandDeck__panel,
+  .messageStageSheetBody{
+    min-height:0 !important;
+    height:100% !important;
+    display:flex !important;
+    flex-direction:column !important;
+    overflow:hidden !important;
+    padding:0 !important;
+  }
+
+  .commandDeck__panel--actions{
+    min-height:0 !important;
+    flex:1 1 auto !important;
+  }
+
+  .dockWrapInline{
+    display:flex !important;
+    flex-direction:column !important;
+    flex:1 1 auto !important;
+    min-height:0 !important;
+    gap:10px !important;
+  }
+
+  .dockBarInline{
+    flex:0 0 auto !important;
+    display:grid !important;
+    grid-template-columns:1fr 1fr auto !important;
+    gap:8px !important;
+    padding:0 !important;
+    margin:0 !important;
+    background:transparent !important;
+    border:0 !important;
+  }
+
+  .dockPanelInline{
+    flex:1 1 auto !important;
+    min-height:0 !important;
+    height:auto !important;
+    display:block !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    padding:0 2px 8px 0 !important;
+    margin:0 !important;
+    max-height:none !important;
+    -webkit-overflow-scrolling:touch !important;
+  }
+
+  .commandDeck__helper--actions{
+    display:none !important;
+  }
+
+  .dockFilterBar{
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    overflow-x:auto !important;
+    overflow-y:hidden !important;
+    gap:8px !important;
+    margin:0 0 8px !important;
+    padding:0 0 2px !important;
+  }
+
+  .dockGrid,
+  .dockSuggestList,
+  .dockListInline{
+    display:grid !important;
+    align-content:start !important;
+    gap:10px !important;
+    min-height:0 !important;
+  }
+}
 </style>

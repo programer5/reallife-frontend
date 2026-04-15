@@ -117,6 +117,7 @@
 
 <script setup>
 import { Teleport, computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { useBodyScrollLock } from '@/lib/useBodyScrollLock';
 import { useToastStore } from '../stores/toast';
 import { uploadFiles } from '../api/files';
 import { createPost } from '../api/posts';
@@ -158,14 +159,14 @@ const canSubmit = computed(() => {
   );
 });
 
-let prevOverflow = '';
 function onKeydown(e) {
   if (e.key === 'Escape') close();
 }
 
+const { setLocked: setBodyLocked } = useBodyScrollLock();
+
 onMounted(async () => {
-  prevOverflow = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
+  setBodyLocked(true);
   window.addEventListener('keydown', onKeydown);
 
   if (props.initialDraft) {
@@ -179,7 +180,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  document.body.style.overflow = prevOverflow;
+  setBodyLocked(false);
   window.removeEventListener('keydown', onKeydown);
   for (const p of previews.value) {
     if (p.url?.startsWith?.('blob:')) {
@@ -305,7 +306,7 @@ async function submit() {
 </script>
 
 <style scoped>
-.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(12px);display:grid;place-items:center;padding:16px;z-index:70}
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(12px);display:grid;place-items:center;padding:16px;z-index:var(--z-modal)}
 .sheet{width:min(760px,100%);max-height:min(90vh,920px);display:grid;grid-template-rows:auto 1fr;overflow:hidden;border-radius:28px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(10,18,40,.98), rgba(8,14,30,.98))}
 .top{display:flex;align-items:flex-start;justify-content:space-between;padding:18px 20px 12px;border-bottom:1px solid rgba(255,255,255,.06)}
 .title{font-size:22px;font-weight:950;color:rgba(255,255,255,.98)}

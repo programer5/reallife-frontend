@@ -239,7 +239,7 @@ function isHighlighted(item) {
 .capsuleMobileCounts,.capsuleMobileHint{font-size:10px;color:var(--muted);white-space:nowrap}
 .capsuleMobileTitle{font-size:12px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
 .capsuleMobileActions{display:flex;gap:6px;align-items:center}
-.overlay{position:fixed;inset:0;z-index:2000;background:rgba(4,8,18,.52);backdrop-filter:blur(8px);display:grid;place-items:end center;padding:18px}
+.overlay{position:fixed;inset:0;z-index:var(--z-sheet);background:rgba(4,8,18,.52);backdrop-filter:blur(8px);display:grid;place-items:end center;padding:18px}
 .mobileSheet,.sheet{width:min(720px,100%);background:linear-gradient(180deg,color-mix(in oklab,var(--surface) 95%, transparent),color-mix(in oklab,var(--surface-2) 92%, transparent));border:1px solid color-mix(in oklab,var(--border) 86%, transparent);border-radius:24px;padding:18px;display:grid;gap:12px}
 .mobileSheet{max-height:min(78vh,760px)}
 .mobileSheetBody{overflow:auto;padding-right:2px}
