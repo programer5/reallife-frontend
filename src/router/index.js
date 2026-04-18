@@ -9,6 +9,7 @@ import OnboardingProfileSetupView from "../views/OnboardingProfileSetupView.vue"
 import HomeView from "../views/HomeView.vue";
 import InboxView from "../views/InboxView.vue";
 import MeView from "../views/MeView.vue";
+import HelpCenterView from "../views/HelpCenterView.vue";
 import AdminDashboardView from "../views/AdminDashboardView.vue";
 
 function parseCsv(value) {
@@ -66,6 +67,7 @@ const routes = [
         ],
       },
       { path: "me", name: "me", component: MeView },
+      { path: "help", name: "help-center", component: HelpCenterView },
       { path: "me/activity", name: "my-activity", component: () => import("../views/MyActivityView.vue") },
       { path: "search", name: "search-hub", component: () => import("../views/GlobalSearchView.vue") },
       {

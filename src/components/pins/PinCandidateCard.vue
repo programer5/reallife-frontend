@@ -64,90 +64,6 @@ const kindIcon = computed(() => {
   return "📅";
 });
 
-const followupCopy = computed(() => {
-  if (candidateKind.value === "todo") {
-    return "저장하면 해야 할 일 흐름으로 이어지고, 대화에서 완료까지 관리할 수 있어요.";
-  }
-  if (candidateKind.value === "place") {
-    return "저장하면 장소 메모로 이어지고, 대화에서 약속 장소로 자연스럽게 연결할 수 있어요.";
-  }
-  return "저장하면 약속 카드로 이어지고, 대화에서 시간·장소·완료 흐름까지 이어갈 수 있어요.";
-});
-
-/* =========================
- * Remind UX 개선 (칩 + 기억 + 없음)
- * ========================= */
-const REMIND_KEY = "rl:lastRemindMinutes";
-
-const REMIND_OPTIONS = [
-  { label: "없음", value: 0 },
-  { label: "5분 전", value: 5 },
-  { label: "10분 전", value: 10 },
-  { label: "30분 전", value: 30 },
-  { label: "1시간 전", value: 60 },
-];
-
-const REMIND_QUICK = [
-  { label: "없음", value: 0 },
-  { label: "10분", value: 10 },
-  { label: "30분", value: 30 },
-];
-
-function readLastRemind() {
-  const v = Number(localStorage.getItem(REMIND_KEY));
-  return Number.isFinite(v) ? v : null;
-}
-function writeLastRemind(v) {
-  localStorage.setItem(REMIND_KEY, String(v));
-}
-
-function smartDefaultRemind(startAt) {
-  try {
-    const s = startAt ? Date.parse(startAt) : NaN;
-    if (!Number.isFinite(s)) return 30;
-    const diffMin = Math.max(0, Math.round((s - Date.now()) / 60000));
-
-    if (diffMin <= 30) return 10;
-    if (diffMin <= 90) return 30;
-    return 60;
-  } catch {
-    return 30;
-  }
-}
-
-function guessFromCandidate(candidate) {
-  try {
-    const s = candidate?.startAt ? Date.parse(candidate.startAt) : NaN;
-    const r = candidate?.remindAt ? Date.parse(candidate.remindAt) : NaN;
-    if (!Number.isFinite(s) || !Number.isFinite(r)) return null;
-
-    const mins = Math.round((s - r) / 60000);
-    return [0, 5, 10, 30, 60].includes(mins) ? mins : null;
-  } catch {
-    return null;
-  }
-}
-
-const remindMinutes = ref(30);
-
-watch(
-    () => props.candidate,
-    (c) => {
-      const last = readLastRemind();
-      const guessed = guessFromCandidate(c);
-      const smart = smartDefaultRemind(c?.startAt);
-
-      const next =
-          last !== null && [0, 5, 10, 30, 60].includes(last)
-              ? last
-              : guessed !== null
-                  ? guessed
-                  : smart;
-
-      remindMinutes.value = next;
-    },
-    { immediate: true }
-);
 
 watch(
     () => remindMinutes.value,
@@ -241,11 +157,10 @@ watch(
         </span>
       </div>
 
-      <div v-if="!props.compact" class="followupHint">{{ followupCopy }}</div>
     </div>
 
     <div class="remindSlim">
-      <span class="remindSlimLabel">리마인드</span>
+      <span class="remindSlimLabel" title="리마인드" aria-label="리마인드">⏰</span>
 
       <div class="remindQuick">
         <button
@@ -261,36 +176,35 @@ watch(
         </button>
 
         <button class="chip more" type="button" :disabled="busy" @click="openEdit">
-          {{ props.compact ? "편집" : "더보기" }}
+          ⋯
         </button>
       </div>
     </div>
 
     <div class="actionsSlim" :class="{ 'actionsSlim--compact': props.compact }">
-      <RlButton size="sm" variant="soft" :loading="busy" @click="confirmDefault">
-        저장
+      <RlButton size="sm" variant="soft" :loading="busy" @click="confirmDefault" title="저장" aria-label="저장">
+        ✓
       </RlButton>
 
-      <RlButton size="sm" variant="ghost" :disabled="busy" @click="openEdit">
-        수정…
+      <RlButton size="sm" variant="ghost" :disabled="busy" @click="openEdit" title="수정" aria-label="수정">
+        ✎
       </RlButton>
 
-      <RlButton size="sm" variant="ghost" :disabled="busy" @click="emit('dismiss', candidate)">
-        무시
+      <RlButton size="sm" variant="ghost" :disabled="busy" @click="emit('dismiss', candidate)" title="숨기기" aria-label="숨기기">
+        🙈
       </RlButton>
     </div>
 
     <RlModal
         :open="editOpen"
-        title="📌 핀 저장 전 수정"
-        subtitle="제목/시간/장소를 수정한 뒤 저장할 수 있어요."
+        title="📌 수정"
         :blockClose="busy"
         :closeOnBackdrop="!busy"
         @close="closeEdit"
     >
       <div class="editBody">
         <label class="field">
-          <div class="label">제목</div>
+          <div class="label">✎</div>
           <input
               v-model="title"
               class="input"
@@ -300,7 +214,7 @@ watch(
         </label>
 
         <label class="field">
-          <div class="label">시간</div>
+          <div class="label">🕒</div>
           <input
               v-model="startAtLocal"
               class="input"
@@ -310,7 +224,7 @@ watch(
         </label>
 
         <label class="field">
-          <div class="label">장소</div>
+          <div class="label">📍</div>
           <input
               v-model="placeText"
               class="input"
@@ -320,7 +234,7 @@ watch(
         </label>
 
         <div class="remindRow">
-          <div class="remindLabel">리마인드</div>
+          <div class="remindLabel">⏰</div>
           <div class="remindChips">
             <button
                 v-for="o in REMIND_OPTIONS"
@@ -338,11 +252,11 @@ watch(
       </div>
 
       <template #actions>
-        <RlButton block variant="soft" :loading="busy" :disabled="!canSave" @click="confirmEdited">
-          수정 내용으로 저장 · {{ remindLabel }}
+        <RlButton block variant="soft" :loading="busy" :disabled="!canSave" @click="confirmEdited" :title="`저장 ${remindLabel}`" aria-label="저장">
+          ✓ {{ remindLabel }}
         </RlButton>
-        <RlButton block variant="ghost" :disabled="busy" @click="closeEdit">
-          닫기
+        <RlButton block variant="ghost" :disabled="busy" @click="closeEdit" title="닫기" aria-label="닫기">
+          ✕
         </RlButton>
       </template>
     </RlModal>
@@ -351,9 +265,9 @@ watch(
 
 <style scoped>
 .wrap{
-  margin-top: 8px;
-  padding: 12px 12px 11px;
-  border-radius: 16px;
+  margin-top: 6px;
+  padding: 10px 10px 9px;
+  border-radius: 14px;
   border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
   background: color-mix(in oklab, var(--surface) 86%, transparent);
   box-shadow: 0 1px 0 rgba(255,255,255,.06) inset;
@@ -377,13 +291,13 @@ watch(
 .top{
   display:flex;
   flex-direction:column;
-  gap:6px;
+  gap:4px;
 }
 
 .wrap[data-compact="true"]{
-  margin-top: 6px;
-  padding: 10px 10px 9px;
-  border-radius: 14px;
+  margin-top: 4px;
+  padding: 8px 8px 7px;
+  border-radius: 12px;
   backdrop-filter: blur(8px);
 }
 
@@ -400,27 +314,27 @@ watch(
 .wrap[data-compact="true"] .chip{padding:6px 9px;font-size:11px}
 .wrap[data-compact="true"] .actionsSlim{margin-top:2px;gap:6px}
 .wrap[data-compact="true"] .actionsSlim :deep(button){min-height:28px}
-.wrap[data-compact="true"] .actionsSlim :deep(.rl-btn){min-height:28px;padding:0 10px;border-radius:12px;font-size:11px}
+.wrap[data-compact="true"] .actionsSlim :deep(.rl-btn){min-height:26px;padding:0 9px;border-radius:11px;font-size:11px}
 
 
 .titleRow{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
-  gap:10px;
+  gap:8px;
   flex-wrap:wrap;
 }
 
 .titleWrap{
   display:flex;
   align-items:center;
-  gap:8px;
+  gap:6px;
   min-width:0;
 }
 
 .typeIcon{
-  width:24px;
-  height:24px;
+  width:22px;
+  height:22px;
   border-radius:999px;
   display:inline-flex;
   align-items:center;
@@ -445,15 +359,15 @@ watch(
 
 .title{
   font-weight: 950;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text);
   line-height: 1.35;
   word-break: break-word;
 }
 
 .kindPill{
-  min-height: 24px;
-  padding: 0 10px;
+  min-height: 22px;
+  padding: 0 8px;
   border-radius: 999px;
   display:inline-flex;
   align-items:center;
@@ -482,18 +396,12 @@ watch(
 
 .meta{
   display:flex;
-  gap:10px;
+  gap:8px;
   flex-wrap:wrap;
-  font-size: 12px;
+  font-size: 11px;
   color: color-mix(in oklab, var(--text) 82%, var(--muted));
 }
 .muted{ opacity: .65; }
-
-.followupHint{
-  font-size: 12px;
-  line-height: 1.5;
-  color: color-mix(in oklab, var(--text) 76%, var(--muted));
-}
 
 .actions{
   margin-top: 10px;
@@ -503,10 +411,10 @@ watch(
 }
 
 .remindRow{
-  padding: 8px 0 2px;
+  padding: 6px 0 2px;
   display:flex;
   flex-direction:column;
-  gap:8px;
+  gap:6px;
 }
 .remindLabel{
   font-size:12px;
@@ -515,15 +423,15 @@ watch(
 }
 .remindChips{
   display:flex;
-  gap:8px;
+  gap:6px;
   flex-wrap:wrap;
 }
 .chip{
   border:1px solid rgba(255,255,255,.12);
   background:transparent;
-  padding:8px 10px;
+  padding:6px 8px;
   border-radius:999px;
-  font-size:12px;
+  font-size:11px;
   color: var(--text);
   white-space: nowrap;
 }
@@ -535,15 +443,15 @@ watch(
 }
 
 .editBody{
-  padding: 8px 0 2px;
+  padding: 6px 0 2px;
   display:flex;
   flex-direction:column;
-  gap:10px;
+  gap:8px;
 }
 .field{
   display:flex;
   flex-direction:column;
-  gap:6px;
+  gap:4px;
 }
 .label{
   font-size: 12px;
@@ -552,8 +460,8 @@ watch(
 }
 .input{
   width: 100%;
-  height: 44px;
-  border-radius: 16px;
+  height: 40px;
+  border-radius: 14px;
   border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
   background: color-mix(in oklab, var(--surface) 92%, transparent);
   color: var(--text);
@@ -565,7 +473,7 @@ watch(
 }
 
 .remindSlim{
-  margin-top: 10px;
+  margin-top: 6px;
   display:flex;
   align-items:flex-start;
   justify-content: space-between;
@@ -573,7 +481,7 @@ watch(
 }
 
 .remindSlimLabel{
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
   color: var(--muted);
   white-space: nowrap;
@@ -582,7 +490,7 @@ watch(
 
 .remindQuick{
   display:flex;
-  gap: 8px;
+  gap: 6px;
   overflow-x:auto;
   flex-wrap:nowrap;
   justify-content:flex-end;
@@ -599,10 +507,10 @@ watch(
 }
 
 .actionsSlim{
-  margin-top: 12px;
+  margin-top: 8px;
   display:flex;
   align-items:center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -647,4 +555,18 @@ watch(
     margin-left:0;
   }
 }
+
+@media (max-width: 640px){
+  .wrap{padding:8px 8px 7px;border-radius:12px}
+  .title{font-size:11px;line-height:1.28}
+  .typeIcon{width:20px;height:20px;font-size:10px}
+  .kindPill{min-height:20px;padding:0 7px;font-size:10px}
+  .meta{gap:6px;font-size:10px}
+  .chip{padding:5px 7px;font-size:10px}
+  .remindQuick{gap:5px}
+  .actionsSlim{gap:5px}
+  .actionsSlim :deep(.rl-btn){min-height:24px;padding:0 8px;border-radius:10px;font-size:10px}
+  .input{height:38px;border-radius:12px;padding:0 10px}
+}
+
 </style>

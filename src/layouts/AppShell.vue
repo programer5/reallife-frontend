@@ -2,10 +2,7 @@
 <template>
   <div class="shell">
     <div class="bgLayer" aria-hidden="true"></div>
-    <AppHeader
-        subtitle="Real-time social"
-        :live="connected"
-    />
+    <AppHeader :live="connected" />
 
     <main class="content" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
       <router-view />
@@ -31,7 +28,7 @@ const route = useRoute();
 const touchStartX = ref(0);
 const touchStartY = ref(0);
 const swiping = ref(false);
-const rootRoutes = ["/home", "/inbox", "/me"];
+const rootRoutes = ["/home", "/search", "/inbox", "/me"];
 let off = null;
 
 onMounted(() => {
@@ -88,7 +85,6 @@ function onTouchEnd(e) {
   position: fixed;
   inset: 0;
   z-index: 0;
-  /* global background flattening */
   background:
     radial-gradient(1200px 600px at 50% -20%, rgba(89, 181, 255, 0.14), transparent 60%),
     radial-gradient(900px 500px at 20% 80%, rgba(30, 255, 191, 0.10), transparent 60%),

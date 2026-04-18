@@ -3388,7 +3388,6 @@ onBeforeUnmount(() => {
       v-else-if="loading"
       icon="⏳"
       title="대화를 불러오는 중이에요"
-      description="메시지와 액션 흐름을 연결하고 있어요."
       tone="loading"
       :show-actions="false"
     />
@@ -3409,30 +3408,18 @@ onBeforeUnmount(() => {
       <div class="inner">
         <div v-if="canViewConversation && hasSearchFocus" class="searchReturnBar rl-cardish">
           <div class="searchReturnBar__copy">
-            <div class="searchReturnBar__eyebrow">Search Return</div>
-            <strong>검색 결과에서 다시 들어왔어요</strong>
-            <p>
-              <template v-if="searchFocusTerm">“{{ searchFocusTerm }}”</template>
-              <template v-if="searchFocusMid"> 메시지를 강조해서 보여주고, </template>
-              <template v-if="searchFocusPinId">액션 위치로 바로 이동하고, </template>
-              <template v-if="searchFocusCapsuleId">캡슐 영역도 같이 찾아드릴게요.</template>
-            </p>
-            <div v-if="searchFocusSummary" class="searchReturnBar__chips">
-              <span v-if="searchFocusMid" class="searchReturnBar__chipPill">메시지 위치</span>
-              <span v-if="searchFocusPinId" class="searchReturnBar__chipPill">액션 카드 강조</span>
-              <span v-if="searchFocusCapsuleId" class="searchReturnBar__chipPill">캡슐 카드 강조</span>
-            </div>
+            <strong>검색으로 돌아옴</strong>
           </div>
           <div class="searchReturnBar__actions">
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="refocusSearchTarget">위치 다시 찾기</button>
-            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch(searchFocusTerm)">같은 검색 다시 보기</button>
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus">닫기</button>
+            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="refocusSearchTarget" title="위치 다시 찾기" aria-label="위치 다시 찾기">🎯</button>
+            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch(searchFocusTerm)" title="같은 검색 다시 보기" aria-label="같은 검색 다시 보기">↺</button>
+            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus" title="닫기" aria-label="닫기">✕</button>
           </div>
         </div>
 
         <div class="more">
-          <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore">
-            이전 메시지 더 보기
+          <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore" title="이전 메시지 더 보기" aria-label="이전 메시지 더 보기">
+            ↑
           </button>
         </div>
 
@@ -3448,7 +3435,7 @@ onBeforeUnmount(() => {
               v-if="unreadDividerMid && String(m.messageId) === String(unreadDividerMid)"
               class="unreadDivider"
           >
-            <span>읽지 않은 메시지</span>
+            <span>새 메시지</span>
           </div>
 
           <div class="bubble" :class="messageBubbleClass(m, i)"
@@ -3473,7 +3460,7 @@ onBeforeUnmount(() => {
             >
               <button class="haBtn" type="button" title="복사" @click.stop="copyMessage(m)">
                 <span class="haBtn__icon">⧉</span>
-                <span class="haBtn__label">복사</span>
+                <span class="haBtn__label">⧉</span>
               </button>
 
               <button
@@ -3484,7 +3471,7 @@ onBeforeUnmount(() => {
                   @click.stop="startEdit(m)"
               >
                 <span class="haBtn__icon">✎</span>
-                <span class="haBtn__label">수정</span>
+                <span class="haBtn__label">✎</span>
               </button>
 
               <button
@@ -3494,8 +3481,8 @@ onBeforeUnmount(() => {
                   :title="candidateToggleLabel(m)"
                   @click.stop="toggleCandidates(m.messageId)"
               >
-                <span class="haBtn__icon">✨</span>
-                <span class="haBtn__label">{{ candidateToggleLabel(m) }}</span>
+                <span class="haBtn__icon">📌</span>
+                <span class="haBtn__label">{{ Array.isArray(m.pinCandidates) ? m.pinCandidates.length : 0 }}</span>
               </button>
             </div>
 
@@ -3515,10 +3502,8 @@ onBeforeUnmount(() => {
                 ></textarea>
 
                 <div class="editActions">
-                  <button class="editBtn" :disabled="savingEdit" @click="cancelEdit">취소</button>
-                  <button class="editBtn editBtn--primary" :disabled="savingEdit" @click="saveEdit(m)">
-                    저장
-                  </button>
+                  <button class="editBtn" :disabled="savingEdit" @click="cancelEdit" title="취소" aria-label="취소">✕</button>
+                  <button class="editBtn editBtn--primary" :disabled="savingEdit" @click="saveEdit(m)" title="저장" aria-label="저장">✓</button>
                 </div>
               </template>
 
@@ -3559,15 +3544,13 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div v-if="messageHasActionCandidate(m)" class="messageInlineMeta messageInlineMeta--action">
-                    <span class="messageInlineMeta__chip">후보 {{ Array.isArray(m.pinCandidates) ? m.pinCandidates.length : 0 }}개</span>
-                    <small>후보 보기/닫기를 누르면 아래 액션 패널에서 저장/확정할 수 있어요.</small>
+                    <span class="messageInlineMeta__chip">📌 {{ Array.isArray(m.pinCandidates) ? m.pinCandidates.length : 0 }}</span>
                   </div>
                 </template>
               </template>
 
               <div v-if="messageUtilitySummary(m) && (!editingMid || String(m.messageId) !== String(editingMid))" class="messageToolSummary">
                 <small>{{ messageUtilitySummary(m) }}</small>
-                <small v-if="messageHasActionCandidate(m)">저장은 아래 액션 패널에서 진행돼요.</small>
               </div>
             </div>
 
@@ -3580,11 +3563,11 @@ onBeforeUnmount(() => {
 
               <!-- ✅ optimistic send 상태 -->
               <div v-if="hasMessageSendState(m)" class="sendState" :data-status="m._status">
-                <template v-if="m._status === 'sending'">전송 중…</template>
+                <template v-if="m._status === 'sending'">…</template>
 
                 <template v-else-if="m._status === 'failed'">
-                  전송 실패
-                  <button class="retryBtn" type="button" @click="retrySend(m)">재시도</button>
+                  ⚠
+                  <button class="retryBtn" type="button" @click="retrySend(m)" title="재시도" aria-label="재시도">↻</button>
                 </template>
               </div>
             </div>
@@ -3601,8 +3584,8 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- ✅ 새 메시지 배너 -->
-    <button v-if="newMsgCount > 0" class="newBanner" type="button" @click="jumpToNewest">
-      새 메시지 {{ newMsgCount }}개 · 아래로
+    <button v-if="newMsgCount > 0" class="newBanner" type="button" @click="jumpToNewest" title="새 메시지로 이동" aria-label="새 메시지로 이동">
+      ↓ {{ newMsgCount }}
     </button>
 
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
@@ -3613,54 +3596,48 @@ onBeforeUnmount(() => {
             <div class="messageStageSheet__grab"></div>
             <div class="messageStageSheet__head">
               <div>
-                <div class="messageStageRail__eyebrow">Message stage</div>
-                <strong>메시지를 가리지 않고, 핵심 장면만 카드 탭으로 꺼내서 봐요.</strong>
-                <p>{{ stageHeadline }}</p>
+                <strong>🎞</strong>
               </div>
-              <button type="button" class="messageStageSheet__close" @click="stageDeckOpen = false">닫기</button>
+              <button type="button" class="messageStageSheet__close" @click="stageDeckOpen = false" title="닫기" aria-label="닫기">✕</button>
             </div>
             <div class="messageStageSheetTabs">
-              <button v-for="tab in stageSheetTabs" :key="`stage-sheet-${tab.key}`" type="button" class="messageStageSheetTabs__tab" :class="{ on: stageSheetTab === tab.key }" @click="stageSheetTab = tab.key">
-                <span>{{ tab.label }}</span>
+              <button v-for="tab in stageSheetTabs" :key="`stage-sheet-${tab.key}`" type="button" class="messageStageSheetTabs__tab" :class="{ on: stageSheetTab === tab.key }" :title="tab.label" :aria-label="tab.label" @click="stageSheetTab = tab.key">
+                <span>{{ tab.key === 'overview' ? '◉' : tab.key === 'sessions' ? '▶' : tab.key === 'actions' ? '📌' : '🖼' }}</span>
                 <small>{{ tab.count }}</small>
               </button>
             </div>
             <div v-if="stageSheetTab === 'overview'" class="messageStageSheetBody">
               <button v-if="spotlightMessage" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(spotlightMessage.messageId, 4); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">FOCUS</span>
+                <span class="messageStageSheetCard__tag">👁</span>
                 <strong>{{ spotlightMessage.content || '핵심 장면' }}</strong>
-                <p>지금 가장 중요한 장면으로 바로 점프해요.</p>
               </button>
               <div v-if="stageRailCards.length" class="messageStageSheetMiniStack">
                 <button v-for="stackMessage in stageRailCards" :key="`stage-mini-${stackMessage.messageId}`" type="button" class="messageStageSheetMiniStack__card" @click="ensureMessageVisible(stackMessage.messageId, 4); stageDeckOpen = false">
-                  <span>{{ isSessionMessage(stackMessage) ? 'SESSION' : messageHasAttachment(stackMessage) ? 'MEDIA' : messageHasActionCandidate(stackMessage) ? 'ACTION' : 'MESSAGE' }}</span>
+                  <span>{{ isSessionMessage(stackMessage) ? '▶' : messageHasAttachment(stackMessage) ? '🖼' : messageHasActionCandidate(stackMessage) ? '📌' : '💬' }}</span>
                   <strong>{{ stackMessage.content || '핵심 장면' }}</strong>
                 </button>
               </div>
             </div>
             <div v-else-if="stageSheetTab === 'sessions'" class="messageStageSheetBody">
               <button v-for="sessionMessage in stageSheetSessions" :key="`stage-session-${sessionMessage.messageId}`" type="button" class="messageStageSheetCard" @click="activateSessionControls(sessionForMessage(sessionMessage), { scroll: true }); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">SESSION</span>
-                <strong>{{ sessionMessage.content || '공동 플레이 장면' }}</strong>
-                <p>{{ sessionForMessage(sessionMessage)?.title || '현재 세션으로 열어서 바로 이어볼 수 있어요.' }}</p>
+                <span class="messageStageSheetCard__tag">▶</span>
+                <strong>{{ sessionMessage.content || sessionForMessage(sessionMessage)?.title || '공동 플레이 장면' }}</strong>
               </button>
-              <div v-if="!stageSheetSessions.length" class="messageStageSheetEmpty">세션 장면이 아직 없어요.</div>
+              <div v-if="!stageSheetSessions.length" class="messageStageSheetEmpty">▶ 없음</div>
             </div>
             <div v-else-if="stageSheetTab === 'actions'" class="messageStageSheetBody">
               <button v-for="actionMessage in stageSheetActions" :key="`stage-action-${actionMessage.messageId}`" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(actionMessage.messageId, 4); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">ACTION</span>
+                <span class="messageStageSheetCard__tag">📌</span>
                 <strong>{{ actionMessage.content || '액션 장면' }}</strong>
-                <p>약속·할 일 후보가 있는 메시지로 바로 이동해요.</p>
               </button>
-              <div v-if="!stageSheetActions.length" class="messageStageSheetEmpty">액션 장면이 아직 없어요.</div>
+              <div v-if="!stageSheetActions.length" class="messageStageSheetEmpty">📌 없음</div>
             </div>
             <div v-else class="messageStageSheetBody">
               <button v-for="mediaMessage in stageSheetMedia" :key="`stage-media-${mediaMessage.messageId}`" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(mediaMessage.messageId, 4); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">MEDIA</span>
+                <span class="messageStageSheetCard__tag">🖼</span>
                 <strong>{{ mediaMessage.content || '미디어 장면' }}</strong>
-                <p>첨부·링크가 있는 메시지로 바로 이동해요.</p>
               </button>
-              <div v-if="!stageSheetMedia.length" class="messageStageSheetEmpty">미디어 장면이 아직 없어요.</div>
+              <div v-if="!stageSheetMedia.length" class="messageStageSheetEmpty">🖼 없음</div>
             </div>
           </section>
         </div>
@@ -3682,24 +3659,24 @@ onBeforeUnmount(() => {
     <div class="composerInner composerInner--stack">
       <div class="composerUtilityBar composerUtilityBar--compact">
         <button type="button" class="composerUtilityBar__pill composerUtilityBar__pill--lens" @click="openCommandDeck('search')">
-          <span class="composerUtilityBar__pillTag">렌즈</span>
-          <strong>{{ commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.label || '검색' }}</strong>
+          <span class="composerUtilityBar__pillTag">🔎</span>
+          <strong>{{ commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.badge || 0 }}</strong>
         </button>
         <button type="button" class="composerUtilityBar__pill" @click="openStageSheet('overview')">
-          <span class="composerUtilityBar__pillTag">무대</span>
-          <strong>핵심 {{ stageStats.total }}</strong>
+          <span class="composerUtilityBar__pillTag">🎞</span>
+          <strong>{{ stageStats.total }}</strong>
         </button>
         <button type="button" class="composerUtilityBar__pill" :class="{ 'composerUtilityBar__pill--active': messageDepthEnabled }" @click="messageDepthEnabled = !messageDepthEnabled">
-          <span class="composerUtilityBar__pillTag">깊이</span>
-          <strong>{{ messageDepthEnabled ? '읽기 초점 ON' : '읽기 초점 OFF' }}</strong>
+          <span class="composerUtilityBar__pillTag">👁</span>
+          <strong>{{ messageDepthEnabled ? '●' : '○' }}</strong>
         </button>
         <button v-if="railPrimarySession" type="button" class="composerUtilityBar__pill composerUtilityBar__pill--session" @click="openRailSession">
-          <span class="composerUtilityBar__pillTag">Now</span>
-          <strong>{{ railPrimarySession.title || '공동 플레이' }}</strong>
+          <span class="composerUtilityBar__pillTag">▶</span>
+          <strong>{{ railPrimarySession.title || '세션' }}</strong>
         </button>
         <button type="button" class="composerUtilityBar__pill composerUtilityBar__pill--ghost" @click="openSessionModal()">
-          <span class="composerUtilityBar__pillTag">+</span>
-          <strong>세션 만들기</strong>
+          <span class="composerUtilityBar__pillTag">＋</span>
+          <strong>▶</strong>
         </button>
       </div>
       <input ref="fileInputRef" type="file" class="hiddenFileInput" multiple @change="onPickFiles" />
@@ -3709,13 +3686,12 @@ onBeforeUnmount(() => {
       <div class="composerRow">
         <MessageAttachmentPicker :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
         <button class="miniBtn" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
-        <button class="miniBtn" type="button" @click="openSessionModal" :disabled="sending || attachmentUploading" title="공동 플레이 세션 만들기">▶</button>
+        <button class="miniBtn" type="button" @click="openSessionModal" :disabled="sending || attachmentUploading" title="공동 플레이 세션 만들기" aria-label="공동 플레이 세션 만들기">＋</button>
         <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
-        <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading">
-          {{ sending || attachmentUploading ? "..." : "전송" }}
+        <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading" title="전송" aria-label="전송">
+          {{ sending || attachmentUploading ? "..." : "➤" }}
         </button>
       </div>
-      <div class="composerHint">파일 첨부는 📎, 캡슐은 메시지를 입력한 뒤 ⏳ 버튼으로 만들 수 있어요. 업로드가 끝나면 서버 메타데이터로 카드가 바로 정리돼요.</div>
     </div>
 
     <teleport to="body">
@@ -3724,14 +3700,14 @@ onBeforeUnmount(() => {
           <div class="commandDeck__grab"></div>
           <div class="commandDeck__head">
             <div>
-              <div class="commandDeck__eyebrow">Command lens</div>
-              <strong>대화를 가리지 않고 필요한 기능만 꺼내서 씁니다</strong>
+              <div class="commandDeck__eyebrow">Lens</div>
+              <strong>{{ commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.label || '검색' }}</strong>
             </div>
-            <button type="button" class="commandDeck__close" @click="closeCommandDeck">닫기</button>
+            <button type="button" class="commandDeck__close" @click="closeCommandDeck" aria-label="렌즈 닫기">✕</button>
           </div>
           <div class="commandDeck__tabs">
-            <button v-for="tab in commandDeckTabs" :key="tab.key" type="button" class="commandDeck__tab" :class="{ on: commandDeckTab === tab.key }" @click="commandDeckTab = tab.key">
-              <span>{{ tab.label }}</span><small>{{ tab.badge }}</small>
+            <button v-for="tab in commandDeckTabs" :key="tab.key" type="button" class="commandDeck__tab" :class="{ on: commandDeckTab === tab.key }" :title="tab.label" :aria-label="tab.label" @click="commandDeckTab = tab.key">
+              <span>{{ tab.key === 'search' ? '🔎' : tab.key === 'actions' ? '📌' : tab.key === 'capsules' ? '⏳' : '▶' }}</span><small>{{ tab.badge }}</small>
             </button>
           </div>
 
@@ -3739,22 +3715,20 @@ onBeforeUnmount(() => {
             <section class="conversationSearchRail rl-cardish">
               <div class="conversationSearchRail__top">
                 <div class="conversationSearchRail__copy">
-                  <div class="conversationSearchRail__eyebrow">Conversation OS</div>
-                  <strong>찾고 바로 이어가기</strong>
-                  <p>메시지 흐름은 그대로 두고 검색만 빠르게 꺼내 씁니다.</p>
+                  <strong>대화 검색</strong>
                 </div>
               </div>
               <div class="conversationSearchRail__controls">
                 <div class="conversationSearchRail__inputWrap">
-                  <input v-model.trim="conversationSearchQ" class="conversationSearchRail__input" placeholder="이 대화에서 찾고 싶은 키워드를 입력해 보세요" @keydown.enter.prevent="openConversationSearch()" />
-                  <button type="button" class="conversationSearchRail__submit" @click="openConversationSearch()">검색</button>
+                  <input v-model.trim="conversationSearchQ" class="conversationSearchRail__input" placeholder="대화 검색" @keydown.enter.prevent="openConversationSearch()" />
+                  <button type="button" class="conversationSearchRail__submit" @click="openConversationSearch()" title="검색" aria-label="검색">🔎</button>
                 </div>
                 <div class="conversationSearchRail__meta">
                   <span class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
                   <div class="conversationSearchRail__actions">
-                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('약속')">약속</button>
-                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('캡슐')">캡슐</button>
-                    <button type="button" class="conversationSearchRail__chip" @click="openGlobalSearch()">전체 검색</button>
+                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('약속')" title="약속" aria-label="약속">📅</button>
+                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('캡슐')" title="캡슐" aria-label="캡슐">⏳</button>
+                    <button type="button" class="conversationSearchRail__chip" @click="openGlobalSearch()" title="전체 검색" aria-label="전체 검색">🌐</button>
                   </div>
                 </div>
               </div>
@@ -3768,21 +3742,18 @@ onBeforeUnmount(() => {
           <section v-else-if="commandDeckTab === 'actions'" class="commandDeck__panel commandDeck__panel--actions">
             <div class="dockWrap dockWrapInline" :class="{ dockPulse: dockPulseOn }">
               <div class="dockBar dockBarInline">
-                <button class="dockTab" :class="{ on: dockMode==='active' }" type="button" @click="dockMode='active'; dockOpen=true">📌 액션 <span class="dockCount">{{ activeCount }}</span></button>
-                <button class="dockTab" :class="{ on: dockMode==='suggestions' }" type="button" :disabled="suggestionCount===0" @click="dockMode='suggestions'; dockOpen=true">✨ 제안 <span class="dockCount">{{ suggestionCount }}</span></button>
+                <button class="dockTab" :class="{ on: dockMode==='active' }" type="button" title="액션" aria-label="액션" @click="dockMode='active'; dockOpen=true">📌 <span class="dockCount">{{ activeCount }}</span></button>
+                <button class="dockTab" :class="{ on: dockMode==='suggestions' }" type="button" :disabled="suggestionCount===0" title="제안" aria-label="제안" @click="dockMode='suggestions'; dockOpen=true">✨ <span class="dockCount">{{ suggestionCount }}</span></button>
                 <div class="dockSpacer"></div>
-                <RlButton size="sm" variant="ghost" class="dockMore" @click="clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck()">전체</RlButton>
+                <RlButton size="sm" variant="ghost" class="dockMore" @click="clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck()" title="전체 보기" aria-label="전체 보기">☰</RlButton>
               </div>
               <div class="dockPanel dockPanelInline">
-                <div class="commandDeck__helper commandDeck__helper--actions">
-                  액션은 별도 생성 버튼이 아니라 <strong>메시지를 보낸 뒤 제안으로 생성</strong>돼요. 지금은 ⏳ 버튼이 액션이 아니라 <strong>타임 캡슐</strong>입니다.
-                </div>
                 <div v-if="dockMode==='active'" class="dockGrid">
                   <div class="dockFilterBar">
-                    <button class="dockPill" :class="{ on: activeFilter==='ALL' }" type="button" @click="activeFilter='ALL'">전체 <span class="dockPillCount">{{ activeCount }}</span></button>
-                    <button class="dockPill" :class="{ on: activeFilter==='PROMISE' }" type="button" @click="activeFilter='PROMISE'">📅 약속 <span class="dockPillCount">{{ activeCounts.PROMISE }}</span></button>
-                    <button class="dockPill" :class="{ on: activeFilter==='TODO' }" type="button" @click="activeFilter='TODO'">✅ 할일 <span class="dockPillCount">{{ activeCounts.TODO }}</span></button>
-                    <button class="dockPill" :class="{ on: activeFilter==='PLACE' }" type="button" @click="activeFilter='PLACE'">📍 장소 <span class="dockPillCount">{{ activeCounts.PLACE }}</span></button>
+                    <button class="dockPill" :class="{ on: activeFilter==='ALL' }" type="button" @click="activeFilter='ALL'">◉ <span class="dockPillCount">{{ activeCount }}</span></button>
+                    <button class="dockPill" :class="{ on: activeFilter==='PROMISE' }" type="button" @click="activeFilter='PROMISE'" title="약속" aria-label="약속">📅 <span class="dockPillCount">{{ activeCounts.PROMISE }}</span></button>
+                    <button class="dockPill" :class="{ on: activeFilter==='TODO' }" type="button" @click="activeFilter='TODO'" title="할 일" aria-label="할 일">✅ <span class="dockPillCount">{{ activeCounts.TODO }}</span></button>
+                    <button class="dockPill" :class="{ on: activeFilter==='PLACE' }" type="button" @click="activeFilter='PLACE'" title="장소" aria-label="장소">📍 <span class="dockPillCount">{{ activeCounts.PLACE }}</span></button>
                   </div>
                   <div v-if="filteredPins && filteredPins.length" class="dockList dockListInline">
                     <div v-for="p in filteredPins" :key="p.pinId" class="dockCard" :data-kind="p.kind || 'PROMISE'" :data-pin-id="String(p.pinId)">
@@ -3791,19 +3762,18 @@ onBeforeUnmount(() => {
                       <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
                     </div>
                   </div>
-                  <div v-else class="dockEmpty">아직 저장된 액션이 없어요.</div>
+                  <div v-else class="dockEmpty">없음</div>
                 </div>
                 <div v-else class="dockGrid">
                   <div v-if="dockCandidates && dockCandidates.length" class="dockSuggestList">
                     <div class="dockSuggestList__head">
-                      <strong>저장 가능한 후보 {{ sortedDockCandidates.length }}개</strong>
-                      <small>여기서 바로 저장 / 수정 / 무시할 수 있어요.</small>
+                      <strong>📌 {{ sortedDockCandidates.length }}</strong>
                     </div>
                     <div v-for="c in sortedDockCandidates" :key="c.candidateId" class="dockSlot">
                       <PinCandidateCard :candidate="c" :busy="dockSourceMsg ? isConfirmBusy(dockSourceMsg.messageId) : false" @confirm="dockSourceMsg && confirmCandidate(dockSourceMsg, $event)" @dismiss="dockSourceMsg && dismissCandidate(dockSourceMsg, $event)" />
                     </div>
                   </div>
-                  <div v-else class="dockEmpty">표시할 제안이 없어요.</div>
+                  <div v-else class="dockEmpty">없음</div>
                 </div>
               </div>
             </div>
@@ -3813,20 +3783,17 @@ onBeforeUnmount(() => {
             <div ref="sessionHubRef" class="sessionHub">
               <div class="sessionHub__head">
                 <div>
-                  <div class="sessionHub__eyebrow">Shared play</div>
-                  <strong>세션은 여기서만 크게 다룹니다</strong>
-                  <p>메시지 화면은 방해하지 않고, 공동 플레이는 별도 렌즈 패널에서 집중해서 제어합니다.</p>
+                  <strong>▶</strong>
                 </div>
-                <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="openSessionModal">세션 만들기</button>
+                <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="openSessionModal" title="세션 만들기" aria-label="세션 만들기">＋</button>
               </div>
-              <div v-if="loadingSessions" class="sessionHub__empty">세션을 불러오는 중이에요…</div>
+              <div v-if="loadingSessions" class="sessionHub__empty">…</div>
               <div v-else-if="sessionError" class="sessionHub__empty">{{ sessionError }}</div>
               <div v-else-if="activeSessions.length || recentSessions.length" class="sessionHub__stack">
                 <section v-if="featuredActiveSession" class="sessionHub__section sessionHub__section--featured">
                   <div class="sessionHub__sectionHead">
                     <div>
-                      <strong>현재 세션</strong>
-                      <p class="sessionHub__sectionCopy">실제 플레이어와 컨트롤은 이 카드 한 장에만 모읍니다.</p>
+                      <strong>▶</strong>
                     </div>
                     <span>1개</span>
                   </div>
@@ -3847,7 +3814,7 @@ onBeforeUnmount(() => {
                 </section>
                 <section v-if="secondaryActiveSessions.length" class="sessionHub__section">
                   <div class="sessionHub__sectionHead">
-                    <strong>다른 진행 중 세션</strong>
+                    <strong>↻</strong>
                     <span>{{ secondaryActiveSessions.length }}개</span>
                   </div>
                   <div class="sessionHub__compactList">
@@ -3870,10 +3837,10 @@ onBeforeUnmount(() => {
                 </section>
                 <section v-if="recentSessions.length" class="sessionHub__section">
                   <div class="sessionHub__sectionHead">
-                    <strong>세션 히스토리</strong>
+                    <strong>🕘</strong>
                     <div class="sessionHub__historyActions">
                       <span>{{ recentSessions.length }}개</span>
-                      <button type="button" class="conversationSearchRail__chip" @click="toggleSessionHistory">{{ sessionHistoryOpen ? '접기' : '펼치기' }}</button>
+                      <button type="button" class="conversationSearchRail__chip" @click="toggleSessionHistory" :title="sessionHistoryOpen ? '접기' : '펼치기'" :aria-label="sessionHistoryOpen ? '접기' : '펼치기'">{{ sessionHistoryOpen ? '▴' : '▾' }}</button>
                     </div>
                   </div>
                   <div class="sessionHub__compactList">
@@ -3895,7 +3862,7 @@ onBeforeUnmount(() => {
                   </div>
                 </section>
               </div>
-              <div v-else class="sessionHub__empty">아직 공동 플레이 세션이 없어요. 첫 세션을 만들어 보세요.</div>
+              <div v-else class="sessionHub__empty">없음</div>
             </div>
           </section>
         </section>
@@ -3965,7 +3932,6 @@ onBeforeUnmount(() => {
     <RlModal
         :open="pinEditOpen"
         title="✏️ 핀 수정"
-        subtitle="제목/시간/장소를 수정할 수 있어요."
         :blockClose="pinEditLoading"
         :closeOnBackdrop="!pinEditLoading"
         @close="closePinEdit"
@@ -9981,4 +9947,155 @@ onBeforeUnmount(() => {
     min-height:0 !important;
   }
 }
+@media (max-width: 720px){
+  .composerUtilityBar{
+    gap:6px !important;
+    margin-bottom:6px !important;
+    flex-wrap:nowrap !important;
+    overflow-x:auto !important;
+    overflow-y:hidden !important;
+    padding-bottom:2px !important;
+    scrollbar-width:none !important;
+  }
+
+  .composerUtilityBar::-webkit-scrollbar{display:none !important;}
+
+  .composerUtilityBar__pill{
+    flex:0 0 auto !important;
+    min-height:34px !important;
+    padding:0 10px !important;
+    gap:6px !important;
+  }
+
+  .composerUtilityBar__pillTag{
+    min-width:24px !important;
+    height:20px !important;
+    padding:0 7px !important;
+    font-size:9px !important;
+  }
+
+  .composerUtilityBar__pill strong{
+    max-width:92px !important;
+    font-size:11px !important;
+  }
+
+  .commandDeck{
+    min-height:78dvh !important;
+    height:88dvh !important;
+    max-height:88dvh !important;
+    padding:10px 10px calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+    gap:8px !important;
+  }
+
+  .commandDeck__eyebrow{
+    font-size:10px !important;
+    letter-spacing:.12em !important;
+  }
+
+  .commandDeck__head strong,
+  .messageStageSheet__head strong{
+    font-size:20px !important;
+  }
+
+  .commandDeck__close,
+  .messageStageSheet__close{
+    min-width:40px !important;
+    width:40px !important;
+    padding:0 !important;
+    font-size:16px !important;
+  }
+
+  .commandDeck__tab{
+    min-height:34px !important;
+    padding:0 11px !important;
+    gap:6px !important;
+  }
+
+  .commandDeck__tab small{
+    display:none !important;
+  }
+
+  .conversationSearchRail{
+    padding:12px !important;
+  }
+
+  .conversationSearchRail__meta{
+    display:grid !important;
+    gap:8px !important;
+  }
+
+  .conversationSearchRail__summary{
+    font-size:11px !important;
+  }
+
+  .dockBarInline{
+    grid-template-columns:1fr 1fr auto !important;
+    gap:6px !important;
+  }
+
+  .dockTab,
+  .dockPill,
+  .conversationSearchRail__chip{
+    min-height:34px !important;
+    padding:0 10px !important;
+    font-size:11px !important;
+  }
+
+  .dockPanelInline{
+    padding-right:0 !important;
+  }
+
+  .dockCard{
+    padding:11px !important;
+  }
+
+  .dockCardTitle{
+    font-size:13px !important;
+  }
+
+  .dockCardMeta,
+  .dockCardHint{
+    font-size:11px !important;
+  }
+
+  .dockSuggestList__head{
+    display:none !important;
+  }
+
+  .dockSlot :deep(.wrap),
+  .dockSlot :deep(.card){
+    border-radius:16px !important;
+  }
+
+  .sessionHub__head,
+  .sessionHub__sectionHead{
+    gap:8px !important;
+  }
+}
+
 </style>
+
+
+/* stage-11 compact rhythm */
+.sessionHub{gap:10px;margin:0 0 10px;padding:11px 12px;border-radius:20px}
+.sessionHub__head{gap:8px}.sessionHub__stack{gap:12px}.sessionHub__section{gap:8px}.sessionHub__section--featured{padding-bottom:2px}.sessionHub__sectionHead{gap:8px}.sessionHub__sectionHead span{min-height:22px;padding:0 8px;font-size:10px}.sessionHub__compactList{gap:8px}.sessionHub__historyActions{gap:6px}
+.dockCard{padding:10px 11px !important;border-radius:16px !important}.dockCardTitle{font-size:13px !important}.dockCardMeta{font-size:11px !important;gap:5px !important}.dockCardHint{margin-top:2px !important;font-size:11px !important;line-height:1.32 !important;color:rgba(226,232,255,.56) !important}
+.composerUtilityBar{gap:6px;margin-bottom:6px}.composerUtilityBar__pill{gap:6px;min-height:34px;padding:0 10px}.composerUtilityBar__pillTag{min-width:24px;height:20px;padding:0 6px}.composerUtilityBar__pill strong{font-size:11px;max-width:110px}
+.commandDeck__tabs{gap:6px}.commandDeck__tab{gap:5px;min-height:34px;padding:0 10px}.commandDeck__tab span{font-size:14px}.commandDeck__tab small{font-size:10px}
+.conversationSearchRail__actions{gap:6px}.conversationSearchRail__chip{min-height:30px;padding:0 10px}.conversationSearchRail__submit{min-width:38px;padding-inline:10px}
+.messageStageSheet__head{gap:8px}.messageStageSheetTabs{gap:6px}.messageStageSheetTabs__tab{gap:5px;min-height:32px;padding:0 10px}.messageStageSheetBody{gap:8px}.messageStageSheetCard{gap:5px;padding:11px 12px;border-radius:15px}.messageStageSheetCard__tag{min-width:28px;height:20px;padding:0 7px}.messageStageSheetCard strong{font-size:13px}.messageStageSheetEmpty{padding:12px;border-radius:15px}
+@media (max-width:720px){
+  .sessionHub{gap:8px;margin:0 0 8px;padding:9px 10px;border-radius:18px}
+  .sessionHub__sectionHead strong{font-size:12px}
+  .sessionHub__sectionHead span{min-height:20px;padding:0 7px;font-size:9px}
+  .dockCard{padding:9px 10px !important;border-radius:14px !important}
+  .dockCardHint{display:none}
+  .composerUtilityBar{gap:5px;margin-bottom:5px}
+  .composerUtilityBar__pill{gap:5px;min-height:32px;padding:0 9px}
+  .composerUtilityBar__pill strong{max-width:72px}
+  .commandDeck__tabs{gap:5px}
+  .commandDeck__tab{min-height:32px;padding:0 9px}
+  .commandDeck__tab small{display:none}
+  .messageStageSheetTabs__tab{min-height:30px;padding:0 9px}
+  .messageStageSheetCard{padding:10px 11px;border-radius:14px}
+}

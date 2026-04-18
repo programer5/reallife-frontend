@@ -27,10 +27,9 @@
         <span>{{ detectedSource.label }}</span>
         <small>{{ detectedSource.previewKind === 'iframe' ? '임베드 미리보기를 지원합니다.' : '링크 카드 형태로 표시됩니다.' }}</small>
       </div>
-      <p class="sessionComposer__hint">MVP에서는 링크 기반 세션과 play/pause/seek 상태만 맞춥니다.</p>
       <div class="sessionComposer__actions">
-        <button type="button" class="sessionComposer__btn sessionComposer__btn--ghost" :disabled="busy" @click="$emit('close')">닫기</button>
-        <button type="button" class="sessionComposer__btn" :disabled="busy || !canSubmit" @click="submit">{{ busy ? '생성 중…' : '세션 만들기' }}</button>
+        <button type="button" class="sessionComposer__btn sessionComposer__btn--ghost" title="닫기" aria-label="닫기" :disabled="busy" @click="$emit('close')">✕</button>
+        <button type="button" class="sessionComposer__btn" :title="busy ? '생성 중' : '세션 만들기'" :aria-label="busy ? '생성 중' : '세션 만들기'" :disabled="busy || !canSubmit" @click="submit">{{ busy ? '…' : '＋' }}</button>
       </div>
     </div>
   </RlModal>
@@ -71,5 +70,14 @@ function submit() {
 </script>
 
 <style scoped>
-.sessionComposer{display:grid;gap:14px}.sessionComposer__field{display:grid;gap:6px}.sessionComposer__field span{font-size:12px;font-weight:800;color:var(--muted)}.sessionComposer__field input,.sessionComposer__field select{min-height:44px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 12px}.sessionComposer__detected{display:grid;gap:2px;padding:12px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface-soft, rgba(255,255,255,.03))}.sessionComposer__detected strong{font-size:12px}.sessionComposer__detected span{font-size:13px;font-weight:800}.sessionComposer__detected small{font-size:12px;color:var(--muted)}.sessionComposer__hint{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}.sessionComposer__actions{display:flex;justify-content:flex-end;gap:8px}.sessionComposer__btn{min-height:40px;padding:0 14px;border-radius:12px;border:0;background:linear-gradient(135deg,#7a8cff,#8e66ff);color:#fff;font-weight:900}.sessionComposer__btn--ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+.sessionComposer{display:grid;gap:11px}.sessionComposer__field{display:grid;gap:5px}.sessionComposer__field span{font-size:11px;font-weight:800;color:var(--muted)}.sessionComposer__field input,.sessionComposer__field select{min-height:40px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:0 11px}.sessionComposer__detected{display:grid;gap:2px;padding:10px 11px;border-radius:12px;border:1px solid var(--border);background:var(--surface-soft, rgba(255,255,255,.03))}.sessionComposer__detected strong{font-size:11px}.sessionComposer__detected span{font-size:12px;font-weight:800}.sessionComposer__detected small{font-size:11px;color:var(--muted)}.sessionComposer__actions{display:flex;justify-content:flex-end;gap:6px}.sessionComposer__btn{min-height:34px;min-width:34px;padding:0 12px;border-radius:10px;border:0;background:linear-gradient(135deg,#7a8cff,#8e66ff);color:#fff;font-weight:900}.sessionComposer__btn--ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+@media (max-width: 720px){
+  .sessionComposer{gap:10px}
+  .sessionComposer__field input,.sessionComposer__field select{min-height:38px}
+  .sessionComposer__btn{min-height:32px;min-width:32px;padding:0 10px}
+}
+
+.sessionComposer__actions{gap:6px}
+.sessionComposer__btn{min-height:34px;min-width:34px;padding:0 10px;border-radius:10px}
+
 </style>

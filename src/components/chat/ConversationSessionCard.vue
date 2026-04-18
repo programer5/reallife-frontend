@@ -24,16 +24,16 @@
       </span>
     </div>
     <div v-if="!compact" class="sessionCard__actions sessionCard__actions--primary">
-      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" @click="emitImmediate('PLAYING')">재생</button>
-      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" @click="emitImmediate('PAUSED')">일시정지</button>
-      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" @click="emitSeek">+15초</button>
-      <button type="button" class="sessionCard__btn sessionCard__btn--danger" :disabled="busy || !canControl" @click="$emit('end', session)">종료</button>
+      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" title="재생" aria-label="재생" @click="emitImmediate('PLAYING')">▶</button>
+      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" title="일시정지" aria-label="일시정지" @click="emitImmediate('PAUSED')">❚❚</button>
+      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" title="15초 앞으로" aria-label="15초 앞으로" @click="emitSeek">+15</button>
+      <button type="button" class="sessionCard__btn sessionCard__btn--danger" :disabled="busy || !canControl" title="종료" aria-label="종료" @click="$emit('end', session)">■</button>
     </div>
     <div v-else class="sessionCard__actions sessionCard__actions--compact">
-      <button type="button" class="sessionCard__btn sessionCard__btn--soft" @click="joinSession">{{ joinLabel }}</button>
-      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" @click="emitImmediate('PLAYING')">재생</button>
-      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" @click="emitImmediate('PAUSED')">일시정지</button>
-      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" @click="emitSeek">+15초</button>
+      <button type="button" class="sessionCard__btn sessionCard__btn--soft" :title="joinLabel" :aria-label="joinLabel" @click="joinSession">↗</button>
+      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" title="재생" aria-label="재생" @click="emitImmediate('PLAYING')">▶</button>
+      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" title="일시정지" aria-label="일시정지" @click="emitImmediate('PAUSED')">❚❚</button>
+      <button type="button" class="sessionCard__btn" :disabled="busy || !canControl" title="15초 앞으로" aria-label="15초 앞으로" @click="emitSeek">+15</button>
     </div>
     <ConversationSessionPlaybackPreview
       v-if="!compact && previewKind !== 'link'"
@@ -44,16 +44,16 @@
     />
     <div v-if="previewLink" class="sessionCard__linkRow">
       <div class="sessionCard__linkActions">
-        <button type="button" class="sessionCard__join" @click="joinSession">{{ joinLabel }}</button>
-        <a class="sessionCard__link" :href="previewLink" target="_blank" rel="noreferrer">{{ providerLabel }}에서 열기</a>
+        <button type="button" class="sessionCard__join" :title="joinLabel" :aria-label="joinLabel" @click="joinSession">↗</button>
+        <a class="sessionCard__link" :href="previewLink" target="_blank" rel="noreferrer" :title="`${providerLabel}에서 열기`" :aria-label="`${providerLabel}에서 열기`">🌐</a>
       </div>
-      <button type="button" class="sessionCard__copy" @click="copyLink">{{ copied ? '링크 복사됨' : '링크 복사' }}</button>
+      <button type="button" class="sessionCard__copy" :title="copied ? '링크 복사됨' : '링크 복사'" :aria-label="copied ? '링크 복사됨' : '링크 복사'" @click="copyLink">⧉</button>
     </div>
     <p v-if="syncStampLabel" class="sessionCard__sync">{{ syncStampLabel }}</p>
-    <p v-if="session?.status === 'ENDED'" class="sessionCard__notice">종료된 세션이에요. 링크는 다시 열 수 있지만 재생 제어는 잠겨 있어요.</p>
-    <p v-else-if="compact && !session?.canControl" class="sessionCard__notice sessionCard__notice--compact">호스트만 제어 가능 · 열기 버튼으로 현재 세션으로 이동할 수 있어요.</p>
-    <p v-else-if="!compact && !interactivePreview" class="sessionCard__notice">자동 재생이 되지 않도록 잠깐 대기 중이에요. <strong>이 세션에 참여</strong>를 누르면 여기서만 재생을 붙여요.</p>
-    <p v-else-if="!compact && !session?.canControl" class="sessionCard__notice">지금은 호스트만 재생을 제어할 수 있어요.</p>
+    <p v-if="session?.status === 'ENDED'" class="sessionCard__notice">기록 전용</p>
+    <p v-else-if="compact && !session?.canControl" class="sessionCard__notice sessionCard__notice--compact">호스트만 제어</p>
+    <p v-else-if="!compact && !interactivePreview" class="sessionCard__notice">↗ 후 재생</p>
+    <p v-else-if="!compact && !session?.canControl" class="sessionCard__notice">호스트만 제어</p>
   </article>
 </template>
 
@@ -87,11 +87,11 @@ const myParticipant = computed(() => (props.session?.participants || []).find((i
 const interactivePreview = computed(() => (props.forceInteractive || hasJoinedLocally.value) && props.session?.status === 'ACTIVE');
 const compactOpenLabel = computed(() => {
   if (props.session?.status !== 'ACTIVE') return '기록 열기';
-  return interactivePreview.value ? '열림' : '현재 세션으로 열기';
+  return interactivePreview.value ? '열림' : '세션 열기';
 });
 const joinLabel = computed(() => {
   if (props.compact) return compactOpenLabel.value;
-  return interactivePreview.value ? '참여 중' : '이 세션에 참여';
+  return interactivePreview.value ? '참여 중' : '세션 참여';
 });
 const syncStampLabel = computed(() => {
   const stamp = myParticipant.value?.lastSeenAt || props.session?.lastControlledAt || props.session?.createdAt;
@@ -174,5 +174,28 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.sessionCard{display:grid;gap:10px;padding:14px 16px;border-radius:20px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(18,22,38,.9),rgba(10,13,24,.92))}.sessionCard--compact{gap:8px;padding:12px 14px;border-radius:18px;background:rgba(255,255,255,.04)}.sessionCard__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.sessionCard__eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}.sessionCard__state{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:rgba(122,140,255,.16);border:1px solid rgba(122,140,255,.28);font-size:11px;font-weight:900}.sessionCard[data-status="ENDED"] .sessionCard__state{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.72)}.sessionCard__meta{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:rgba(255,255,255,.68)}.sessionCard__participants{display:flex;gap:8px;flex-wrap:wrap}.sessionCard__participant{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border-radius:999px;background:rgba(255,255,255,.05);font-size:11px;font-weight:700;color:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.08)}.sessionCard__participant[data-active="true"]{border-color:rgba(122,140,255,.32);background:rgba(122,140,255,.12)}.sessionCard__participantRole{opacity:.72}.sessionCard__preview{overflow:hidden;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)}.sessionCard__iframe{display:block;width:100%;aspect-ratio:16/9;max-height:min(42vh,320px);border:0;background:#000}.sessionCard__thumb{display:block;width:100%;aspect-ratio:16/9;object-fit:cover}.sessionCard__linkRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sessionCard__linkActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sessionCard__join,.sessionCard__link,.sessionCard__copy{font-size:13px;font-weight:800;color:#cfd6ff}.sessionCard__join,.sessionCard__copy{min-height:30px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05)}.sessionCard__copy{color:rgba(255,255,255,.86);font-size:11px}.sessionCard__sync{margin:0;font-size:11px;color:rgba(255,255,255,.58)}.sessionCard__notice{margin:0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.66)}.sessionCard__actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.sessionCard__actions--primary{position:sticky;top:0;z-index:2;padding:4px;background:linear-gradient(180deg,rgba(10,13,24,.98),rgba(10,13,24,.84));border-radius:16px}.sessionCard__actions--compact{grid-template-columns:1.35fr repeat(3,minmax(0,1fr));gap:6px}.sessionCard__btn{min-height:36px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;font-size:12px;font-weight:800}.sessionCard__btn:disabled{opacity:.45;cursor:not-allowed}.sessionCard__btn--danger{border-color:rgba(255,120,120,.24);color:#ffb4b4}.sessionCard__btn--soft{background:rgba(122,140,255,.12);border-color:rgba(122,140,255,.24);color:#dbe3ff}.sessionCard--compact .sessionCard__meta{font-size:11px}.sessionCard--compact .sessionCard__join,.sessionCard--compact .sessionCard__copy{font-size:12px}.sessionCard--compact .sessionCard__btn{min-height:30px;font-size:11px;padding:0 8px}.sessionCard--compact .sessionCard__notice{font-size:11px;line-height:1.45}.sessionCard__notice--compact{color:rgba(255,255,255,.58)}@media (max-width:720px){.sessionCard{padding:12px 13px}.sessionCard__actions{grid-template-columns:repeat(2,minmax(0,1fr))}.sessionCard__actions--primary{top:-2px;padding:3px}.sessionCard__actions--compact{grid-template-columns:repeat(2,minmax(0,1fr))}.sessionCard__iframe,.sessionCard__thumb{max-height:220px;aspect-ratio:16/10}}
+.sessionCard{display:grid;gap:8px;padding:12px 13px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(18,22,38,.9),rgba(10,13,24,.92))}.sessionCard--compact{gap:6px;padding:9px 10px;border-radius:15px;background:rgba(255,255,255,.04)}.sessionCard__head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.sessionCard__eyebrow{font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(145,170,255,.82)}.sessionCard__state{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:999px;background:rgba(122,140,255,.16);border:1px solid rgba(122,140,255,.28);font-size:10px;font-weight:900}.sessionCard[data-status="ENDED"] .sessionCard__state{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.72)}.sessionCard__meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,.68)}.sessionCard__participants{display:flex;gap:6px;flex-wrap:wrap}.sessionCard__participant{display:inline-flex;align-items:center;gap:5px;min-height:24px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,.05);font-size:10px;font-weight:700;color:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.08)}.sessionCard__participant[data-active="true"]{border-color:rgba(122,140,255,.32);background:rgba(122,140,255,.12)}.sessionCard__participantRole{opacity:.72}.sessionCard__preview{overflow:hidden;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)}.sessionCard__iframe{display:block;width:100%;aspect-ratio:16/9;max-height:min(42vh,320px);border:0;background:#000}.sessionCard__thumb{display:block;width:100%;aspect-ratio:16/9;object-fit:cover}.sessionCard__linkRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sessionCard__linkActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sessionCard__join,.sessionCard__link,.sessionCard__copy{font-size:13px;font-weight:800;color:#cfd6ff}.sessionCard__join,.sessionCard__copy{min-height:30px;padding:0 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05)}.sessionCard__copy{color:rgba(255,255,255,.86);font-size:11px}.sessionCard__sync{margin:0;font-size:11px;color:rgba(255,255,255,.58)}.sessionCard__notice{margin:0;font-size:12px;line-height:1.5;color:rgba(255,255,255,.66)}.sessionCard__actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.sessionCard__actions--primary{position:sticky;top:0;z-index:2;padding:4px;background:linear-gradient(180deg,rgba(10,13,24,.98),rgba(10,13,24,.84));border-radius:16px}.sessionCard__actions--compact{grid-template-columns:1.35fr repeat(3,minmax(0,1fr));gap:6px}.sessionCard__btn{min-height:36px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;font-size:12px;font-weight:800}.sessionCard__btn:disabled{opacity:.45;cursor:not-allowed}.sessionCard__btn--danger{border-color:rgba(255,120,120,.24);color:#ffb4b4}.sessionCard__btn--soft{background:rgba(122,140,255,.12);border-color:rgba(122,140,255,.24);color:#dbe3ff}.sessionCard--compact .sessionCard__meta{font-size:11px}.sessionCard--compact .sessionCard__join,.sessionCard--compact .sessionCard__copy{font-size:12px}.sessionCard--compact .sessionCard__btn{min-height:30px;font-size:11px;padding:0 8px}.sessionCard--compact .sessionCard__notice{font-size:11px;line-height:1.45}.sessionCard__notice--compact{color:rgba(255,255,255,.58)}@media (max-width:720px){.sessionCard{padding:12px 13px}.sessionCard__actions{grid-template-columns:repeat(2,minmax(0,1fr))}.sessionCard__actions--primary{top:-2px;padding:3px}.sessionCard__actions--compact{grid-template-columns:repeat(2,minmax(0,1fr))}.sessionCard__iframe,.sessionCard__thumb{max-height:220px;aspect-ratio:16/10}}
+@media (max-width: 720px){
+  .sessionCard{gap:7px;padding:10px 11px;border-radius:16px}
+  .sessionCard__meta{gap:6px;font-size:10.5px}
+  .sessionCard__btn,.sessionCard__join,.sessionCard__link,.sessionCard__copy{min-height:26px;min-width:26px;padding:0 8px;font-size:10px}
+  .sessionCard__participants{display:none}
+  .sessionCard__linkRow{gap:6px}
+  .sessionCard__state{min-height:20px;padding:0 7px;font-size:9.5px}
+}
+
+.sessionCard__linkRow{gap:8px}
+.sessionCard__linkActions{gap:6px}
+.sessionCard__join,.sessionCard__link,.sessionCard__copy{display:inline-flex;align-items:center;justify-content:center;min-height:28px;min-width:28px;padding:0 9px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);font-size:10.5px;font-weight:800;color:#e8edff}
+.sessionCard__link{background:rgba(255,255,255,.04);color:#cfd6ff}
+.sessionCard__copy{font-size:10px}
+.sessionCard__actions{gap:6px}
+.sessionCard__actions--primary{padding:3px;border-radius:14px}
+.sessionCard__actions--compact{grid-template-columns:repeat(4,minmax(0,1fr))}
+.sessionCard__btn{min-height:28px;min-width:28px;padding:0 8px;border-radius:10px;font-size:10.5px}
+.sessionCard--compact .sessionCard__meta{font-size:10px}
+.sessionCard--compact .sessionCard__btn{min-height:26px;min-width:26px;padding:0 7px;font-size:10px}
+.sessionCard--compact .sessionCard__join,.sessionCard--compact .sessionCard__copy{font-size:10px}
+.sessionCard--compact .sessionCard__notice{font-size:10px;line-height:1.3}
+
 </style>

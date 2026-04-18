@@ -88,15 +88,15 @@ function isHighlighted(item) {
     <template v-if="isMobile">
       <div class="capsuleMobileBar">
         <button class="capsuleMobileSummary" type="button" @click="openList">
-          <span class="capsuleMobileLabel">⏳ 타임 캡슐</span>
+          <span class="capsuleMobileLabel">⏳</span>
           <span class="capsuleMobileCounts">열린 {{ openedItems.length }} · 대기 {{ lockedItems.length }}</span>
-          <span class="capsuleMobileTitle">{{ latestItem?.title || "캡슐 보기" }}</span>
+          <span class="capsuleMobileTitle">{{ latestItem?.title || "캡슐" }}</span>
         </button>
         <div class="capsuleMobileActions">
           <RlButton size="sm" variant="ghost" @click="$emit('refresh')" :disabled="loading">
             {{ loading ? "…" : "↻" }}
           </RlButton>
-          <RlButton size="sm" variant="soft" @click="openList">보기</RlButton>
+          <RlButton size="sm" variant="soft" @click="openList" title="보기" aria-label="보기">☰</RlButton>
         </div>
       </div>
     </template>
@@ -104,8 +104,8 @@ function isHighlighted(item) {
     <template v-else>
       <div class="capsuleTopline">
         <div class="capsuleHeadMain">
-          <div class="capsuleEyebrow">TIME CAPSULE</div>
-          <div class="capsuleTitle">이 대화의 타임 캡슐</div>
+          <div class="capsuleEyebrow">⏳</div>
+          <div class="capsuleTitle">캡슐</div>
         </div>
 
         <div class="capsuleQuick">
@@ -114,16 +114,11 @@ function isHighlighted(item) {
         </div>
 
         <div class="capsuleHeadActions">
-          <RlButton size="sm" variant="soft" @click="$emit('refresh')" :disabled="loading">
-            {{ loading ? "새로고침 중…" : "새로고침" }}
-          </RlButton>
-          <RlButton size="sm" variant="ghost" @click="openList">
-            {{ expanded ? "접기" : "펼치기" }}
-          </RlButton>
+          <RlButton size="sm" variant="soft" @click="$emit('refresh')" :disabled="loading" title="새로고침" aria-label="새로고침">{{ loading ? "…" : "↻" }}</RlButton>
+          <RlButton size="sm" variant="ghost" @click="openList" :title="expanded ? '접기' : '펼치기'" :aria-label="expanded ? '접기' : '펼치기'">{{ expanded ? "▴" : "▾" }}</RlButton>
         </div>
       </div>
 
-      <div class="capsuleHint">캡슐은 입력창의 ⏳ 버튼으로 만들고, 열리면 바로 액션으로 이어갈 수 있어요.</div>
 
       <div class="capsuleBody">
         <div v-if="loading && !items.length" class="state">캡슐 목록을 불러오는 중…</div>
@@ -138,10 +133,10 @@ function isHighlighted(item) {
             <div v-if="item.openedAt" class="capsuleMeta">열린 시간 · {{ fmt(item.openedAt) }}</div>
             <div class="capsuleActions">
               <span v-if="isHighlighted(item)" class="searchHitBadge">검색 결과</span>
-              <RlButton size="sm" variant="soft" @click="selected=item">상세 보기</RlButton>
-              <RlButton v-if="item.opened" size="sm" variant="primary" @click="selected=item">액션 제안</RlButton>
-              <RlButton v-if="item.opened" size="sm" variant="soft" @click="requestShare(item)">피드 공유</RlButton>
-              <RlButton size="sm" variant="ghost" @click="requestDelete(item)">삭제</RlButton>
+              <RlButton size="sm" variant="soft" @click="selected=item" title="상세" aria-label="상세">👁</RlButton>
+              <RlButton v-if="item.opened" size="sm" variant="primary" @click="selected=item" title="액션" aria-label="액션">✨</RlButton>
+              <RlButton v-if="item.opened" size="sm" variant="soft" @click="requestShare(item)" title="공유" aria-label="공유">⤴</RlButton>
+              <RlButton size="sm" variant="ghost" @click="requestDelete(item)" title="삭제" aria-label="삭제">🗑</RlButton>
             </div>
           </article>
         </div>
@@ -153,13 +148,12 @@ function isHighlighted(item) {
         <div class="mobileSheet rl-cardish">
           <div class="sheetHead">
             <div>
-              <div class="sheetEyebrow">TIME CAPSULE</div>
+              <div class="sheetEyebrow">⏳</div>
               <div class="sheetTitle">캡슐 목록</div>
             </div>
-            <RlButton size="sm" variant="ghost" @click="closeList">닫기</RlButton>
+            <RlButton size="sm" variant="ghost" @click="closeList" title="닫기" aria-label="닫기">✕</RlButton>
           </div>
 
-          <div class="capsuleHint">대화 화면은 가리지 않고, 필요할 때만 여기서 캡슐을 확인하는 구조예요.</div>
 
           <div class="mobileSheetBody">
             <div v-if="loading && !items.length" class="state">캡슐 목록을 불러오는 중…</div>
@@ -174,10 +168,10 @@ function isHighlighted(item) {
                 <div v-if="item.openedAt" class="capsuleMeta">열린 시간 · {{ fmt(item.openedAt) }}</div>
                 <div class="capsuleActions">
                   <span v-if="isHighlighted(item)" class="searchHitBadge">검색 결과</span>
-                  <RlButton size="sm" variant="soft" @click="selected=item">상세 보기</RlButton>
-                  <RlButton v-if="item.opened" size="sm" variant="primary" @click="selected=item">액션 제안</RlButton>
-                  <RlButton v-if="item.opened" size="sm" variant="soft" @click="requestShare(item)">피드 공유</RlButton>
-                  <RlButton size="sm" variant="ghost" @click="requestDelete(item)">삭제</RlButton>
+                  <RlButton size="sm" variant="soft" @click="selected=item" title="상세" aria-label="상세">👁</RlButton>
+                  <RlButton v-if="item.opened" size="sm" variant="primary" @click="selected=item" title="액션" aria-label="액션">✨</RlButton>
+                  <RlButton v-if="item.opened" size="sm" variant="soft" @click="requestShare(item)" title="공유" aria-label="공유">⤴</RlButton>
+                  <RlButton size="sm" variant="ghost" @click="requestDelete(item)" title="삭제" aria-label="삭제">🗑</RlButton>
                 </div>
               </article>
             </div>
@@ -187,28 +181,31 @@ function isHighlighted(item) {
 
       <div v-if="selected" class="overlay" @click.self="selected=null">
         <div class="sheet rl-cardish">
-          <div class="sheetEyebrow">CAPSULE DETAIL</div>
-          <div class="sheetTitle">{{ selected.title || "제목 없는 캡슐" }}</div>
+          <div class="sheetEyebrow">⏳</div>
+          <div class="sheetTitle">{{ selected.title || "캡슐" }}</div>
           <div class="sheetMeta">열릴 시간 · {{ fmt(selected.unlockAt) }}</div>
           <div v-if="selected.openedAt" class="sheetMeta">열린 시간 · {{ fmt(selected.openedAt) }}</div>
           <div v-if="selected.opened" class="relayBox">
-            <div class="relayTitle">열린 캡슐에서 바로 액션으로 이어가기</div>
+            <div class="relayTitle">✨</div>
             <div class="relayActions">
-              <RlButton size="sm" variant="soft" @click="suggest('PROMISE')">약속 제안</RlButton>
-              <RlButton size="sm" variant="soft" @click="suggest('TODO')">할일 제안</RlButton>
-              <RlButton size="sm" variant="soft" @click="suggest('PLACE')">장소 제안</RlButton>
+              <RlButton size="sm" variant="soft" @click="suggest('PROMISE')" title="약속" aria-label="약속">📅</RlButton>
+              <RlButton size="sm" variant="soft" @click="suggest('TODO')" title="할 일" aria-label="할 일">✅</RlButton>
+              <RlButton size="sm" variant="soft" @click="suggest('PLACE')" title="장소" aria-label="장소">📍</RlButton>
             </div>
           </div>
           <div class="sheetFoot">
-            <RlButton v-if="selected?.opened" size="sm" variant="soft" @click="requestShare(selected)">피드 공유</RlButton>
-            <RlButton size="sm" variant="ghost" @click="requestDelete(selected)">삭제</RlButton>
-            <RlButton size="sm" variant="soft" @click="selected=null">닫기</RlButton>
+            <RlButton v-if="selected?.opened" size="sm" variant="soft" @click="requestShare(selected)" title="공유" aria-label="공유">⤴</RlButton>
+            <RlButton size="sm" variant="ghost" @click="requestDelete(selected)" title="삭제" aria-label="삭제">🗑</RlButton>
+            <RlButton size="sm" variant="soft" @click="selected=null" title="닫기" aria-label="닫기">✕</RlButton>
           </div>
         </div>
       </div>
     </Teleport>
   </section>
 </template>
+
+
+
 
 <style scoped>
 .capsulePanel{margin-top:4px;padding:12px 14px;border-radius:20px;display:grid;gap:10px;background:linear-gradient(180deg,color-mix(in oklab,var(--surface) 88%, transparent),color-mix(in oklab,var(--surface-2) 86%, transparent));border:1px solid color-mix(in oklab,var(--border) 86%, transparent)}
@@ -254,10 +251,23 @@ function isHighlighted(item) {
   .capsuleMobileTitle{font-size:12px}
   .mobileSheet,.sheet{padding:16px 14px calc(14px + env(safe-area-inset-bottom));border-radius:22px}
 }
-</style>
 
-<style scoped>
 @media (max-width:720px){
   .capsuleMobileActions :deep(button){min-width:40px;height:38px;padding-inline:10px;border-radius:12px}
 }
+
+.capsulePanel{padding:10px 12px;border-radius:18px;gap:8px}
+.capsuleTopline{gap:8px}
+.capsuleTitle{font-size:14px}
+.capsuleQuick{gap:6px}
+.summaryPill{min-height:28px;padding:0 8px;font-size:10px}
+.capsuleBody{gap:8px}
+.capsuleList{gap:8px}
+.capsuleCard{gap:6px;padding:10px 11px;border-radius:16px;scroll-margin-top:112px}
+.capsuleRow{gap:8px}.capsuleCardTitle{font-size:13px;line-height:1.32}.capsuleState,.capsuleMeta{font-size:11px;line-height:1.4}
+.capsuleActions{gap:6px}.capsuleActions :deep(button){min-height:30px;padding:0 9px;font-size:11px}
+.capsuleMobileSummary{padding:10px 11px;border-radius:16px;gap:4px}.capsuleMobileCounts,.capsuleMobileTitle{font-size:11px}.capsuleMobileActions{gap:6px}
+.mobileSheet{border-radius:22px}.mobileSheetBody{padding-top:6px}.sheetHead{gap:10px}.sheetTitle{font-size:15px}.sheetMeta{font-size:11px}.relayBox{padding:10px 11px;border-radius:16px}.relayActions{gap:6px}.relayActions :deep(button),.sheetFoot :deep(button){min-height:30px;padding:0 9px;font-size:11px}
+@media (max-width:720px){.capsulePanel{padding:8px 9px;border-radius:16px}.capsulePanel.mobile{padding:2px 4px}.capsuleCard{padding:9px 10px;border-radius:14px}.capsuleCardTitle{font-size:12px}.capsuleState,.capsuleMeta{font-size:10.5px}.capsuleActions :deep(button){min-height:28px;padding:0 8px;font-size:10.5px}.mobileSheet{border-radius:20px}}
+
 </style>

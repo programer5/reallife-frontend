@@ -4,16 +4,15 @@ import { computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useNotificationsStore } from "@/stores/notifications";
 import { useConversationsStore } from "@/stores/conversations";
-import { useAuthStore } from "@/stores/auth";
 
 const route = useRoute();
 const router = useRouter();
 const noti = useNotificationsStore();
 const conv = useConversationsStore();
-const auth = useAuthStore();
 
 const tabs = [
   { to: "/home", label: "Home", icon: "home" },
+  { to: "/search", label: "Search", icon: "search" },
   { to: "/inbox", label: "Connect", icon: "message" },
   { to: "/me", label: "Me", icon: "user" },
 ];
@@ -22,7 +21,7 @@ const isActive = (to) => route.path.startsWith(to);
 const go = (to) => router.push(to);
 
 const conversationsUnread = computed(() =>
-    (conv.items || []).reduce((sum, item) => sum + Number(item?.unreadCount || 0), 0)
+  (conv.items || []).reduce((sum, item) => sum + Number(item?.unreadCount || 0), 0)
 );
 const totalUnread = computed(() => Number(noti.unreadCount || 0) + conversationsUnread.value);
 const inboxBadge = computed(() => {
@@ -33,29 +32,6 @@ const inboxBadge = computed(() => {
 });
 const showInboxDot = computed(() => totalUnread.value > 0);
 
-const profileReady = computed(() => {
-  const me = auth.me || {};
-  const name = String(me?.name || "").trim();
-  const handle = String(me?.handle || "").trim();
-  const bio = String(me?.bio || "").trim();
-  return Boolean((name || handle) && bio);
-});
-
-function tabMeta(to) {
-  if (to === "/home") {
-    return isActive("/home") ? "오늘 흐름" : "새 글 보기";
-  }
-  if (to === "/inbox") {
-    if (totalUnread.value > 0) return `답장·알림 ${inboxBadge.value}`;
-    return isActive("/inbox") ? "대화·알림" : "연결 이어가기";
-  }
-  if (to === "/me") {
-    if (!profileReady.value) return "프로필 보강";
-    return isActive("/me") ? "내 흐름" : "내 정보";
-  }
-  return "";
-}
-
 onMounted(() => {
   if (!noti.loading && !(noti.items || []).length) noti.refresh?.();
   if (!conv.loading && !(conv.items || []).length) conv.refresh?.();
@@ -65,12 +41,12 @@ onMounted(() => {
 <template>
   <nav class="tabs" aria-label="Bottom navigation">
     <button
-        v-for="t in tabs"
-        :key="t.to"
-        class="tab"
-        :class="{ active: isActive(t.to), tabUnread: t.to === '/inbox' && showInboxDot }"
-        @click="go(t.to)"
-        type="button"
+      v-for="t in tabs"
+      :key="t.to"
+      class="tab"
+      :class="{ active: isActive(t.to), tabUnread: t.to === '/inbox' && showInboxDot }"
+      @click="go(t.to)"
+      type="button"
     >
       <span class="activeRail" aria-hidden="true"></span>
 
@@ -78,6 +54,10 @@ onMounted(() => {
         <svg viewBox="0 0 24 24">
           <template v-if="t.icon === 'home'">
             <path d="M4 10.5 12 4l8 6.5V20a2 2 0 0 1-2 2h-4v-6H10v6H6a2 2 0 0 1-2-2v-9.5Z" stroke="currentColor" stroke-width="1.7" fill="none"/>
+          </template>
+          <template v-else-if="t.icon === 'search'">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7" fill="none"/>
+            <path d="m16 16 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
           </template>
           <template v-else-if="t.icon === 'message'">
             <path d="M4 4h16v12H7l-3 3V4Z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/>
@@ -92,10 +72,7 @@ onMounted(() => {
         <span v-if="t.to === '/inbox' && showInboxDot" class="badge">{{ inboxBadge }}</span>
       </span>
 
-      <span class="labelGroup">
-        <span class="lbl">{{ t.label }}</span>
-        <span class="meta">{{ tabMeta(t.to) }}</span>
-      </span>
+      <span class="lbl">{{ t.label }}</span>
     </button>
   </nav>
 </template>
@@ -131,7 +108,7 @@ onMounted(() => {
   gap: 6px;
   cursor: pointer;
   transition: all 0.18s ease;
-  padding: 8px 4px;
+  padding: 10px 4px 8px;
 }
 
 .tabUnread .lbl {
@@ -191,12 +168,6 @@ onMounted(() => {
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.18);
 }
 
-.labelGroup {
-  display: grid;
-  gap: 2px;
-  text-align: center;
-}
-
 .lbl {
   font-size: 10px;
   letter-spacing: 0.4px;
@@ -204,86 +175,22 @@ onMounted(() => {
   font-weight: 900;
 }
 
-.meta {
-  font-size: 9px;
-  line-height: 1.2;
-  color: rgba(232, 232, 234, 0.5);
-  white-space: normal;
-  min-height: 18px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.tab:hover .activeRail,
+.tab.active .activeRail {
+  border-color: color-mix(in oklab, var(--accent) 22%, transparent);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
-.active {
-  color: rgba(232, 232, 234, 0.98);
+.tab:hover,
+.tab.active {
+  color: var(--text);
 }
 
-.active .activeRail {
-  border-color: color-mix(in oklab, var(--accent) 28%, rgba(255, 255, 255, 0.14));
-  background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 12%, rgba(255,255,255,0.04)), rgba(255,255,255,0.02));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 10px 20px rgba(0,0,0,.16);
-}
-
-.active .ico {
+.tab.active .ico {
   transform: translateY(-1px);
 }
 
-.active .lbl {
+.tab.active .lbl {
   opacity: 1;
-}
-
-.active .meta {
-  color: rgba(232, 232, 234, 0.72);
-}
-
-@media (min-width: 1024px) {
-  .tabs {
-    display: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .tabs {
-    padding: 8px 8px 10px;
-    gap: 6px;
-  }
-
-  .tab {
-    gap: 5px;
-    border-radius: 16px;
-    padding: 7px 3px;
-  }
-
-  .activeRail {
-    border-radius: 16px;
-  }
-
-  .ico {
-    width: 26px;
-    height: 26px;
-  }
-
-  .ico svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  .badge {
-    min-width: 16px;
-    height: 16px;
-    right: -7px;
-    top: -7px;
-    font-size: 9px;
-  }
-
-  .lbl {
-    font-size: 9px;
-  }
-
-  .meta {
-    font-size: 8px;
-  }
 }
 </style>
