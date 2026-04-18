@@ -3,18 +3,26 @@
 import { computed, onMounted, ref, nextTick, onBeforeUnmount, watch} from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
-import RlModal from "@/components/ui/RlModal.vue";
-import PinCandidateCard from "@/components/pins/PinCandidateCard.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
 import AsyncStatePanel from "@/components/ui/AsyncStatePanel.vue";
 import ConversationCapsulePanel from "@/components/chat/ConversationCapsulePanel.vue";
-import MessageAttachmentPicker from "@/components/chat/MessageAttachmentPicker.vue";
-import MessageAttachmentPreview from "@/components/chat/MessageAttachmentPreview.vue";
 import CapsuleComposerModal from "@/components/chat/CapsuleComposerModal.vue";
 import ConversationPendingBridge from "@/components/chat/ConversationPendingBridge.vue";
 import ConversationSessionComposer from "@/components/chat/ConversationSessionComposer.vue";
 import ConversationSessionCard from "@/components/chat/ConversationSessionCard.vue";
-import ConversationSessionMessageCard from "@/components/chat/ConversationSessionMessageCard.vue";
+import LensHeader from "@/components/conversation/LensHeader.vue";
+import LensTabs from "@/components/conversation/LensTabs.vue";
+import StageSheet from "@/components/conversation/StageSheet.vue";
+import SessionHub from "@/components/conversation/SessionHub.vue";
+import ActivePinDock from "@/components/conversation/ActivePinDock.vue";
+import ConversationMessageListRail from "@/components/conversation/ConversationMessageListRail.vue";
+import ConversationSearchPanel from "@/components/conversation/ConversationSearchPanel.vue";
+import ComposerUtilityBar from "@/components/conversation/ComposerUtilityBar.vue";
+import ConversationComposerShell from "@/components/conversation/ConversationComposerShell.vue";
+import ConversationMessageMenuOverlay from "@/components/conversation/ConversationMessageMenuOverlay.vue";
+import ConversationLockModal from "@/components/conversation/ConversationLockModal.vue";
+import ConversationPinActionModal from "@/components/conversation/ConversationPinActionModal.vue";
+import ConversationPinEditModal from "@/components/conversation/ConversationPinEditModal.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -43,6 +51,7 @@ import { useConversationCapsules } from "@/lib/useConversationCapsules";
 import { useMessageContextMenu } from "@/lib/useMessageContextMenu";
 import { useConversationComposer } from "@/lib/useConversationComposer";
 import { useConversationSessions } from "@/lib/useConversationSessions";
+import { useConversationSearchFocus } from "@/lib/useConversationSearchFocus";
 
 const route = useRoute();
 const router = useRouter();
@@ -54,21 +63,44 @@ const notificationsStore = useNotificationsStore();
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const meId = computed(() => String(auth.me?.id || ""));
 const isPinnedHighlight = ref(false);
-const conversationSearchQ = ref("");
-const searchRailExpanded = ref(false);
-const searchFocusTerm = ref("");
-const searchFocusMid = ref("");
-const searchFocusPinId = ref("");
-const searchFocusCapsuleId = ref("");
+const isMobileViewport = ref(false);
+const dockMode = ref("active"); // 'active' | 'suggestions'
+const dockOpen = ref(false);
 
-const conversationSearchSummary = computed(() => {
-  const parts = [];
-  if (activeCount.value) parts.push(`액션 ${activeCount.value}`);
-  if (capsuleItems.value?.length) parts.push(`캡슐 ${capsuleItems.value.length}`);
-  if (items.value?.length) parts.push(`메시지 ${items.value.length}`);
-  return parts.length ? parts.join(" · ") : "이 대화의 흐름을 빠르게 다시 찾을 수 있어요";
+const {
+  conversationSearchQ,
+  searchRailExpanded,
+  searchFocusTerm,
+  searchFocusMid,
+  searchFocusPinId,
+  searchFocusCapsuleId,
+  conversationSearchSummary,
+  hasSearchFocus,
+  searchFocusSummary,
+  syncSearchRailMode,
+  toggleSearchRail,
+  openConversationSearch,
+  openGlobalSearch,
+  renderMessageHtml,
+  clearSearchFocus,
+  refocusSearchTarget,
+  focusPinFromSearch,
+  focusCapsuleFromSearch,
+  syncSearchFocusFromRoute,
+} = useConversationSearchFocus({
+  route,
+  router,
+  conversationId,
+  items: computed(() => items.value),
+  activeCount: computed(() => activeCount.value),
+  capsuleItems: computed(() => capsuleItems.value),
+  isMobileViewport,
+  ensureMessageVisible,
+  nextTick,
+  dockMode,
+  dockOpen,
 });
-const hasSearchFocus = computed(() => Boolean(searchFocusTerm.value || searchFocusMid.value || searchFocusPinId.value || searchFocusCapsuleId.value));
+
 const joinedSessionIds = ref([]);
 const sessionHubRef = ref(null);
 
@@ -314,120 +346,6 @@ function buildSessionMessageFromSession(session) {
     pinCandidates: [],
   };
 }
-
-function syncSearchRailMode() {
-  searchRailExpanded.value = !isMobileViewport.value || hasSearchFocus.value;
-}
-function toggleSearchRail() {
-  searchRailExpanded.value = !searchRailExpanded.value;
-}
-
-function openConversationSearch(prefill = "") {
-  const q = String(prefill || conversationSearchQ.value || "").trim();
-  const query = { conversationId: conversationId.value || undefined };
-  if (q) query.q = q;
-  router.push({ path: '/search', query });
-}
-
-function openGlobalSearch() {
-  const q = String(conversationSearchQ.value || "").trim();
-  const query = {};
-  if (q) query.q = q;
-  router.push({ path: '/search', query });
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-function escapeRegExp(value) {
-  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function renderMessageHtml(message) {
-  const raw = String(message?.content ?? "");
-  let html = escapeHtml(raw).replace(/\n/g, "<br />");
-  const keyword = String(searchFocusTerm.value || "").trim();
-  const isSearchTarget = String(searchFocusMid.value || "") === String(message?.messageId || "");
-  const shouldHighlight = keyword && (isSearchTarget || raw.toLowerCase().includes(keyword.toLowerCase()));
-  if (shouldHighlight) {
-    try {
-      const regex = new RegExp(`(${escapeRegExp(keyword)})`, "ig");
-      html = html.replace(regex, '<mark class="msgSearchMark">$1</mark>');
-    } catch {}
-  }
-  return html || "&nbsp;";
-}
-const searchFocusSummary = computed(() => {
-  const parts = [];
-  if (searchFocusMid.value) parts.push('메시지');
-  if (searchFocusPinId.value) parts.push('액션');
-  if (searchFocusCapsuleId.value) parts.push('캡슐');
-  return parts.join(' · ');
-});
-
-function clearSearchFocus() {
-  searchFocusTerm.value = "";
-  searchFocusMid.value = "";
-  searchFocusPinId.value = "";
-  searchFocusCapsuleId.value = "";
-  const query = { ...route.query };
-  delete query.fromSearch;
-  delete query.searchQ;
-  delete query.mid;
-  delete query.pinId;
-  delete query.capsuleId;
-  router.replace({ query }).catch(() => {});
-}
-
-async function refocusSearchTarget() {
-  if (searchFocusMid.value) {
-    await ensureMessageVisible(searchFocusMid.value, 8);
-    await nextTick();
-    const target = document.querySelector(`[data-mid="${searchFocusMid.value}"]`);
-    if (target?.scrollIntoView) {
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-      target.classList.add("searchAnchorPulse");
-      setTimeout(() => target.classList.remove("searchAnchorPulse"), 2200);
-    }
-    return;
-  }
-  if (searchFocusPinId.value) {
-    await focusPinFromSearch(searchFocusPinId.value);
-    return;
-  }
-  if (searchFocusCapsuleId.value) {
-    await focusCapsuleFromSearch(searchFocusCapsuleId.value);
-  }
-}
-async function focusPinFromSearch(pinId) {
-  if (!pinId) return;
-  dockMode.value = "active";
-  dockOpen.value = true;
-  await nextTick();
-  const selector = `[data-pin-id="${pinId}"]`;
-  const target = document.querySelector(selector);
-  if (target?.scrollIntoView) {
-    target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-    target.classList.add("searchAnchorPulse");
-    setTimeout(() => target.classList.remove("searchAnchorPulse"), 2200);
-  }
-}
-async function focusCapsuleFromSearch(capsuleId) {
-  if (!capsuleId) return;
-  await nextTick();
-  let target = document.querySelector(`[data-capsule-id="${String(capsuleId)}"]`);
-  if (!target) target = document.querySelector('.capsulePanel');
-  if (target?.scrollIntoView) {
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target.classList.add('searchAnchorPulse');
-    setTimeout(() => target.classList.remove('searchAnchorPulse'), 2200);
-  }
-}
-
 
 function activateSessionControls(session, { scroll = false, switchMode = true } = {}) {
   const sessionId = String(session?.sessionId || '');
@@ -749,13 +667,9 @@ const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
 const readReceipts = ref([]); // [{ userId, lastReadAt }]
 
 // ✅ RealLife v2: Dock(상단)에서 액션/제안 관리
-const dockMode = ref("active"); // 'active' | 'suggestions'
-const dockOpen = ref(false);
 const dockJustMovedPinId = ref(null);
 const savingCandidateId = ref(null);
 const lastCreatedPinId = ref(null);
-const isMobileViewport = ref(false);
-
 function syncMobileViewport(){
   if (typeof window === "undefined") return;
   isMobileViewport.value = window.innerWidth <= 720;
@@ -1330,7 +1244,7 @@ async function jumpToFirstUnread(lastReadAt) {
   await nextTick();
 
   if (mid) {
-    const el = scrollerRef.value?.querySelector(`[data-mid="${mid}"]`);
+    const el = getScrollerEl()?.querySelector(`[data-mid="${mid}"]`);
     if (el?.scrollIntoView) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
@@ -1357,17 +1271,12 @@ onMounted(() => {
   window.addEventListener("pin-remind-highlight", onPinRemindHighlight);
 });
 watch(() => route.query, async () => {
-  const fromSearch = route.query?.fromSearch ? String(route.query.fromSearch) === "1" : false;
-  searchFocusTerm.value = route.query?.searchQ ? String(route.query.searchQ) : "";
-  searchFocusMid.value = route.query?.mid ? String(route.query.mid) : "";
-  searchFocusPinId.value = route.query?.pinId ? String(route.query.pinId) : "";
-  searchFocusCapsuleId.value = route.query?.capsuleId ? String(route.query.capsuleId) : "";
-  syncSearchRailMode();
+  const { fromSearch, targetMid, targetPinId, targetCapsuleId } = await syncSearchFocusFromRoute();
   if (!fromSearch) return;
   await nextTick();
-  if (searchFocusMid.value) await ensureMessageVisible(searchFocusMid.value, 8);
-  if (searchFocusPinId.value) await focusPinFromSearch(searchFocusPinId.value);
-  if (searchFocusCapsuleId.value) await focusCapsuleFromSearch(searchFocusCapsuleId.value);
+  if (targetMid) await ensureMessageVisible(targetMid, 8);
+  if (targetPinId) await focusPinFromSearch(targetPinId);
+  if (targetCapsuleId) await focusCapsuleFromSearch(targetCapsuleId);
 }, { deep: true });
 
 onBeforeUnmount(() => {
@@ -2110,6 +2019,9 @@ const nextCursor = ref(null);
 const hasNext = ref(false);
 
 const scrollerRef = ref(null);
+function getScrollerEl() {
+  return scrollerRef.value?.getElement?.() || scrollerRef.value?.$el || scrollerRef.value || null;
+}
 const newMsgCount = ref(0);
 
 // ✅ 메시지 시간 라벨 자동 갱신용 tick
@@ -2136,7 +2048,7 @@ function messageElementSelector(messageId) {
 }
 
 function updateMessageDepthFocus() {
-  const el = scrollerRef.value;
+  const el = getScrollerEl();
   if (!el) return;
   const nodes = Array.from(el.querySelectorAll('[data-mid]'));
   if (!nodes.length) {
@@ -2165,7 +2077,7 @@ function updateMessageDepthFocus() {
 function focusDepthMessage(messageId, { smooth = true } = {}) {
   const selector = messageElementSelector(messageId);
   if (!selector) return;
-  const target = scrollerRef.value?.querySelector(selector) || document.querySelector(selector);
+  const target = getScrollerEl()?.querySelector(selector) || document.querySelector(selector);
   if (!target?.scrollIntoView) return;
   target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' });
   focusedDepthMid.value = String(messageId);
@@ -2264,7 +2176,7 @@ function scrollToBottom({ smooth = false } = {}) {
   nextTick(() => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const el = scrollerRef.value;
+        const el = getScrollerEl();
         if (!el) return;
 
         if (smooth) {
@@ -2277,7 +2189,7 @@ function scrollToBottom({ smooth = false } = {}) {
   });
 }
 function isNearBottom() {
-  const el = scrollerRef.value;
+  const el = getScrollerEl();
   if (!el) return true;
   return el.scrollHeight - (el.scrollTop + el.clientHeight) < 160;
 }
@@ -2550,7 +2462,7 @@ function appendIncomingMessage(payload) {
 }
 
 function onScroll() {
-  const el = scrollerRef.value;
+  const el = getScrollerEl();
   if (!el) return;
   updateMessageDepthFocus();
 
@@ -2589,7 +2501,7 @@ async function loadFirst({ keepScroll = false } = {}) {
   loading.value = true;
   error.value = "";
 
-  const prevScrollHeight = scrollerRef.value?.scrollHeight ?? 0;
+  const prevScrollHeight = getScrollerEl()?.scrollHeight ?? 0;
 
   // ✅ fetch 끝난 뒤 어떤 스크롤을 할지 "예약"
   let shouldScrollToBottom = !keepScroll;
@@ -2669,7 +2581,7 @@ async function loadFirst({ keepScroll = false } = {}) {
     nextTick(() => {
       requestAnimationFrame(() => {
         requestAnimationFrame(async () => {
-          const el = scrollerRef.value;
+          const el = getScrollerEl();
           if (!el) return;
 
           // 1) keepScroll(=더보기 prepend 보정)
@@ -2700,7 +2612,7 @@ async function loadMore() {
   if (!hasNext.value || !nextCursor.value) return;
   if (!canViewConversation.value) return;
 
-  const el = scrollerRef.value;
+  const el = getScrollerEl();
   const anchor = el ? getScrollAnchor(el) : null;
 
   const res = await fetchMessages({
@@ -2715,7 +2627,7 @@ async function loadMore() {
   hasNext.value = !!res.hasNext;
 
   nextTick(() => {
-    const el2 = scrollerRef.value;
+    const el2 = getScrollerEl();
     if (!el2) return;
 
     requestAnimationFrame(() => {
@@ -3159,15 +3071,7 @@ onMounted(async () => {
   // ✅ 알림/검색으로 진입한 경우: 읽음 처리 + 대상 위치로 스크롤
   const notiId = route.query?.notiId ? String(route.query.notiId) : "";
   const fromNoti = route.query?.fromNoti ? String(route.query.fromNoti) === "1" : false;
-  const fromSearch = route.query?.fromSearch ? String(route.query.fromSearch) === "1" : false;
-  const targetMid = route.query?.mid ? String(route.query.mid) : "";
-  const targetPinId = route.query?.pinId ? String(route.query.pinId) : "";
-  const targetCapsuleId = route.query?.capsuleId ? String(route.query.capsuleId) : "";
-  searchFocusTerm.value = route.query?.searchQ ? String(route.query.searchQ) : "";
-  searchFocusMid.value = targetMid;
-  searchFocusPinId.value = targetPinId;
-  searchFocusCapsuleId.value = targetCapsuleId;
-  syncSearchRailMode();
+  const { fromSearch, targetMid, targetPinId, targetCapsuleId } = await syncSearchFocusFromRoute();
 
   if (notiId) {
     try {
@@ -3178,7 +3082,7 @@ onMounted(async () => {
 
   await nextTick();
 
-  if (scrollerRef.value) scrollerRef.value.addEventListener("scroll", onScroll);
+  if (getScrollerEl()) getScrollerEl().addEventListener("scroll", onScroll);
 
   // ✅ composer 높이 실측 → CSS 변수 동기화
   syncComposerHeightVar();
@@ -3317,7 +3221,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", syncComposerHeightVar); // ✅ 추가
   window.removeEventListener("resize", syncMobileViewport);
 
-  if (scrollerRef.value) scrollerRef.value.removeEventListener("scroll", onScroll);
+  if (getScrollerEl()) getScrollerEl().removeEventListener("scroll", onScroll);
   if (offEvent) offEvent();
   if (offStatus) offStatus();
   offStatus = null;
@@ -3388,6 +3292,7 @@ onBeforeUnmount(() => {
       v-else-if="loading"
       icon="⏳"
       title="대화를 불러오는 중이에요"
+      description="메시지와 액션 흐름을 연결하고 있어요."
       tone="loading"
       :show-actions="false"
     />
@@ -3404,244 +3309,91 @@ onBeforeUnmount(() => {
     />
 
     <!-- ✅ 메시지 스크롤 -->
-    <div v-else ref="scrollerRef" class="scroller rl-scroll rl-scroll--premium">
-      <div class="inner">
-        <div v-if="canViewConversation && hasSearchFocus" class="searchReturnBar rl-cardish">
-          <div class="searchReturnBar__copy">
-            <strong>검색으로 돌아옴</strong>
-          </div>
-          <div class="searchReturnBar__actions">
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="refocusSearchTarget" title="위치 다시 찾기" aria-label="위치 다시 찾기">🎯</button>
-            <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch(searchFocusTerm)" title="같은 검색 다시 보기" aria-label="같은 검색 다시 보기">↺</button>
-            <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--ghost" @click="clearSearchFocus" title="닫기" aria-label="닫기">✕</button>
-          </div>
-        </div>
-
-        <div class="more">
-          <button v-if="hasNext" class="moreBtn" type="button" @click="loadMore" title="이전 메시지 더 보기" aria-label="이전 메시지 더 보기">
-            ↑
-          </button>
-        </div>
-
-        <div
-            v-for="(m, i) in visibleMessages"
-            :key="m.messageId"
-            class="msg"
-            :class="messageShellClass(m, i)"
-            :style="messageDepthStyle(i)"
-            :data-mid="m.messageId"
-        >
-          <div
-              v-if="unreadDividerMid && String(m.messageId) === String(unreadDividerMid)"
-              class="unreadDivider"
-          >
-            <span>새 메시지</span>
-          </div>
-
-          <div class="bubble" :class="messageBubbleClass(m, i)"
-            @contextmenu.prevent.stop="openMsgMenu($event, m)"
-            @touchstart.passive="onBubbleTouchStart($event, m)"
-            @touchend="onBubbleTouchEnd"
-            @touchcancel="onBubbleTouchEnd"
-            @click="onBubbleClick($event, m)"
-          >
-            <button
-              v-if="!editingMid || String(m.messageId) !== String(editingMid)"
-              class="msgMenuTrigger"
-              type="button"
-              aria-label="메시지 메뉴 열기"
-              @click.stop="openMsgMenu($event, m)"
-            >⋯</button>
-
-            <!-- ✅ Hover Action Bar (calmer) -->
-            <div
-                class="hoverActions"
-                v-if="(!editingMid || String(m.messageId) !== String(editingMid)) && hasMessageTools(m)"
-            >
-              <button class="haBtn" type="button" title="복사" @click.stop="copyMessage(m)">
-                <span class="haBtn__icon">⧉</span>
-                <span class="haBtn__label">⧉</span>
-              </button>
-
-              <button
-                  v-if="isMineMessage(m)"
-                  class="haBtn"
-                  type="button"
-                  title="수정"
-                  @click.stop="startEdit(m)"
-              >
-                <span class="haBtn__icon">✎</span>
-                <span class="haBtn__label">✎</span>
-              </button>
-
-              <button
-                  v-if="m.pinCandidates && m.pinCandidates.length"
-                  class="haBtn haBtn--accent"
-                  type="button"
-                  :title="candidateToggleLabel(m)"
-                  @click.stop="toggleCandidates(m.messageId)"
-              >
-                <span class="haBtn__icon">📌</span>
-                <span class="haBtn__label">{{ Array.isArray(m.pinCandidates) ? m.pinCandidates.length : 0 }}</span>
-              </button>
-            </div>
-
-            <!-- ✅ 저장됨 배지 -->
-            <span v-if="isSavedBadgeOn(m.messageId)" class="savedBadge" aria-live="polite">저장됨</span>
-            <span v-if="searchFocusMid === String(m.messageId)" class="messageSearchHitBadge" aria-live="polite">검색 결과</span>
-
-            <!-- ✅ 본문 -->
-            <div class="text" :class="messageBodyClass(m, i)">
-              <!-- 편집 모드 -->
-              <template v-if="editingMid && String(m.messageId) === String(editingMid)">
-                <textarea
-                    v-model="editingText"
-                    class="editBox"
-                    rows="2"
-                    :disabled="savingEdit"
-                ></textarea>
-
-                <div class="editActions">
-                  <button class="editBtn" :disabled="savingEdit" @click="cancelEdit" title="취소" aria-label="취소">✕</button>
-                  <button class="editBtn editBtn--primary" :disabled="savingEdit" @click="saveEdit(m)" title="저장" aria-label="저장">✓</button>
-                </div>
-              </template>
-
-              <!-- 일반 모드 -->
-              <template v-else>
-                <div v-if="shouldShowMessageEyebrow(m, i)" class="messageEyebrow">
-                  <span class="messageEyebrow__tag">{{ messageEyebrowLabel(m, i) }}</span>
-                  <small v-if="messageEyebrowHint(m, i)" class="messageEyebrow__hint">{{ messageEyebrowHint(m, i) }}</small>
-                </div>
-
-                <template v-if="isSessionMessage(m)">
-                  <div class="messageTextBlock messageTextBlock--session">
-                    <span v-html="renderMessageHtml(m)"></span>
-                    <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
-                  </div>
-                  <div :class="messageSessionBlockClass(m, i)">
-                    <ConversationSessionMessageCard
-                      :message="m"
-                      :session="sessionForMessage(m)"
-                      :busy="isActionBusy(sessionForMessage(m)?.sessionId)"
-                      :current-user-id="meId"
-                      compact
-                      @activate-session="activateSessionControls($event, { scroll: true })"
-                      @play="onPlaybackPlay"
-                      @pause="onPlaybackPause"
-                      @seek="onPlaybackSeek"
-                      @end="onPlaybackEnd"
-                      @playback-intent="onPlaybackIntent"
-                      @position-sampled="onPlaybackTelemetry"
-                      @touch-presence="onTouchPlaybackPresence"
-                    />
-                  </div>
-                </template>
-                <template v-else>
-                  <div class="messageTextBlock">
-                    <span v-html="renderMessageHtml(m)"></span>
-                    <span v-if="m.editedAt" class="editedMark">(수정됨)</span>
-                  </div>
-
-                  <div v-if="messageHasActionCandidate(m)" class="messageInlineMeta messageInlineMeta--action">
-                    <span class="messageInlineMeta__chip">📌 {{ Array.isArray(m.pinCandidates) ? m.pinCandidates.length : 0 }}</span>
-                  </div>
-                </template>
-              </template>
-
-              <div v-if="messageUtilitySummary(m) && (!editingMid || String(m.messageId) !== String(editingMid))" class="messageToolSummary">
-                <small>{{ messageUtilitySummary(m) }}</small>
-              </div>
-            </div>
-
-            <div v-if="shouldRenderMessageFooter(m)" :class="messageFooterClass(m, i)">
-              <MessageAttachmentPreview
-                v-if="hasMessageAttachmentBlock(m)"
-                :items="m.attachments"
-                class="messageAttachmentBlock"
-              />
-
-              <!-- ✅ optimistic send 상태 -->
-              <div v-if="hasMessageSendState(m)" class="sendState" :data-status="m._status">
-                <template v-if="m._status === 'sending'">…</template>
-
-                <template v-else-if="m._status === 'failed'">
-                  ⚠
-                  <button class="retryBtn" type="button" @click="retrySend(m)" title="재시도" aria-label="재시도">↻</button>
-                </template>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="shouldShowMessageMeta(m, i)" :class="messageMetaRowClass(m, i)">
-            <span v-if="getReadLabel(m)" class="readReceipt">{{ getReadLabel(m) }}</span>
-            <span v-if="!isGroupWithNext(i)" class="time">{{ messageTimeText(m) }}</span>
-          </div>
-        </div>
-
-        <div class="bottomSpacer"></div>
-      </div>
-    </div>
-
-    <!-- ✅ 새 메시지 배너 -->
-    <button v-if="newMsgCount > 0" class="newBanner" type="button" @click="jumpToNewest" title="새 메시지로 이동" aria-label="새 메시지로 이동">
-      ↓ {{ newMsgCount }}
-    </button>
+    <ConversationMessageListRail
+      v-else
+      ref="scrollerRef"
+      :can-view-conversation="canViewConversation"
+      :has-search-focus="hasSearchFocus"
+      :search-focus-term="searchFocusTerm"
+      :has-next="hasNext"
+      :visible-messages="visibleMessages"
+      :unread-divider-mid="unreadDividerMid"
+      :editing-mid="editingMid"
+      :editing-text="editingText"
+      :saving-edit="savingEdit"
+      :flash-mid="flashMid"
+      :search-focus-mid="searchFocusMid"
+      :message-shell-class="messageShellClass"
+      :message-depth-style="messageDepthStyle"
+      :message-bubble-class="messageBubbleClass"
+      :message-body-class="messageBodyClass"
+      :message-session-block-class="messageSessionBlockClass"
+      :has-message-tools="hasMessageTools"
+      :is-mine-message="isMineMessage"
+      :candidate-toggle-label="candidateToggleLabel"
+      :is-saved-badge-on="isSavedBadgeOn"
+      :should-show-message-eyebrow="shouldShowMessageEyebrow"
+      :message-eyebrow-label="messageEyebrowLabel"
+      :message-eyebrow-hint="messageEyebrowHint"
+      :is-session-message="isSessionMessage"
+      :render-message-html="renderMessageHtml"
+      :session-for-message="sessionForMessage"
+      :is-action-busy="isActionBusy"
+      :me-id="meId"
+      :message-has-action-candidate="messageHasActionCandidate"
+      :message-utility-summary="messageUtilitySummary"
+      :should-render-message-footer="shouldRenderMessageFooter"
+      :message-footer-class="messageFooterClass"
+      :has-message-attachment-block="hasMessageAttachmentBlock"
+      :has-message-send-state="hasMessageSendState"
+      :should-show-message-meta="shouldShowMessageMeta"
+      :message-meta-row-class="messageMetaRowClass"
+      :get-read-label="getReadLabel"
+      :is-group-with-next="isGroupWithNext"
+      :message-time-text="messageTimeText"
+      :new-msg-count="newMsgCount"
+      @refocus-search-target="refocusSearchTarget"
+      @repeat-search="openConversationSearch(searchFocusTerm)"
+      @clear-search-focus="clearSearchFocus"
+      @load-more="loadMore"
+      @update:editing-text="editingText = $event"
+      @open-msg-menu="openMsgMenu"
+      @bubble-touch-start="onBubbleTouchStart"
+      @bubble-touch-end="onBubbleTouchEnd"
+      @bubble-click="onBubbleClick"
+      @copy-message="copyMessage"
+      @start-edit="startEdit"
+      @toggle-candidates="toggleCandidates"
+      @cancel-edit="cancelEdit"
+      @save-edit="saveEdit"
+      @activate-session="activateSessionControls($event, { scroll: true })"
+      @play="onPlaybackPlay"
+      @pause="onPlaybackPause"
+      @seek="onPlaybackSeek"
+      @end="onPlaybackEnd"
+      @playback-intent="onPlaybackIntent"
+      @position-sampled="onPlaybackTelemetry"
+      @touch-presence="onTouchPlaybackPresence"
+      @retry-send="retrySend"
+      @jump-to-newest="jumpToNewest"
+    />
 
     <!-- ✅ composer (항상 화면 하단에 보이게 CSS에서 sticky 처리) -->
     <div ref="composerRef" class="composerWrap" v-if="canViewConversation">
-      <teleport to="body">
-        <div v-if="canViewConversation && stageDeckOpen" class="messageStageSheetBackdrop" @click.self="stageDeckOpen = false">
-          <section class="messageStageSheet rl-cardish">
-            <div class="messageStageSheet__grab"></div>
-            <div class="messageStageSheet__head">
-              <div>
-                <strong>🎞</strong>
-              </div>
-              <button type="button" class="messageStageSheet__close" @click="stageDeckOpen = false" title="닫기" aria-label="닫기">✕</button>
-            </div>
-            <div class="messageStageSheetTabs">
-              <button v-for="tab in stageSheetTabs" :key="`stage-sheet-${tab.key}`" type="button" class="messageStageSheetTabs__tab" :class="{ on: stageSheetTab === tab.key }" :title="tab.label" :aria-label="tab.label" @click="stageSheetTab = tab.key">
-                <span>{{ tab.key === 'overview' ? '◉' : tab.key === 'sessions' ? '▶' : tab.key === 'actions' ? '📌' : '🖼' }}</span>
-                <small>{{ tab.count }}</small>
-              </button>
-            </div>
-            <div v-if="stageSheetTab === 'overview'" class="messageStageSheetBody">
-              <button v-if="spotlightMessage" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(spotlightMessage.messageId, 4); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">👁</span>
-                <strong>{{ spotlightMessage.content || '핵심 장면' }}</strong>
-              </button>
-              <div v-if="stageRailCards.length" class="messageStageSheetMiniStack">
-                <button v-for="stackMessage in stageRailCards" :key="`stage-mini-${stackMessage.messageId}`" type="button" class="messageStageSheetMiniStack__card" @click="ensureMessageVisible(stackMessage.messageId, 4); stageDeckOpen = false">
-                  <span>{{ isSessionMessage(stackMessage) ? '▶' : messageHasAttachment(stackMessage) ? '🖼' : messageHasActionCandidate(stackMessage) ? '📌' : '💬' }}</span>
-                  <strong>{{ stackMessage.content || '핵심 장면' }}</strong>
-                </button>
-              </div>
-            </div>
-            <div v-else-if="stageSheetTab === 'sessions'" class="messageStageSheetBody">
-              <button v-for="sessionMessage in stageSheetSessions" :key="`stage-session-${sessionMessage.messageId}`" type="button" class="messageStageSheetCard" @click="activateSessionControls(sessionForMessage(sessionMessage), { scroll: true }); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">▶</span>
-                <strong>{{ sessionMessage.content || sessionForMessage(sessionMessage)?.title || '공동 플레이 장면' }}</strong>
-              </button>
-              <div v-if="!stageSheetSessions.length" class="messageStageSheetEmpty">▶ 없음</div>
-            </div>
-            <div v-else-if="stageSheetTab === 'actions'" class="messageStageSheetBody">
-              <button v-for="actionMessage in stageSheetActions" :key="`stage-action-${actionMessage.messageId}`" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(actionMessage.messageId, 4); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">📌</span>
-                <strong>{{ actionMessage.content || '액션 장면' }}</strong>
-              </button>
-              <div v-if="!stageSheetActions.length" class="messageStageSheetEmpty">📌 없음</div>
-            </div>
-            <div v-else class="messageStageSheetBody">
-              <button v-for="mediaMessage in stageSheetMedia" :key="`stage-media-${mediaMessage.messageId}`" type="button" class="messageStageSheetCard" @click="ensureMessageVisible(mediaMessage.messageId, 4); stageDeckOpen = false">
-                <span class="messageStageSheetCard__tag">🖼</span>
-                <strong>{{ mediaMessage.content || '미디어 장면' }}</strong>
-              </button>
-              <div v-if="!stageSheetMedia.length" class="messageStageSheetEmpty">🖼 없음</div>
-            </div>
-          </section>
-        </div>
-      </teleport>
+      <StageSheet
+        v-model:open="stageDeckOpen"
+        v-model:tab="stageSheetTab"
+        :tabs="stageSheetTabs"
+        :spotlight-message="spotlightMessage"
+        :rail-cards="stageRailCards"
+        :sessions="stageSheetSessions"
+        :actions="stageSheetActions"
+        :media="stageSheetMedia"
+        :resolve-session-title="(message) => sessionForMessage(message)?.title || ''"
+        :message-type-icon="(message) => isSessionMessage(message) ? '▶' : messageHasAttachment(message) ? '🖼' : messageHasActionCandidate(message) ? '📌' : '💬'"
+        @jump-to-message="(messageId) => ensureMessageVisible(messageId, 4)"
+        @open-session="(message) => activateSessionControls(sessionForMessage(message), { scroll: true })"
+      />
       <ConversationPendingBridge
         v-if="pendingAction"
         :pending-action="pendingAction"
@@ -3656,83 +3408,56 @@ onBeforeUnmount(() => {
         @close="clearPendingAction"
       />
 
-    <div class="composerInner composerInner--stack">
-      <div class="composerUtilityBar composerUtilityBar--compact">
-        <button type="button" class="composerUtilityBar__pill composerUtilityBar__pill--lens" @click="openCommandDeck('search')">
-          <span class="composerUtilityBar__pillTag">🔎</span>
-          <strong>{{ commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.badge || 0 }}</strong>
-        </button>
-        <button type="button" class="composerUtilityBar__pill" @click="openStageSheet('overview')">
-          <span class="composerUtilityBar__pillTag">🎞</span>
-          <strong>{{ stageStats.total }}</strong>
-        </button>
-        <button type="button" class="composerUtilityBar__pill" :class="{ 'composerUtilityBar__pill--active': messageDepthEnabled }" @click="messageDepthEnabled = !messageDepthEnabled">
-          <span class="composerUtilityBar__pillTag">👁</span>
-          <strong>{{ messageDepthEnabled ? '●' : '○' }}</strong>
-        </button>
-        <button v-if="railPrimarySession" type="button" class="composerUtilityBar__pill composerUtilityBar__pill--session" @click="openRailSession">
-          <span class="composerUtilityBar__pillTag">▶</span>
-          <strong>{{ railPrimarySession.title || '세션' }}</strong>
-        </button>
-        <button type="button" class="composerUtilityBar__pill composerUtilityBar__pill--ghost" @click="openSessionModal()">
-          <span class="composerUtilityBar__pillTag">＋</span>
-          <strong>▶</strong>
-        </button>
-      </div>
-      <input ref="fileInputRef" type="file" class="hiddenFileInput" multiple @change="onPickFiles" />
-      <MessageAttachmentPreview v-if="attachedFiles.length" :items="attachedFiles" mode="composer" :uploading="attachmentUploading" :upload-progress="attachmentProgress" removable @remove="removeAttachedFile" />
-      <div v-if="attachmentUploading" class="uploadState">첨부 업로드 중… {{ attachmentProgress }}%</div>
-      <div v-else-if="attachmentError" class="uploadError">{{ attachmentError }}</div>
-      <div class="composerRow">
-        <MessageAttachmentPicker :disabled="sending || attachmentUploading" :has-items="attachedFiles.length > 0" @pick="openAttachmentPicker" @clear="clearAttachments" />
-        <button class="miniBtn" type="button" @click="openCapsuleModal" :disabled="sending || attachmentUploading" title="타임 캡슐 만들기">⏳</button>
-        <button class="miniBtn" type="button" @click="openSessionModal" :disabled="sending || attachmentUploading" title="공동 플레이 세션 만들기" aria-label="공동 플레이 세션 만들기">＋</button>
-        <input v-model="content" class="input" placeholder="메시지 입력…" @keydown.enter.prevent="onSend" />
-        <button class="btn" type="button" @click="onSend" :disabled="sending || attachmentUploading" title="전송" aria-label="전송">
-          {{ sending || attachmentUploading ? "..." : "➤" }}
-        </button>
-      </div>
-    </div>
+    <ConversationComposerShell
+      v-model:content="content"
+      :sending="sending"
+      :attachment-uploading="attachmentUploading"
+      :attachment-progress="attachmentProgress"
+      :attachment-error="attachmentError"
+      :attached-files="attachedFiles"
+      @pick-files="onPickFiles"
+      @remove-attached-file="removeAttachedFile"
+      @clear-attachments="clearAttachments"
+      @open-capsule-modal="openCapsuleModal"
+      @open-session-modal="openSessionModal"
+      @send="onSend"
+    >
+      <template #utility>
+        <ComposerUtilityBar
+          :lens-badge="commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.badge || 0"
+          :stage-total="stageStats.total"
+          :message-depth-enabled="messageDepthEnabled"
+          :rail-primary-session="railPrimarySession"
+          @open-lens="openCommandDeck('search')"
+          @open-stage="openStageSheet('overview')"
+          @toggle-depth="messageDepthEnabled = !messageDepthEnabled"
+          @open-rail-session="openRailSession"
+          @open-session-modal="openSessionModal()"
+        />
+      </template>
+    </ConversationComposerShell>
 
     <teleport to="body">
       <div v-if="canViewConversation && commandDeckOpen" class="commandDeckBackdrop" @click.self="closeCommandDeck">
         <section class="commandDeck rl-cardish">
           <div class="commandDeck__grab"></div>
-          <div class="commandDeck__head">
-            <div>
-              <div class="commandDeck__eyebrow">Lens</div>
-              <strong>{{ commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.label || '검색' }}</strong>
-            </div>
-            <button type="button" class="commandDeck__close" @click="closeCommandDeck" aria-label="렌즈 닫기">✕</button>
-          </div>
-          <div class="commandDeck__tabs">
-            <button v-for="tab in commandDeckTabs" :key="tab.key" type="button" class="commandDeck__tab" :class="{ on: commandDeckTab === tab.key }" :title="tab.label" :aria-label="tab.label" @click="commandDeckTab = tab.key">
-              <span>{{ tab.key === 'search' ? '🔎' : tab.key === 'actions' ? '📌' : tab.key === 'capsules' ? '⏳' : '▶' }}</span><small>{{ tab.badge }}</small>
-            </button>
-          </div>
+          <LensHeader
+            eyebrow="Lens"
+            :title="commandDeckTabs.find((tab) => tab.key === commandDeckTab)?.label || '검색'"
+            close-label="렌즈 닫기"
+            @close="closeCommandDeck"
+          />
+          <LensTabs v-model="commandDeckTab" :tabs="commandDeckTabs" />
 
           <section v-if="commandDeckTab === 'search'" class="commandDeck__panel">
-            <section class="conversationSearchRail rl-cardish">
-              <div class="conversationSearchRail__top">
-                <div class="conversationSearchRail__copy">
-                  <strong>대화 검색</strong>
-                </div>
-              </div>
-              <div class="conversationSearchRail__controls">
-                <div class="conversationSearchRail__inputWrap">
-                  <input v-model.trim="conversationSearchQ" class="conversationSearchRail__input" placeholder="대화 검색" @keydown.enter.prevent="openConversationSearch()" />
-                  <button type="button" class="conversationSearchRail__submit" @click="openConversationSearch()" title="검색" aria-label="검색">🔎</button>
-                </div>
-                <div class="conversationSearchRail__meta">
-                  <span class="conversationSearchRail__summary">{{ conversationSearchSummary }}</span>
-                  <div class="conversationSearchRail__actions">
-                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('약속')" title="약속" aria-label="약속">📅</button>
-                    <button type="button" class="conversationSearchRail__chip" @click="openConversationSearch('캡슐')" title="캡슐" aria-label="캡슐">⏳</button>
-                    <button type="button" class="conversationSearchRail__chip" @click="openGlobalSearch()" title="전체 검색" aria-label="전체 검색">🌐</button>
-                  </div>
-                </div>
-              </div>
-            </section>
+            <ConversationSearchPanel
+              v-model="conversationSearchQ"
+              :summary="conversationSearchSummary"
+              @submit="openConversationSearch()"
+              @search-appointments="openConversationSearch('약속')"
+              @search-capsules="openConversationSearch('캡슐')"
+              @open-global="openGlobalSearch()"
+            />
           </section>
 
           <section v-else-if="commandDeckTab === 'capsules'" class="commandDeck__panel">
@@ -3740,130 +3465,44 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-else-if="commandDeckTab === 'actions'" class="commandDeck__panel commandDeck__panel--actions">
-            <div class="dockWrap dockWrapInline" :class="{ dockPulse: dockPulseOn }">
-              <div class="dockBar dockBarInline">
-                <button class="dockTab" :class="{ on: dockMode==='active' }" type="button" title="액션" aria-label="액션" @click="dockMode='active'; dockOpen=true">📌 <span class="dockCount">{{ activeCount }}</span></button>
-                <button class="dockTab" :class="{ on: dockMode==='suggestions' }" type="button" :disabled="suggestionCount===0" title="제안" aria-label="제안" @click="dockMode='suggestions'; dockOpen=true">✨ <span class="dockCount">{{ suggestionCount }}</span></button>
-                <div class="dockSpacer"></div>
-                <RlButton size="sm" variant="ghost" class="dockMore" @click="clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck()" title="전체 보기" aria-label="전체 보기">☰</RlButton>
-              </div>
-              <div class="dockPanel dockPanelInline">
-                <div v-if="dockMode==='active'" class="dockGrid">
-                  <div class="dockFilterBar">
-                    <button class="dockPill" :class="{ on: activeFilter==='ALL' }" type="button" @click="activeFilter='ALL'">◉ <span class="dockPillCount">{{ activeCount }}</span></button>
-                    <button class="dockPill" :class="{ on: activeFilter==='PROMISE' }" type="button" @click="activeFilter='PROMISE'" title="약속" aria-label="약속">📅 <span class="dockPillCount">{{ activeCounts.PROMISE }}</span></button>
-                    <button class="dockPill" :class="{ on: activeFilter==='TODO' }" type="button" @click="activeFilter='TODO'" title="할 일" aria-label="할 일">✅ <span class="dockPillCount">{{ activeCounts.TODO }}</span></button>
-                    <button class="dockPill" :class="{ on: activeFilter==='PLACE' }" type="button" @click="activeFilter='PLACE'" title="장소" aria-label="장소">📍 <span class="dockPillCount">{{ activeCounts.PLACE }}</span></button>
-                  </div>
-                  <div v-if="filteredPins && filteredPins.length" class="dockList dockListInline">
-                    <div v-for="p in filteredPins" :key="p.pinId" class="dockCard" :data-kind="p.kind || 'PROMISE'" :data-pin-id="String(p.pinId)">
-                      <div class="dockCardTop"><div class="dockCardTitleRow"><div class="dockCardTitle">{{ p.title || '약속' }}</div></div></div>
-                      <div class="dockCardMeta"><span v-if="p.startAt">🕒 {{ pinTimeText(p) }}</span><span v-else class="muted">🕒 시간 미정</span><span v-if="p.placeText" class="sep">·</span><span v-if="p.placeText">📍 {{ p.placeText }}</span></div>
-                      <div class="dockCardHint">{{ pinCtaHint(p) }}</div>
-                    </div>
-                  </div>
-                  <div v-else class="dockEmpty">없음</div>
-                </div>
-                <div v-else class="dockGrid">
-                  <div v-if="dockCandidates && dockCandidates.length" class="dockSuggestList">
-                    <div class="dockSuggestList__head">
-                      <strong>📌 {{ sortedDockCandidates.length }}</strong>
-                    </div>
-                    <div v-for="c in sortedDockCandidates" :key="c.candidateId" class="dockSlot">
-                      <PinCandidateCard :candidate="c" :busy="dockSourceMsg ? isConfirmBusy(dockSourceMsg.messageId) : false" @confirm="dockSourceMsg && confirmCandidate(dockSourceMsg, $event)" @dismiss="dockSourceMsg && dismissCandidate(dockSourceMsg, $event)" />
-                    </div>
-                  </div>
-                  <div v-else class="dockEmpty">없음</div>
-                </div>
-              </div>
-            </div>
+            <ActivePinDock
+              :dock-pulse-on="dockPulseOn"
+              :dock-mode="dockMode"
+              :suggestion-count="suggestionCount"
+              :active-count="activeCount"
+              :active-filter="activeFilter"
+              :active-counts="activeCounts"
+              @update:dock-mode="(value) => { dockMode = value; dockOpen = true; }"
+              @update:active-filter="(value) => { activeFilter = value; }"
+              @open-all="() => { clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck(); }"
+            />
           </section>
 
           <section v-else class="commandDeck__panel">
-            <div ref="sessionHubRef" class="sessionHub">
-              <div class="sessionHub__head">
-                <div>
-                  <strong>▶</strong>
-                </div>
-                <button type="button" class="conversationSearchRail__chip conversationSearchRail__chip--accent" @click="openSessionModal" title="세션 만들기" aria-label="세션 만들기">＋</button>
-              </div>
-              <div v-if="loadingSessions" class="sessionHub__empty">…</div>
-              <div v-else-if="sessionError" class="sessionHub__empty">{{ sessionError }}</div>
-              <div v-else-if="activeSessions.length || recentSessions.length" class="sessionHub__stack">
-                <section v-if="featuredActiveSession" class="sessionHub__section sessionHub__section--featured">
-                  <div class="sessionHub__sectionHead">
-                    <div>
-                      <strong>▶</strong>
-                    </div>
-                    <span>1개</span>
-                  </div>
-                  <ConversationSessionCard
-                    :session="featuredActiveSession"
-                    :busy="isActionBusy(featuredActiveSession.sessionId)"
-                    :current-user-id="meId"
-                    :force-interactive="isSessionActivated(featuredActiveSession.sessionId)"
-                    @activate-session="activateSessionControls($event)"
-                    @play="onPlaybackPlay"
-                    @pause="onPlaybackPause"
-                    @seek="onPlaybackSeek"
-                    @end="onPlaybackEnd"
-                    @playback-intent="onPlaybackIntent"
-                    @position-sampled="onPlaybackTelemetry"
-                    @touch-presence="onTouchPlaybackPresence"
-                  />
-                </section>
-                <section v-if="secondaryActiveSessions.length" class="sessionHub__section">
-                  <div class="sessionHub__sectionHead">
-                    <strong>↻</strong>
-                    <span>{{ secondaryActiveSessions.length }}개</span>
-                  </div>
-                  <div class="sessionHub__compactList">
-                    <ConversationSessionCard
-                      v-for="session in secondaryActiveSessions"
-                      :key="session.sessionId"
-                      :session="session"
-                      compact
-                      :busy="isActionBusy(session.sessionId)"
-                      :current-user-id="meId"
-                      :force-interactive="isSessionActivated(session.sessionId)"
-                      @activate-session="activateSessionControls($event, { scroll: true })"
-                      @play="onPlaybackPlay"
-                      @pause="onPlaybackPause"
-                      @seek="onPlaybackSeek"
-                      @end="onPlaybackEnd"
-                      @touch-presence="onTouchPlaybackPresence"
-                    />
-                  </div>
-                </section>
-                <section v-if="recentSessions.length" class="sessionHub__section">
-                  <div class="sessionHub__sectionHead">
-                    <strong>🕘</strong>
-                    <div class="sessionHub__historyActions">
-                      <span>{{ recentSessions.length }}개</span>
-                      <button type="button" class="conversationSearchRail__chip" @click="toggleSessionHistory" :title="sessionHistoryOpen ? '접기' : '펼치기'" :aria-label="sessionHistoryOpen ? '접기' : '펼치기'">{{ sessionHistoryOpen ? '▴' : '▾' }}</button>
-                    </div>
-                  </div>
-                  <div class="sessionHub__compactList">
-                    <ConversationSessionCard
-                      v-for="session in visibleRecentSessions"
-                      :key="session.sessionId"
-                      :session="session"
-                      compact
-                      :busy="isActionBusy(session.sessionId)"
-                      :current-user-id="meId"
-                      :force-interactive="isSessionActivated(session.sessionId)"
-                      @activate-session="activateSessionControls($event, { scroll: true })"
-                      @play="onPlaybackPlay"
-                      @pause="onPlaybackPause"
-                      @seek="onPlaybackSeek"
-                      @end="onPlaybackEnd"
-                      @touch-presence="onTouchPlaybackPresence"
-                    />
-                  </div>
-                </section>
-              </div>
-              <div v-else class="sessionHub__empty">없음</div>
-            </div>
+            <SessionHub
+              ref="sessionHubRef"
+              :loading-sessions="loadingSessions"
+              :session-error="sessionError"
+              :active-sessions="activeSessions"
+              :recent-sessions="recentSessions"
+              :featured-active-session="featuredActiveSession"
+              :secondary-active-sessions="secondaryActiveSessions"
+              :visible-recent-sessions="visibleRecentSessions"
+              :session-history-open="sessionHistoryOpen"
+              :me-id="meId"
+              :is-action-busy="isActionBusy"
+              :is-session-activated="isSessionActivated"
+              @open-session-modal="openSessionModal"
+              @toggle-session-history="toggleSessionHistory"
+              @activate-session="({ session, options }) => activateSessionControls(session, options || {})"
+              @play="onPlaybackPlay"
+              @pause="onPlaybackPause"
+              @seek="onPlaybackSeek"
+              @end="onPlaybackEnd"
+              @playback-intent="onPlaybackIntent"
+              @position-sampled="onPlaybackTelemetry"
+              @touch-presence="onTouchPlaybackPresence"
+            />
           </section>
         </section>
       </div>
@@ -3872,8 +3511,7 @@ onBeforeUnmount(() => {
     <ConversationSessionComposer
       :open="sessionModalOpen"
       :busy="sessionBusy"
-      @close="closeSessionModal"
-      @submit="onCreatePlaybackSession"
+      @close="closeSessionModal"      @submit="onCreatePlaybackSession"
     />
 
     <CapsuleComposerModal
@@ -3887,174 +3525,60 @@ onBeforeUnmount(() => {
       @save="createTimeCapsuleFromDraft"
     />
 
-    <!-- ✅ 핀 액션 모달 -->
-    <RlModal
-        :open="pinModalOpen"
-        :title="pinModalTitle"
-        :subtitle="pinModalSubtitle"
-        :blockClose="pinActionLoading"
-        :closeOnBackdrop="!pinActionLoading"
-        @close="closePinActionModal"
-    >
-      <div class="pinModalBody">
-        <div class="pinModalLine">
-          <span class="k">제목</span>
-          <span class="v">{{ pinModalPin?.title || "약속" }}</span>
-        </div>
-        <div class="pinModalLine">
-          <span class="k">
-          📍 장소
-        </span>
-          <span class="v">{{ pinModalPin?.placeText || "미정" }}</span>
-        </div>
-        <div class="pinModalLine">
-          <span class="k">시간</span>
-          <span class="v">{{ pinTimeText(pinModalPin) }}</span>
-        </div>
-      </div>
+    <ConversationPinActionModal
+      :open="pinModalOpen"
+      :title="pinModalTitle"
+      :subtitle="pinModalSubtitle"
+      :pin="pinModalPin"
+      :time-text="pinTimeText(pinModalPin)"
+      :confirm-variant="pinModalConfirmVariant"
+      :confirm-text="pinModalConfirmText"
+      :loading="pinActionLoading"
+      @close="closePinActionModal"
+      @confirm="confirmPinAction"
+    />
 
-      <template #actions>
-        <RlButton
-            block
-            :variant="pinModalConfirmVariant"
-            :loading="pinActionLoading"
-            @click="confirmPinAction"
-        >
-          {{ pinModalConfirmText }}
-        </RlButton>
-
-        <RlButton block variant="ghost" :disabled="pinActionLoading" @click="closePinActionModal">
-          닫기
-        </RlButton>
-      </template>
-    </RlModal>
-
-    <RlModal
-        :open="pinEditOpen"
-        title="✏️ 핀 수정"
-        :blockClose="pinEditLoading"
-        :closeOnBackdrop="!pinEditLoading"
-        @close="closePinEdit"
-    >
-      <div class="pinEditBody">
-        <label class="pinEditField">
-          <div class="pinEditLabel">제목</div>
-          <input
-              class="pinEditInput"
-              v-model="pinEditTitle"
-              placeholder="예: 홍대에서 저녁 약속"
-              :disabled="pinEditLoading"
-          />
-        </label>
-
-        <label class="pinEditField">
-          <div class="pinEditLabel">시간</div>
-          <input
-              class="pinEditInput"
-              v-model="pinEditStartAtLocal"
-              type="datetime-local"
-              :disabled="pinEditLoading"
-          />
-        </label>
-
-        <label class="pinEditField">
-          <div class="pinEditLabel">리마인드</div>
-          <select class="pinEditInput" v-model.number="pinEditRemindMinutes" :disabled="pinEditLoading">
-            <option v-for="o in REMIND_OPTIONS" :key="o.value" :value="o.value">
-              {{ o.label }}
-            </option>
-          </select>
-        </label>
-
-        <label class="pinEditField">
-          <div class="pinEditLabel">
-          📍 장소
-        </div>
-          <input
-              class="pinEditInput"
-              v-model="pinEditPlaceText"
-              placeholder="예: 홍대입구 3번출구 / 회사 앞 / ○○ 술집"
-              :disabled="pinEditLoading"
-          />
-        </label>
-      </div>
-
-      <template #actions>
-        <RlButton block variant="primary" :loading="pinEditLoading" @click="submitPinEdit">저장</RlButton>
-        <RlButton block variant="ghost" :disabled="pinEditLoading" @click="closePinEdit">닫기</RlButton>
-      </template>
-    </RlModal>
+    <ConversationPinEditModal
+      :open="pinEditOpen"
+      :loading="pinEditLoading"
+      :title-text="pinEditTitle"
+      :start-at-local="pinEditStartAtLocal"
+      :remind-minutes="pinEditRemindMinutes"
+      :place-text="pinEditPlaceText"
+      :remind-options="REMIND_OPTIONS"
+      @close="closePinEdit"
+      @save="submitPinEdit"
+      @update:title-text="pinEditTitle = $event"
+      @update:start-at-local="pinEditStartAtLocal = $event"
+      @update:remind-minutes="pinEditRemindMinutes = $event"
+      @update:place-text="pinEditPlaceText = $event"
+    />
 
   </div>
   </div>
   <Teleport to="body">
-    <div v-if="menu.open" class="msgMenuOverlay" @mousedown="closeMsgMenu">
-      <div
-          class="msgMenuPopover"
-          :style="{ top: menu.top + 'px', left: menu.left + 'px' }"
-          @mousedown.stop
-      >
-        <button class="msgMenuItem" type="button" @click="copyMessage(menu.msg)">복사</button>
+    <ConversationMessageMenuOverlay
+      :open="menu.open"
+      :top="menu.top"
+      :left="menu.left"
+      :message="menu.msg"
+      :can-edit="!!(menu.msg && isMineMessage(menu.msg))"
+      :has-candidates="!!(menu.msg && menu.msg.pinCandidates && menu.msg.pinCandidates.length)"
+      @close="closeMsgMenu"
+      @copy="copyMessage(menu.msg)"
+      @edit="startEditFromMenu(menu.msg)"
+      @toggle-candidates="toggleCandidatesFromMenu(menu.msg)"
+    />
 
-        <button
-            v-if="menu.msg && isMineMessage(menu.msg)"
-            class="msgMenuItem"
-            type="button"
-            @click="startEditFromMenu(menu.msg)"
-        >
-          수정
-        </button>
-
-        <button
-            v-if="menu.msg && menu.msg.pinCandidates && menu.msg.pinCandidates.length"
-            class="msgMenuItem"
-            type="button"
-            @click="toggleCandidatesFromMenu(menu.msg)"
-        >
-          후보 보기/닫기
-        </button>
-      </div>
-    </div>
-
-    <div v-if="lockModalOpen" class="modalBackdrop" @click.self="closeLockModal">
-      <div class="modal rl-cardish" :class="{ 'modal--sheet': isNarrow }" role="dialog" aria-modal="true">
-        <div class="modalGrab" v-if="isNarrow" aria-hidden="true"></div>
-        <div class="mTitle">
-          {{ lockModalMode === "set" ? "🔒 대화 잠금 설정" : "🔓 대화 잠금 해제" }}
-        </div>
-        <div class="mSub" v-if="lockModalMode === 'set'">
-          이 DM에 들어갈 때마다 비밀번호를 입력해야 해요.
-        </div>
-        <div class="mSub" v-else>
-          잠금을 해제하려면 비밀번호를 입력해 주세요.
-        </div>
-
-        <div class="mBody">
-          <input
-              v-model="lockPw1"
-              class="mInput"
-              type="password"
-              :placeholder="lockModalMode === 'set' ? '비밀번호' : '비밀번호 입력'"
-              @keydown.enter.prevent="submitLockModal"
-          />
-          <input
-              v-if="lockModalMode === 'set'"
-              v-model="lockPw2"
-              class="mInput"
-              type="password"
-              placeholder="비밀번호 확인"
-              @keydown.enter.prevent="submitLockModal"
-          />
-        </div>
-
-        <div class="mActions">
-          <button class="mBtn" type="button" @click="submitLockModal">
-            {{ lockModalMode === "set" ? "잠금 설정" : "잠금 해제" }}
-          </button>
-          <button class="mBtn soft" type="button" @click="closeLockModal">취소</button>
-        </div>
-      </div>
-    </div>
+    <ConversationLockModal
+      v-model:open="lockModalOpen"
+      :mode="lockModalMode"
+      :is-narrow="isNarrow"
+      v-model:password="lockPw1"
+      v-model:confirm-password="lockPw2"
+      @submit="submitLockModal"
+      @close="closeLockModal"
+    />
   </Teleport>
 </template>
 
@@ -4610,19 +4134,6 @@ onBeforeUnmount(() => {
   background: transparent;color:var(--text);font-weight:950;
 }
 .mBtn.soft{opacity:.85}
-.pinEditBody{padding: 10px 0 2px}
-.pinEditInput{
-  width:100%;
-  height:44px;
-  border-radius:14px;
-  border:1px solid var(--border);
-  background: color-mix(in oklab, var(--surface) 86%, transparent);
-  color: var(--text);
-  padding: 0 12px;
-}
-.pinEditField { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
-.pinEditLabel { font-size:12px; font-weight:900; color: var(--muted); }
-
 .sendState{
   display:flex;
   align-items:center;
