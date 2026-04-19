@@ -14,6 +14,7 @@ defineProps({
   savingEdit: { type: Boolean, default: false },
   flashMid: { type: [String, Number, null], default: null },
   searchFocusMid: { type: [String, Number, null], default: null },
+  searchFocusTerm: { type: String, default: "" },
   messageShellClass: { type: Function, required: true },
   messageDepthStyle: { type: Function, required: true },
   messageBubbleClass: { type: Function, required: true },

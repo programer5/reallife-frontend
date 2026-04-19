@@ -1,6 +1,7 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, onMounted, ref, nextTick, onBeforeUnmount, watch} from "vue";
+import { computed, ref, nextTick, watch} from "vue";
+import { ensureSessionOrRedirect as ensureSessionOrRedirectGuard } from "@/lib/authGuard";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
 import SseStatusBanner from "@/components/SseStatusBanner.vue";
@@ -27,12 +28,6 @@ import ConversationPinEditModal from "@/components/conversation/ConversationPinE
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
 import { fetchConversationReadState } from "@/api/conversations";
-import {
-  getConversationLock,
-  setConversationLock,
-  disableConversationLock,
-  issueUnlockToken,
-} from "@/api/conversationLock";
 import { pinDone, pinCancel, pinDismiss, pinUpdate } from "@/api/pinsActions";
 import { confirmPinFromMessage } from "@/api/pins";
 
@@ -43,15 +38,28 @@ import { useConversationPinsStore } from "@/stores/conversationPins";
 import { useBodyScrollLock } from "@/lib/useBodyScrollLock";
 import { readNotification } from "@/api/notifications";
 import { useNotificationsStore } from "@/stores/notifications";
-import { fetchConversationReadReceipts } from "@/api/conversations";
-import { updateMessage } from "@/api/messages";
 import { uploadFiles, uploadFilesDetailed } from "@/api/files";
 import sse from "@/lib/sse";
-import { useConversationCapsules } from "@/lib/useConversationCapsules";
+import { useConversationCapsuleFlow } from "@/lib/useConversationCapsuleFlow";
 import { useMessageContextMenu } from "@/lib/useMessageContextMenu";
 import { useConversationComposer } from "@/lib/useConversationComposer";
 import { useConversationSessions } from "@/lib/useConversationSessions";
+import { useConversationSessionUi } from "@/lib/useConversationSessionUi";
 import { useConversationSearchFocus } from "@/lib/useConversationSearchFocus";
+import { useConversationMessageVisuals } from "@/lib/useConversationMessageVisuals";
+import { useConversationMessageMeta } from "@/lib/useConversationMessageMeta";
+import { useConversationMessageActions } from "@/lib/useConversationMessageActions";
+import { useConversationScrollRail } from "@/lib/useConversationScrollRail";
+import { useConversationRealtimeTail } from "@/lib/useConversationRealtimeTail";
+import { useConversationLockAccess } from "@/lib/useConversationLockAccess";
+import { useConversationBootFlow } from "@/lib/useConversationBootFlow";
+import { useConversationRouteUiSync } from "@/lib/useConversationRouteUiSync";
+import { useConversationPinDock } from "@/lib/useConversationPinDock";
+import { useConversationPinUi } from "@/lib/useConversationPinUi";
+import { useConversationMessageListFlow } from "@/lib/useConversationMessageListFlow";
+import { useConversationHeaderInfo } from "@/lib/useConversationHeaderInfo";
+import { useConversationDockFly } from "@/lib/useConversationDockFly";
+import { useConversationMessageFocus } from "@/lib/useConversationMessageFocus";
 
 const route = useRoute();
 const router = useRouter();
@@ -60,12 +68,65 @@ const convStore = useConversationsStore();
 const auth = useAuthStore();
 const pinsStore = useConversationPinsStore();
 const notificationsStore = useNotificationsStore();
+const pageRef = ref(null);
+const composerRef = ref(null);
+const nowTick = ref(Date.now());
+const { setLocked: setDockSheetBodyLocked } = useBodyScrollLock();
+
+function syncComposerHeightVar() {
+  try {
+    const el = composerRef.value;
+    const h = Math.max(0, Math.round(el?.offsetHeight || 0));
+    document.documentElement.style.setProperty("--conversation-composer-h", `${h}px`);
+  } catch {}
+}
+const {
+  scrollerRef,
+  unreadDividerMid,
+  newMsgCount,
+  getScrollerEl,
+  getScrollAnchor,
+  restoreScrollAnchor,
+  scrollToBottom,
+  isNearBottom,
+  computeUnreadDividerMid,
+  jumpToFirstUnread,
+} = useConversationScrollRail({ nextTick });
+const { menu, closeMsgMenu, openMsgMenu } = useMessageContextMenu();
+
+const uiMode = ref("conversation");
+const commandDeckOpen = ref(false);
+const commandDeckTab = ref("search");
+const messageStageMode = ref("stream");
+const stageDeckOpen = ref(false);
+const stageSheetTab = ref("overview");
+const messageDepthEnabled = ref(true);
+const focusedDepthMid = ref("");
+
+function openCommandDeck(tab = "search") {
+  commandDeckTab.value = tab;
+  commandDeckOpen.value = true;
+  uiMode.value = "explore";
+}
+
+function closeCommandDeck() {
+  commandDeckOpen.value = false;
+}
 const conversationId = computed(() => String(route.params.conversationId || ""));
 const meId = computed(() => String(auth.me?.id || ""));
 const isPinnedHighlight = ref(false);
 const isMobileViewport = ref(false);
 const dockMode = ref("active"); // 'active' | 'suggestions'
 const dockOpen = ref(false);
+const activeFilter = ref("ALL"); // ALL | PROMISE | TODO | PLACE
+const dockSourceMsg = ref(null);
+const dockCandidates = ref([]);
+const pins = computed(() => pinsStore.getPins(conversationId.value));
+const {
+  flashMid,
+  ensureMessageVisible,
+  scrollAndFlashMessage,
+} = useConversationMessageFocus({ nextTick, getScrollerEl });
 
 const {
   conversationSearchQ,
@@ -101,547 +162,6 @@ const {
   dockOpen,
 });
 
-const joinedSessionIds = ref([]);
-const sessionHubRef = ref(null);
-
-function safeJsonParse(value) {
-  if (!value || typeof value !== "string") return null;
-  try { return JSON.parse(value); } catch { return null; }
-}
-
-function sessionMessageMeta(message) {
-  return safeJsonParse(message?.metadataJson) || null;
-}
-
-function isSessionMessage(message) {
-  const type = String(message?.type || '').toUpperCase();
-  if (type === 'SESSION') return true;
-  return sessionMessageMeta(message)?.kind === 'playback-session';
-}
-
-function messageHasMediaLayer(message) {
-  return Boolean(messageHasAttachment?.(message));
-}
-
-function messageHasActionLayer(message) {
-  return Boolean(messageHasActionCandidate?.(message));
-}
-
-const MESSAGE_LAYER_KIND = Object.freeze({
-  PLAIN: 'plain',
-  SESSION: 'session',
-  ACTION: 'action',
-  MEDIA: 'media',
-  FOCUS: 'focus',
-});
-
-function messageLayerKind(message) {
-  if (isSessionMessage(message)) return MESSAGE_LAYER_KIND.SESSION;
-  if (messageHasActionLayer(message)) return MESSAGE_LAYER_KIND.ACTION;
-  if (messageHasMediaLayer(message)) return MESSAGE_LAYER_KIND.MEDIA;
-  return MESSAGE_LAYER_KIND.PLAIN;
-}
-
-function messageVisualTone(message, index) {
-  const layerKind = messageLayerKind(message);
-  const depthRank = messageDepthRank(index);
-  const isDepthFocus = messageDepthEnabled.value && depthRank === 'focus';
-  if (isDepthFocus && layerKind === MESSAGE_LAYER_KIND.PLAIN) {
-    return MESSAGE_LAYER_KIND.FOCUS;
-  }
-  return layerKind;
-}
-
-function messageShellClass(message, index) {
-  const depthRank = messageDepthRank(index);
-  const layerKind = messageLayerKind(message);
-  const visualTone = messageVisualTone(message, index);
-  return {
-    mine: isMineMessage(message),
-    'msg--flash': flashMid === String(message.messageId),
-    'msg--searchFocus': searchFocusMid === String(message.messageId),
-    'msg--groupPrev': isGroupWithPrev(index),
-    'msg--groupNext': isGroupWithNext(index),
-    depthOn: messageDepthEnabled.value,
-    depthFocused: String(focusedDepthMid.value) === String(message.messageId),
-    [`depthRank--${depthRank}`]: messageDepthEnabled.value,
-    [`msg--${layerKind}`]: true,
-    [`msgTone--${visualTone}`]: true,
-    stageMuted: messageStageMode.value === 'stage' && stageDeckOpen.value && !isStageCandidate(message),
-  };
-}
-
-function messageBubbleClass(message, index) {
-  const layerKind = messageLayerKind(message);
-  const visualTone = messageVisualTone(message, index);
-  return {
-    [`bubble--${layerKind}`]: true,
-    [`bubbleTone--${visualTone}`]: true,
-  };
-}
-
-function messageBodyClass(message, index) {
-  const layerKind = messageLayerKind(message);
-  const visualTone = messageVisualTone(message, index);
-  return {
-    messageBody: true,
-    [`messageBody--${layerKind}`]: true,
-    [`messageBodyTone--${visualTone}`]: true,
-    'messageBody--grouped': isGroupWithPrev(index) || isGroupWithNext(index),
-  };
-}
-
-function messageSessionBlockClass(message, index) {
-  return {
-    messageSessionBlock: true,
-    'messageSessionBlock--compact': true,
-    'messageSessionBlock--focus': messageVisualTone(message, index) === MESSAGE_LAYER_KIND.FOCUS,
-    'messageSessionBlock--grouped': isGroupWithPrev(index) || isGroupWithNext(index),
-  };
-}
-
-function shouldShowMessageEyebrow(message, index) {
-  return messageVisualTone(message, index) !== MESSAGE_LAYER_KIND.PLAIN;
-}
-
-function messageEyebrowLabel(message, index) {
-  const visualTone = messageVisualTone(message, index);
-  if (visualTone === MESSAGE_LAYER_KIND.SESSION) return 'SESSION';
-  if (visualTone === MESSAGE_LAYER_KIND.ACTION) return 'ACTION';
-  if (visualTone === MESSAGE_LAYER_KIND.MEDIA) return 'MEDIA';
-  if (visualTone === MESSAGE_LAYER_KIND.FOCUS) return 'FOCUS';
-  return 'MESSAGE';
-}
-
-function messageEyebrowHint(message, index) {
-  const visualTone = messageVisualTone(message, index);
-  if (visualTone === MESSAGE_LAYER_KIND.SESSION) {
-    return sessionForMessage(message)?.title || '공동 플레이 세션';
-  }
-  if (visualTone === MESSAGE_LAYER_KIND.ACTION) {
-    const count = Array.isArray(message?.pinCandidates) ? message.pinCandidates.length : 0;
-    return count > 0 ? `액션 후보 ${count}개` : '액션 후보';
-  }
-  if (visualTone === MESSAGE_LAYER_KIND.MEDIA) {
-    const count = Array.isArray(message?.attachments) ? message.attachments.length : 0;
-    return count > 0 ? `첨부 ${count}개` : '미디어 포함';
-  }
-  if (visualTone === MESSAGE_LAYER_KIND.FOCUS) {
-    return '지금 읽기 중심 메시지';
-  }
-  return '';
-}
-
-function hasMessageAttachmentBlock(message) {
-  return !isSessionMessage(message) && Array.isArray(message?.attachments) && message.attachments.length > 0;
-}
-
-function hasMessageSendState(message) {
-  return Boolean(message?._status);
-}
-
-function shouldRenderMessageFooter(message) {
-  return hasMessageAttachmentBlock(message) || hasMessageSendState(message);
-}
-
-function shouldShowMessageMeta(message, index) {
-  return Boolean(getReadLabel(message)) || !isGroupWithNext(index);
-}
-
-function messageMetaRowClass(message, index) {
-  const visualTone = messageVisualTone(message, index);
-  return {
-    messageMetaRow: true,
-    'messageMetaRow--mine': isMineMessage(message),
-    'messageMetaRow--stacked': isGroupWithNext(index),
-    [`messageMetaRow--${visualTone}`]: true,
-  };
-}
-
-function messageFooterClass(message, index) {
-  const visualTone = messageVisualTone(message, index);
-  return {
-    messageFooter: true,
-    [`messageFooter--${visualTone}`]: true,
-  };
-}
-
-function hasMessageTools(message) {
-  return Boolean(isMineMessage(message) || (Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0) || (message?.content && String(message.content).trim()));
-}
-
-function candidateToggleLabel(message) {
-  const count = Array.isArray(message?.pinCandidates) ? message.pinCandidates.length : 0;
-  if (count <= 0) return '후보';
-  return isCandidatesOpen(message?.messageId) ? `후보 닫기 · ${count}` : `후보 보기 · ${count}`;
-}
-
-function messageUtilitySummary(message) {
-  const parts = [];
-  if (isMineMessage(message)) parts.push('수정 가능');
-  if (Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0) {
-    parts.push(`후보 ${message.pinCandidates.length}개`);
-  }
-  if (messageHasAttachment?.(message)) {
-    parts.push(`첨부 ${Array.isArray(message?.attachments) ? message.attachments.length : 0}개`);
-  }
-  return parts.join(' · ');
-}
-
-function sessionSnapshotFromMessage(message) {
-  const meta = sessionMessageMeta(message) || {};
-  const sessionId = message?.sessionId || meta?.sessionId;
-  if (!sessionId) return null;
-  return {
-    sessionId,
-    conversationId: conversationId.value,
-    messageId: message?.messageId || null,
-    mediaKind: meta?.mediaKind || 'LINK',
-    title: meta?.title || message?.content || '공동 플레이',
-    sourceUrl: meta?.sourceUrl || '',
-    thumbnailUrl: meta?.thumbnailUrl || null,
-    status: meta?.status || 'ACTIVE',
-    playbackState: meta?.playbackState || 'PAUSED',
-    positionSeconds: Number(meta?.positionSeconds || 0),
-    myRole: meta?.hostUserId && String(meta?.hostUserId) === meId.value ? 'HOST' : 'GUEST',
-    host: meta?.hostUserId && String(meta?.hostUserId) === meId.value,
-    canControl: meta?.hostUserId && String(meta?.hostUserId) === meId.value && (meta?.status || 'ACTIVE') === 'ACTIVE',
-    activeParticipantCount: 0,
-    participants: [],
-  };
-}
-
-function sessionForMessage(message) {
-  const snapshot = sessionSnapshotFromMessage(message);
-  const sessionId = String(snapshot?.sessionId || '');
-  if (!sessionId) return snapshot;
-  const live = sessions.value.find((item) => String(item?.sessionId || '') === sessionId);
-  return live ? { ...snapshot, ...live } : snapshot;
-}
-
-function buildSessionMessageFromSession(session) {
-  if (!session?.sessionId || !session?.messageId) return null;
-  return {
-    messageId: session.messageId,
-    conversationId: session.conversationId || conversationId.value,
-    senderId: session.hostUserId || null,
-    type: 'SESSION',
-    content: (session.mediaKind === 'MUSIC' ? '같이 듣기 세션 · ' : '같이 보기 세션 · ') + (session.title || '공동 플레이'),
-    metadataJson: JSON.stringify({
-      kind: 'playback-session',
-      sessionId: session.sessionId,
-      mediaKind: session.mediaKind || 'LINK',
-      title: session.title || '공동 플레이',
-      sourceUrl: session.sourceUrl || '',
-      thumbnailUrl: session.thumbnailUrl || null,
-      status: session.status || 'ACTIVE',
-      playbackState: session.playbackState || 'PAUSED',
-      positionSeconds: Number(session.positionSeconds || 0),
-      hostUserId: session.hostUserId || null,
-    }),
-    sessionId: session.sessionId,
-    createdAt: session.createdAt || new Date().toISOString(),
-    editedAt: null,
-    attachments: [],
-    pinCandidates: [],
-  };
-}
-
-function activateSessionControls(session, { scroll = false, switchMode = true } = {}) {
-  const sessionId = String(session?.sessionId || '');
-  if (!sessionId) return;
-  if (!joinedSessionIds.value.includes(sessionId)) {
-    joinedSessionIds.value = [...joinedSessionIds.value, sessionId];
-  }
-  if (switchMode) uiMode.value = 'watch';
-  messageStageMode.value = 'stream';
-  stageDeckOpen.value = false;
-  openCommandDeck('sessions');
-  if (scroll) {
-    nextTick(() => {
-      sessionHubRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-    });
-  }
-}
-
-function isSessionActivated(sessionId) {
-  return joinedSessionIds.value.includes(String(sessionId || ''));
-}
-
-const sessionHistoryOpen = ref(false);
-
-const uiMode = ref('conversation');
-const exploreTab = ref('search');
-
-const focusModeTabs = computed(() => ([
-  { key: 'conversation', label: '대화', badge: items.value?.length || 0 },
-  { key: 'watch', label: '세션', badge: activeSessions.value?.length || recentSessions.value?.length || 0 },
-  { key: 'explore', label: '탐색', badge: activeCount.value + capsuleItems.value.length },
-]));
-
-const currentSessionMini = computed(() => featuredActiveSession.value || activeSessions.value?.[0] || null);
-const railPrimarySession = computed(() => spotlightMessage.value && isSessionMessage(spotlightMessage.value) ? sessionForMessage(spotlightMessage.value) : currentSessionMini.value);
-
-function openRailSession() {
-  const session = railPrimarySession.value || currentSessionMini.value;
-  if (!session?.sessionId) {
-    openCommandDeck('sessions');
-    return;
-  }
-  activateSessionControls(session, { scroll: true, switchMode: false });
-}
-
-function setUiMode(mode) {
-  uiMode.value = mode;
-  if (mode === 'watch' && currentSessionMini.value?.sessionId) {
-    activateSessionControls(currentSessionMini.value);
-  }
-}
-
-function openExploreTab(tab = 'search') {
-  exploreTab.value = tab;
-  uiMode.value = 'explore';
-}
-
-const featuredActiveSession = computed(() => {
-  const list = activeSessions.value || [];
-  if (!list.length) return null;
-  const joined = list.find((item) => isSessionActivated(item?.sessionId));
-  return joined || list[0] || null;
-});
-
-const secondaryActiveSessions = computed(() => {
-  const featuredId = String(featuredActiveSession.value?.sessionId || '');
-  return (activeSessions.value || []).filter((item) => String(item?.sessionId || '') !== featuredId).slice(0, 3);
-});
-
-const visibleRecentSessions = computed(() => (sessionHistoryOpen.value ? recentSessions.value : recentSessions.value.slice(0, 2)));
-
-const commandDeckOpen = ref(false);
-const commandDeckTab = ref('search');
-const lensLauncherOpen = ref(false);
-
-const commandDeckTabs = computed(() => ([
-  { key: 'search', label: '검색', count: items.value?.length || 0, badge: items.value?.length || 0 },
-  { key: 'actions', label: '액션', count: activeCount.value || 0, badge: activeCount.value || 0 },
-  { key: 'capsules', label: '캡슐', count: capsuleItems.value?.length || 0, badge: capsuleItems.value?.length || 0 },
-  { key: 'sessions', label: '세션', count: (activeSessions.value?.length || 0) + (recentSessions.value?.length || 0), badge: (activeSessions.value?.length || 0) + (recentSessions.value?.length || 0) },
-]));
-
-const filteredPins = computed(() => {
-  const list = Array.isArray(dockActivePinsToShow.value)
-    ? dockActivePinsToShow.value.filter((x) => !x?.__placeholder)
-    : [];
-  return list.slice(0, 6);
-});
-
-const messageStageMode = ref('stream');
-const stageFilter = ref('all');
-const stageDeckOpen = ref(false);
-const stageSheetTab = ref('overview');
-
-function messageHasAttachment(message) {
-  return Array.isArray(message?.attachments) && message.attachments.length > 0;
-}
-function messageHasActionCandidate(message) {
-  return Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0;
-}
-function isHighlightedMessage(message) {
-  return searchFocusMid.value && String(searchFocusMid.value) === String(message?.messageId || '');
-}
-function isStageCandidate(message) {
-  return stagePool.value.some((item) => String(item?.messageId || '') === String(message?.messageId || ''));
-}
-
-const stagePool = computed(() => {
-  const source = Array.isArray(items.value) ? items.value : [];
-  return source.filter((message) => {
-    if (isSessionMessage(message)) return true;
-    if (messageHasAttachment(message)) return true;
-    if (messageHasActionCandidate(message)) return true;
-    if (isHighlightedMessage(message)) return true;
-    return false;
-  });
-});
-
-const stageFilteredMessages = computed(() => {
-  const source = stagePool.value;
-  if (stageFilter.value === 'sessions') return source.filter((message) => isSessionMessage(message));
-  if (stageFilter.value === 'media') return source.filter((message) => messageHasAttachment(message));
-  if (stageFilter.value === 'actions') return source.filter((message) => messageHasActionCandidate(message));
-  return source;
-});
-
-const visibleMessages = computed(() => items.value);
-
-const stageStackCards = computed(() => {
-  const source = stageFilteredMessages.value.length ? stageFilteredMessages.value : stagePool.value;
-  return source.slice(-4).reverse();
-});
-
-const stageRailCards = computed(() => stageStackCards.value.slice(0, 3));
-
-const stageStats = computed(() => ({
-  total: stagePool.value.length,
-  sessions: stagePool.value.filter((message) => isSessionMessage(message)).length,
-  media: stagePool.value.filter((message) => messageHasAttachment(message)).length,
-  actions: stagePool.value.filter((message) => messageHasActionCandidate(message)).length,
-}));
-
-const stageHeadline = computed(() => {
-  if (stageFilter.value === 'sessions') return '공동 플레이 흐름만 모아서 봐요';
-  if (stageFilter.value === 'media') return '첨부와 미디어가 있는 장면만 보여드릴게요';
-  if (stageFilter.value === 'actions') return '약속·할 일로 이어질 장면만 보여드릴게요';
-  if (stageStats.value.total) return '지금 대화에서 다시 보기 좋은 장면만 앞에 세웠어요';
-  return '아직 무대에 올릴 장면이 없어서 전체 대화를 그대로 보여드려요';
-});
-
-const spotlightMessage = computed(() => {
-  const source = stageFilteredMessages.value;
-  return source.length ? source[source.length - 1] : null;
-});
-
-const stageSheetTabs = computed(() => ([
-  { key: 'overview', label: '개요', count: stageStats.value.total },
-  { key: 'sessions', label: '세션', count: stageStats.value.sessions },
-  { key: 'actions', label: '액션', count: stageStats.value.actions },
-  { key: 'media', label: '미디어', count: stageStats.value.media },
-]));
-
-const stageSheetSessions = computed(() => stagePool.value.filter((message) => isSessionMessage(message)).slice().reverse());
-const stageSheetActions = computed(() => stagePool.value.filter((message) => messageHasActionCandidate(message)).slice().reverse());
-const stageSheetMedia = computed(() => stagePool.value.filter((message) => messageHasAttachment(message)).slice().reverse());
-
-function openStageSheet(tab = 'overview') {
-  stageSheetTab.value = tab;
-  stageDeckOpen.value = true;
-}
-
-function openCommandDeck(tab = 'search') {
-  commandDeckTab.value = tab;
-  commandDeckOpen.value = true;
-  lensLauncherOpen.value = false;
-}
-
-function closeCommandDeck() {
-  commandDeckOpen.value = false;
-}
-
-function toggleCommandDeck(tab = 'search') {
-  if (commandDeckOpen.value && commandDeckTab.value === tab) {
-    closeCommandDeck();
-    return;
-  }
-  openCommandDeck(tab);
-}
-
-function toggleLensLauncher() {
-  lensLauncherOpen.value = !lensLauncherOpen.value;
-}
-
-function openLensDeck(tab = 'search') {
-  if (tab === 'sessions') {
-    openCommandDeck('sessions');
-    stageSheetTab.value = 'sessions';
-    lensLauncherOpen.value = false;
-    return;
-  }
-  openCommandDeck(tab);
-}
-
-watch(commandDeckOpen, (open) => {
-  if (open) lensLauncherOpen.value = false;
-});
-
-watch(messageStageMode, (mode) => {
-  if (mode === 'stage') stageDeckOpen.value = true;
-});
-
-function toggleSessionHistory() {
-  sessionHistoryOpen.value = !sessionHistoryOpen.value;
-}
-
-
-async function onTouchPlaybackPresence(session) {
-  if (!session?.sessionId || session?.status !== 'ACTIVE') return;
-  activateSessionControls(session);
-  await touchSessionPresence(session.sessionId, { silent: true });
-}
-
-async function onCreatePlaybackSession(form) {
-  const created = await createSession(form);
-  uiMode.value = 'watch';
-  activateSessionControls(created, { switchMode: false });
-  const sessionMessage = buildSessionMessageFromSession(created);
-  if (sessionMessage && !hasMessage(sessionMessage.messageId)) appendIncomingMessage(sessionMessage);
-}
-
-function resolveSessionActionPayload(input, fallbackState = null) {
-  const session = input?.session || input || null;
-  return {
-    session,
-    sessionId: session?.sessionId || input?.sessionId || null,
-    playbackState: String(input?.playbackState || session?.playbackState || fallbackState || 'PAUSED'),
-    positionSeconds: Number(input?.positionSeconds ?? session?.positionSeconds ?? 0),
-  };
-}
-
-async function onPlaybackPlay(input) {
-  const payload = resolveSessionActionPayload(input, 'PLAYING');
-  mergeSessionLocally(payload.sessionId, { playbackState: 'PLAYING', positionSeconds: payload.positionSeconds });
-  await onTouchPlaybackPresence(payload.session);
-  await applySessionAction(payload.sessionId, {
-    playbackState: 'PLAYING',
-    positionSeconds: payload.positionSeconds,
-  });
-}
-
-async function onPlaybackPause(input) {
-  const payload = resolveSessionActionPayload(input, 'PAUSED');
-  mergeSessionLocally(payload.sessionId, { playbackState: 'PAUSED', positionSeconds: payload.positionSeconds });
-  await onTouchPlaybackPresence(payload.session);
-  await applySessionAction(payload.sessionId, {
-    playbackState: 'PAUSED',
-    positionSeconds: payload.positionSeconds,
-  });
-}
-
-async function onPlaybackSeek(input) {
-  const payload = resolveSessionActionPayload(input);
-  mergeSessionLocally(payload.sessionId, { playbackState: payload.playbackState, positionSeconds: payload.positionSeconds + 15 });
-  await onTouchPlaybackPresence(payload.session);
-  await applySessionAction(payload.sessionId, {
-    playbackState: payload.playbackState,
-    positionSeconds: payload.positionSeconds + 15,
-  });
-}
-
-async function onPlaybackEnd(input) {
-  const payload = resolveSessionActionPayload(input);
-  await onTouchPlaybackPresence(payload.session);
-  await endSession(payload.sessionId, payload.positionSeconds);
-}
-
-function onPlaybackTelemetry(input) {
-  const payload = resolveSessionActionPayload(input);
-  if (!payload.sessionId) return;
-  mergeSessionLocally(payload.sessionId, {
-    positionSeconds: payload.positionSeconds,
-    playbackState: payload.playbackState,
-  });
-}
-
-async function onPlaybackIntent(input) {
-  const payload = resolveSessionActionPayload(input);
-  if (!payload.sessionId) return;
-  if (payload.playbackState === 'PLAYING') {
-    await onPlaybackPlay(payload);
-    return;
-  }
-  await onPlaybackPause(payload);
-}
-
-
 const {
   sessions,
   activeSessions,
@@ -662,2018 +182,214 @@ const {
   mergeSessionLocally,
 } = useConversationSessions({ conversationId, meId, toast });
 
-const unreadDividerMid = ref(null); // 첫 unread 메시지 ID(구분선 위치)
+const {
+  joinedSessionIds,
+  sessionHubRef,
+  sessionHistoryOpen,
+  exploreTab,
+  sessionSnapshotFromMessage,
+  sessionForMessage,
+  buildSessionMessageFromSession,
+  activateSessionControls,
+  isSessionActivated,
+  focusModeTabs,
+  featuredActiveSession,
+  currentSessionMini,
+  railPrimarySession,
+  openRailSession,
+  setUiMode,
+  openExploreTab,
+  secondaryActiveSessions,
+  visibleRecentSessions,
+  toggleSessionHistory,
+  onTouchPlaybackPresence,
+  onCreatePlaybackSession,
+  onPlaybackPlay,
+  onPlaybackPause,
+  onPlaybackSeek,
+  onPlaybackEnd,
+  onPlaybackTelemetry,
+  onPlaybackIntent,
+} = useConversationSessionUi({
+  conversationId,
+  meId,
+  items: computed(() => items.value),
+  activeCount: computed(() => activeCount.value),
+  capsuleItems: computed(() => capsuleItems.value),
+  sessions,
+  activeSessions,
+  recentSessions,
+  spotlightMessage: computed(() => spotlightMessage.value),
+  isSessionMessage,
+  sessionMessageMeta,
+  openCommandDeck,
+  messageStageMode,
+  stageDeckOpen,
+  uiMode,
+  touchSessionPresence,
+  createSession,
+  hasMessage: (...args) => hasMessage(...args),
+  appendIncomingMessage: (...args) => appendIncomingMessage(...args),
+  applySessionAction,
+  endSession,
+  mergeSessionLocally,
+  nextTick,
+});
 
 const readReceipts = ref([]); // [{ userId, lastReadAt }]
 
 // ✅ RealLife v2: Dock(상단)에서 액션/제안 관리
 const dockJustMovedPinId = ref(null);
-const savingCandidateId = ref(null);
-const lastCreatedPinId = ref(null);
-function syncMobileViewport(){
-  if (typeof window === "undefined") return;
-  isMobileViewport.value = window.innerWidth <= 720;
-  syncSearchRailMode();
-}
-
-watch(() => route.query, () => {
-  if (hasSearchFocus.value) {
-    uiMode.value = 'explore';
-    exploreTab.value = 'search';
-  }
-}, { immediate: true, deep: true });
-
-watch(currentSessionMini, (session) => {
-  if (uiMode.value === 'watch' && !session) {
-    uiMode.value = 'conversation';
-  }
-});
-const useDockSheet = computed(() => isMobileViewport.value);
-const dockSheetTitle = computed(() => dockMode.value === "suggestions" ? "액션 제안" : "액션 허브");
-const dockSheetSubtitle = computed(() => {
-  if (dockMode.value === "suggestions") {
-    return suggestionCount.value > 0 ? `지금 확인할 제안 ${suggestionCount.value}개` : "현재 메시지에서 제안이 없어요.";
-  }
-  return activeCount.value > 0 ? `진행 중 액션 ${activeCount.value}개를 빠르게 볼 수 있어요.` : "아직 활성 액션이 없어요.";
-});
-function closeDockSheet(){
-  dockOpen.value = false;
-}
-
-const { setLocked: setDockSheetBodyLocked } = useBodyScrollLock();
-watch([dockOpen, useDockSheet], ([open, sheet]) => {
-  setDockSheetBodyLocked(open && sheet);
-}, { immediate: true });
-
-// ✅ v2.10: placeholder slot for clearer FLIP destination
-const flipPlaceholder = ref(null); // { pinId, title, time, place, type }
-
-// ✅ v2.9: Dock → Active 'TRUE FLIP' animation + queue
-const flyLayer = ref(null);
-const _flyQueue = []; // [{ fromRect, html, createdPinId }]
-let _flyRunning = false;
-let _flySeq = 0; // v2.12: sequence for stacked fly ghosts
-
-function rectOf(el){
-  if(!el) return null;
-  const r = el.getBoundingClientRect();
-  return { left:r.left, top:r.top, width:r.width, height:r.height };
-}
-
-function makeFlyGhost(fromRect, toRect, html, fromStyle, toStyle, seq){
-  // Card-shaped ghost that flies (kept for UX delight)
-  try{
-    const ghost = document.createElement("div");
-    ghost.className = "flyGhost";
-    const stack = (seq ? (seq % 3) : 0);
-    const ox = stack * 8;
-    const oy = stack * 6;
-    ghost.style.left = (fromRect.left + ox) + "px";
-    ghost.style.top = (fromRect.top + oy) + "px";
-    ghost.style.width = fromRect.width + "px";
-    ghost.style.height = fromRect.height + "px";
-    ghost.style.zIndex = String(10000 + (seq || 0));
-
-    // v2.10+: interpolate radius/shadow/background too
-    if(fromStyle){
-      if(fromStyle.borderRadius) ghost.style.borderRadius = fromStyle.borderRadius;
-      if(fromStyle.boxShadow) ghost.style.boxShadow = fromStyle.boxShadow;
-      if(fromStyle.background) ghost.style.background = fromStyle.background;
-    }
-
-    // v2.12: keep card shape; animate tilt/scale on inner so outer can FLIP by transitions
-    ghost.innerHTML = `<div class="flyGhostInner">${html || ""}</div>`;
-    document.body.appendChild(ghost);
-
-    // force layout
-    ghost.getBoundingClientRect();
-
-    // destination style
-    if(toStyle){
-      if(toStyle.borderRadius) ghost.style.borderRadius = toStyle.borderRadius;
-      if(toStyle.boxShadow) ghost.style.boxShadow = toStyle.boxShadow;
-      if(toStyle.background) ghost.style.background = toStyle.background;
-    }
-
-    ghost.style.left = (toRect.left) + "px";
-    ghost.style.top = (toRect.top) + "px";
-    ghost.style.width = toRect.width + "px";
-    ghost.style.height = toRect.height + "px";
-    ghost.style.opacity = "0.0";
-
-    const clean = () => { try{ ghost.remove(); }catch{} };
-    ghost.addEventListener("transitionend", clean, { once:true });
-    setTimeout(clean, 820);
-  }catch{}
-}
-
-function playTrueFlip(el, fromRect){
-  // Animate destination element from 'fromRect' to its current rect (FLIP)
-  try{
-    if(!el || !fromRect) return;
-    const last = rectOf(el);
-    if(!last) return;
-    const dx = fromRect.left - last.left;
-    const dy = fromRect.top - last.top;
-    const sx = fromRect.width / Math.max(1, last.width);
-    const sy = fromRect.height / Math.max(1, last.height);
-
-    el.style.willChange = "transform, opacity";
-    el.style.transformOrigin = "top left";
-    el.style.transition = "none";
-    el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
-    el.style.opacity = "0.65";
-
-    // force
-    el.getBoundingClientRect();
-
-    el.style.transition = "transform 520ms cubic-bezier(.16,1,.3,1), opacity 420ms cubic-bezier(.16,1,.3,1)";
-    el.style.transform = "translate(0px, 0px) scale(1, 1)";
-    el.style.opacity = "1";
-
-    const clean = () => {
-      try{
-        el.style.willChange = "";
-        el.style.transformOrigin = "";
-        el.style.transition = "";
-        el.style.transform = "";
-      }catch{}
-    };
-    el.addEventListener("transitionend", clean, { once:true });
-    setTimeout(clean, 750);
-  }catch{}
-}
-
-function enqueueDockToActiveFly(job){
-  if(!job?.fromRect || !job?.createdPinId) return;
-  // v2.12: keep a sequence so rapid saves look like a stacked queue
-  const seq = (++_flySeq);
-  _flyQueue.push({ ...job, _seq: seq });
-  if(!_flyRunning) processFlyQueue();
-}
-
-async function processFlyQueue(){
-  if(_flyRunning) return;
-  _flyRunning = true;
-
-  while(_flyQueue.length){
-    const job = _flyQueue.shift();
-    try{
-      await runDockToActiveFly(job);
-      // small gap so rapid saves feel like a "stack queue"
-      await new Promise(r => setTimeout(r, 70));
-    }catch{}
-  }
-
-  _flyRunning = false;
-}
-
-
-function spawnSparks(x, y){
-  try{
-    const n = 9;
-    for(let i=0;i<n;i++){
-      const s = document.createElement("span");
-      s.className = "spark";
-      const a = (Math.PI * 2) * (i / n) + (Math.random()*0.4);
-      const d = 10 + Math.random()*14;
-      s.style.left = x + "px";
-      s.style.top = y + "px";
-      s.style.setProperty("--dx", (Math.cos(a)*d).toFixed(2)+"px");
-      s.style.setProperty("--dy", (Math.sin(a)*d).toFixed(2)+"px");
-      s.style.setProperty("--rot", (Math.random()*120-60).toFixed(1)+"deg");
-      document.body.appendChild(s);
-      s.addEventListener("animationend", () => { try{s.remove()}catch{} }, { once:true });
-    }
-  }catch{}
-}
-
-function safeText(v){
-  return (v==null) ? "" : String(v);
-}
-
-function formatCandidateTime(c){
-  const raw = c?.startAt || c?.whenAt || c?.datetime || c?.timeAt || c?.at || c?.dateTime;
-  if(!raw) return "";
-  try{
-    const d = new Date(raw);
-    if(!isNaN(d.getTime())){
-      const y = d.getFullYear();
-      const mo = String(d.getMonth()+1).padStart(2,"0");
-      const da = String(d.getDate()).padStart(2,"0");
-      const hh = String(d.getHours()).padStart(2,"0");
-      const mm = String(d.getMinutes()).padStart(2,"0");
-      return `${y}-${mo}-${da} ${hh}:${mm}`;
-    }
-  }catch{}
-  return safeText(raw).slice(0,16);
-}
-
-function formatCandidatePlace(c){
-  const p = c?.placeText || c?.place || c?.location || c?.where || c?.addr || c?.address;
-  return p ? safeText(p).slice(0,18) : "";
-}
-
-function makeCandidateGhostHtml(candidate, title){
-  const t = safeText(title || candidate?.title || "액션").slice(0,24);
-  const time = formatCandidateTime(candidate);
-  const place = formatCandidatePlace(candidate);
-  const metaParts = [];
-  if(time) metaParts.push(`🕒 ${time}`);
-  if(place) metaParts.push(`📍 ${place}`);
-  const meta = metaParts.length ? metaParts.join(" · ") : "저장 중…";
-  // minimal HTML, styled by .flyGhostInner
-  return `<div class="flyGhostInner">
-            <div class="flyGhostTitle">${t}</div>
-            <div class="flyGhostMeta">${meta}</div>
-          </div>`;
-}
-
-
-async function runDockToActiveFly(job){
-  const createdPinId = job?.createdPinId;
-  const fromRect = job?.fromRect;
-  const html = job?.html;
-
-  if(!fromRect || !createdPinId) return;
-
-  // remember so it can be force-rendered in dock row (in case list is sliced)
-  lastCreatedPinId.value = String(createdPinId);
-
-  // v2.10: render a placeholder slot so destination exists before real card appears
-  if(job?.meta){
-    flipPlaceholder.value = { pinId: String(createdPinId), ...job.meta };
-  } else {
-    flipPlaceholder.value = { pinId: String(createdPinId), title: "저장됨", time: "", place: "", type: "OTHER" };
-  }
-
-  // ensure dock open + active tab visible so target exists
-  try{
-    dockMode.value = "active";
-    dockOpen.value = true;
-    await nextTick();
-    await nextTick();
-  }catch{}
-
-  // try find target card
-  let target = document.querySelector(`[data-pin-id="${String(createdPinId)}"]`);
-
-  // if not found (filtered/sliced), try force filter to match the new pin type
-  if(!target){
-    const p = (pins.value || []).find(x => String(x.pinId)===String(createdPinId));
-    if(p){
-      const k = classifyPin(p);
-      activeFilter.value = k || "ALL";
-      await nextTick();
-      await nextTick();
-      target = document.querySelector(`[data-pin-id="${String(createdPinId)}"]`);
-    }
-  }
-
-  // fallback target: dock panel itself
-  const fallbackEl = document.querySelector(".dockPanel") || document.querySelector(".dockWrap");
-  const toRect = rectOf(target || fallbackEl);
-
-  if(toRect){
-    // 1) Fly the ghost card (visual continuity)
-    const toEl = (target || fallbackEl);
-    const tcs = toEl ? window.getComputedStyle(toEl) : null;
-    const toStyle = tcs ? { borderRadius: tcs.borderRadius, boxShadow: tcs.boxShadow, background: tcs.background } : null;
-
-    makeFlyGhost(fromRect, toRect, html, job?.fromStyle, toStyle, job?._seq);
-    // v2.12: tiny spark burst at destination (subtle)
-    try{ spawnSparks(toRect.left + toRect.width*0.75, toRect.top + 18); }catch{}
-
-    // 2) TRUE FLIP: animate the destination element from the source rect
-    // (only if target exists)
-    if(target){
-      // ensure it's visible in horizontal row
-      try{
-        target.scrollIntoView?.({ behavior: "smooth", block: "nearest", inline: "center" });
-      }catch{}
-      // play FLIP on next frame so scroll/layout settles a bit
-            requestAnimationFrame(() => playTrueFlip(target, fromRect));
-
-      // clear placeholder once real card is in DOM
-      setTimeout(() => {
-        try{
-          const exists = (pins.value || []).some(x => String(x.pinId)===String(createdPinId));
-          if(exists) flipPlaceholder.value = null;
-        }catch{}
-      }, 850);
-    }
-  }
-}
-
-
-const dockPulseOn = ref(false);
-function triggerDockPulse(){
-  dockPulseOn.value = true;
-  setTimeout(() => { dockPulseOn.value = false; }, 240);
-}
-
-const dockAnimating = ref(false);
-const activeFilter = ref("ALL"); // ALL | PROMISE | TODO | PLACE
-
-function classifyCandidate(c){
-  const t = c && (c.type || c.pinType || c.kind || c.category) ? String(c.type || c.pinType || c.kind || c.category).toUpperCase() : "";
-  if (t.includes("PLACE")) return "PLACE";
-  if (t.includes("TODO") || t.includes("TASK")) return "TODO";
-  if (t.includes("PROMISE") || t.includes("APPOINT") || t.includes("MEET")) return "PROMISE";
-
-  // heuristic
-  const text = String(c?.title || c?.content || c?.summary || "").toLowerCase();
-  if (text.includes("할일") || text.includes("todo") || text.includes("task")) return "TODO";
-  if (text.includes("장소") || text.includes("주소") || text.includes("place")) return "PLACE";
-  return "PROMISE"; // default: 약속 계열
-}
-
-function classifyPin(p) {
-  // 백엔드 스키마가 타입을 주면 우선 사용, 없으면 휴리스틱
-  const t = (p && (p.type || p.pinType || p.kind || p.category)) ? String(p.type || p.pinType || p.kind || p.category).toUpperCase() : "";
-  if (t.includes("PLACE")) return "PLACE";
-  if (t.includes("TODO") || t.includes("TASK")) return "TODO";
-  if (t.includes("PROMISE") || t.includes("APPOINT") || t.includes("MEET")) return "PROMISE";
-  // 휴리스틱: startAt 있으면 약속, placeText만 있으면 장소, 그 외 할일
-  if (p?.startAt) return "PROMISE";
-  if (p?.placeText) return "PLACE";
-  return "TODO";
-}
-
-
-function pinKindMeta(p) {
-  const kind = classifyPin(p);
-  if (kind === "PROMISE") return { emoji: "📅", label: "약속" };
-  if (kind === "TODO") return { emoji: "✅", label: "할일" };
-  return { emoji: "📍", label: "장소" };
-}
-
-function pinTimelineState(p) {
-  const kind = classifyPin(p);
-  const now = Date.now();
-  const startTs = p?.startAt ? new Date(p.startAt).getTime() : 0;
-
-  if (kind === "PLACE") {
-    return { stage: "saved", label: "저장됨", tone: "stable", progress: 34 };
-  }
-  if (kind === "TODO") {
-    return { stage: "working", label: "진행 준비", tone: "active", progress: 58 };
-  }
-  if (kind === "PROMISE") {
-    if (startTs && startTs > now) return { stage: "scheduled", label: "예정됨", tone: "accent", progress: 74 };
-    if (startTs && startTs <= now) return { stage: "started", label: "시간 지남", tone: "warn", progress: 90 };
-    return { stage: "saved", label: "저장됨", tone: "stable", progress: 48 };
-  }
-  return { stage: "saved", label: "저장됨", tone: "stable", progress: 40 };
-}
-
-const nextPromisePin = computed(() => {
-  const now = Date.now();
-  return (pins.value || [])
-    .filter((p) => classifyPin(p) === "PROMISE" && p?.startAt)
-    .map((p) => ({ pin: p, ts: new Date(p.startAt).getTime() }))
-    .filter((x) => x.ts && x.ts >= now)
-    .sort((a, b) => a.ts - b.ts)[0]?.pin || null;
+const {
+  syncMobileViewport,
+  useDockSheet,
+  dockSheetTitle,
+  dockSheetSubtitle,
+  closeDockSheet,
+} = useConversationRouteUiSync({
+  route,
+  watch,
+  conversationId,
+  currentSessionMini,
+  uiMode,
+  exploreTab,
+  dockOpen,
+  dockMode,
+  isMobileViewport,
+  suggestionCount: computed(() => suggestionCount.value),
+  activeCount: computed(() => activeCount.value),
+  loadSessions: (...args) => loadSessions(...args),
+  syncSearchRailMode,
+  setDockSheetBodyLocked,
 });
 
-const dockTimelineSummary = computed(() => {
-  const total = Array.isArray(pins.value) ? pins.value.length : 0;
-  const promises = activeCounts.value.PROMISE || 0;
-  const todos = activeCounts.value.TODO || 0;
-  const places = activeCounts.value.PLACE || 0;
-  return {
-    total,
-    promises,
-    todos,
-    places,
-    nextLabel: nextPromisePin.value ? pinTimeText(nextPromisePin.value) : "",
-    nextTitle: nextPromisePin.value?.title || "",
-  };
+const {
+  flyLayer,
+  rectOf,
+  safeText,
+  formatCandidateTime,
+  formatCandidatePlace,
+  makeCandidateGhostHtml,
+  enqueueDockToActiveFly,
+} = useConversationDockFly({
+  ref,
+  nextTick,
+  dockMode,
+  dockOpen,
+  pins,
+  activeFilter,
+  classifyPin: (...args) => classifyPin(...args),
 });
 
-const activeCounts = computed(() => {
-  const res = { PROMISE: 0, TODO: 0, PLACE: 0 };
-  (pins.value || []).forEach((p) => {
-    const k = classifyPin(p);
-    if (res[k] != null) res[k] += 1;
-  });
-  return res;
+const {
+  triggerDockPulse,
+  classifyCandidate,
+  classifyPin,
+  pinKindMeta,
+  pinTimelineState,
+  nextPromisePin,
+  dockTimelineSummary,
+  activeCounts,
+  filteredActivePins,
+  dockActivePinsToShow,
+  sortedDockCandidates,
+  activeCount,
+  suggestionCount,
+  openActiveDock,
+  openSuggestionsDock,
+  isCandidatesOpen,
+  toggleCandidates,
+  onPinRemindHighlight,
+  reminderTimeText,
+  openReminderPins,
+  pinPrimarySummary,
+  pinSecondarySummary,
+  pinCtaHint,
+  pinTimelineEvents,
+  pinTimelineTimeText: dockPinTimelineTimeText,
+  loadPins,
+  pinActivity,
+  syncPinActivity,
+  rememberPinAction,
+  dockStatusSummary,
+  upcomingReminderPins,
+  nextReminderPin,
+  reminderDueSoonCount,
+  reminderTodayCount,
+  recentPinActivity,
+  pinActivityLabel,
+  pinActivityTone,
+  pinActivityMeta,
+  timelinePrimaryMeta,
+  timelinePriorityReason,
+  timelineActionPath,
+} = useConversationPinDock({
+  ref,
+  computed,
+  watch,
+  nextTick,
+  router,
+  conversationId,
+  canViewConversation: () => canViewConversation.value,
+  pins,
+  items: computed(() => items.value),
+  loadSessions: (...args) => loadSessions(...args),
+  pinsStore,
+  dockMode,
+  dockOpen,
+  activeFilter,
+  dockSourceMsg,
+  dockCandidates,
+  isPinnedHighlight,
+  pinTimeText: (...args) => pinTimeText(...args),
+  openCommandDeck: (...args) => openCommandDeck(...args),
+  closeCommandDeck: (...args) => closeCommandDeck(...args),
 });
 
-const filteredActivePins = computed(() => {
-  const list = Array.isArray(pins.value) ? [...pins.value] : [];
-  const f = activeFilter.value;
-  const out = f === "ALL" ? list : list.filter((p) => classifyPin(p) === f);
-  // 정렬: 약속(startAt) 우선 + 시간 오름차순, 나머지는 최근
-  out.sort((a, b) => {
-    const ak = classifyPin(a);
-    const bk = classifyPin(b);
-    if (ak !== bk) {
-      const order = { PROMISE: 0, TODO: 1, PLACE: 2 };
-      return (order[ak] ?? 9) - (order[bk] ?? 9);
-    }
-    const at = a?.startAt ? new Date(a.startAt).getTime() : 0;
-    const bt = b?.startAt ? new Date(b.startAt).getTime() : 0;
-    if (at && bt) return at - bt;
-    return 0;
-  });
-  return out;
-});
-
-
-const dockActivePinsToShow = computed(() => {
-  const list = Array.isArray(filteredActivePins.value) ? [...filteredActivePins.value] : [];
-  const lastId = lastCreatedPinId.value ? String(lastCreatedPinId.value) : null;
-
-  // v2.10: placeholder slot to make FLIP destination visible immediately
-  const ph = flipPlaceholder.value && flipPlaceholder.value.pinId ? flipPlaceholder.value : null;
-  const hasReal = ph ? list.some(p => String(p.pinId) === String(ph.pinId)) : false;
-  const phItem = (ph && !hasReal) ? {
-    pinId: String(ph.pinId),
-    title: ph.title || "저장 중…",
-    placeName: ph.place || "",
-    startAt: ph.time || "",
-    __placeholder: true,
-    __type: ph.type || "OTHER",
-  } : null;
-
-  // show a bit more in dock and ensure last created is included
-  let show = list.slice(0, 10);
-
-  if (phItem && !show.some(p => String(p.pinId) === String(phItem.pinId))) {
-    show = [phItem, ...show].slice(0, 10);
-  }
-
-  if (lastId && !show.some(p => String(p.pinId) === lastId)) {
-    const found = list.find(p => String(p.pinId) === lastId);
-    if (found) show = [found, ...show].slice(0, 10);
-  }
-
-  return show;
-});
-
-const sortedDockCandidates = computed(() => {
-  const list = Array.isArray(dockCandidates.value) ? [...dockCandidates.value] : [];
-  // candidate가 startAt/score 같은 속성을 줄 수도 있어서 최대한 안정적으로 정렬
-  list.sort((a, b) => {
-    const at = a?.startAt ? new Date(a.startAt).getTime() : 0;
-    const bt = b?.startAt ? new Date(b.startAt).getTime() : 0;
-    if (at && bt) return at - bt;
-    const as = typeof a?.score === "number" ? -a.score : 0;
-    const bs = typeof b?.score === "number" ? -b.score : 0;
-    if (as !== bs) return as - bs;
-    return String(a?.candidateId || "").localeCompare(String(b?.candidateId || ""));
-  });
-  return list;
-});
-
-
-// 제안(후보) 표시용: 현재 선택된 메시지 기준
-const dockSourceMsg = ref(null); // message object
-const dockCandidates = ref([]);  // candidate array
-
-const activeCount = computed(() => (Array.isArray(pins.value) ? pins.value.length : 0));
-const suggestionCount = computed(() => {
-  const arr = items.value || [];
-  return arr.reduce((acc, m) => acc + ((m?.pinCandidates && m.pinCandidates.length) ? m.pinCandidates.length : 0), 0);
-});
-
-function openActiveDock() {
-  dockAnimating.value = true;
-  setTimeout(() => (dockAnimating.value = false), 220);
-dockMode.value = "active";
-  dockOpen.value = !dockOpen.value;
-}
-
-async function openSuggestionsDock(message) {
-  if (!message || !message.pinCandidates || !message.pinCandidates.length) return;
-
-  const mid = String(message.messageId);
-  const curMid = dockSourceMsg.value ? String(dockSourceMsg.value.messageId) : null;
-  const sameTarget = dockOpen.value && dockMode.value === "suggestions" && curMid === mid && commandDeckOpen.value && commandDeckTab.value === "actions";
-
-  if (sameTarget) {
-    dockOpen.value = false;
-    closeCommandDeck();
-    return;
-  }
-
-  dockMode.value = "suggestions";
-  dockOpen.value = true;
-  dockSourceMsg.value = message;
-  dockCandidates.value = Array.isArray(message.pinCandidates) ? message.pinCandidates : [];
-
-  openCommandDeck("actions");
-  await nextTick();
-
-  const selector = `[data-message-id="${mid}"]`;
-  const target = document.querySelector(selector);
-  if (target?.scrollIntoView) {
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-}
-
-// hoverActions의 ✨ 버튼이 호출
-function isCandidatesOpen(messageId) {
-  return (
-    dockOpen.value &&
-    dockMode.value === "suggestions" &&
-    dockSourceMsg.value &&
-    String(dockSourceMsg.value.messageId) === String(messageId)
-  );
-}
-
-function toggleCandidates(messageId) {
-  const mid = String(messageId);
-  const msg = (items.value || []).find((x) => String(x?.messageId) === mid);
-  if (!msg || !msg.pinCandidates || !msg.pinCandidates.length) return;
-  openSuggestionsDock(msg);
-}
-
-function parseTime(v) {
-  const t = Date.parse(v || "");
-  return Number.isFinite(t) ? t : null;
-}
-
-function computeUnreadDividerMid(lastReadAt) {
-  if (!lastReadAt) return null;
-
-  const base = parseTime(lastReadAt);
-  if (base == null) return null;
-
-  // items는 normalizeMessages로 "오래된->최신" 정렬 상태
-  // 읽음 기준: createdAt > lastReadAt 인 첫 메시지가 “첫 unread”
-  for (const m of items.value) {
-    const ct = parseTime(m.createdAt);
-    if (ct != null && ct > base) {
-      return String(m.messageId);
-    }
-  }
-  return null;
-}
-
-async function jumpToFirstUnread(lastReadAt) {
-  // 1) 현재 페이지에 read(<=lastReadAt) 메시지가 하나도 없으면,
-  //    unread의 "가장 처음"이 더 과거에 있을 수 있음 -> loadMore로 더 가져오기
-  const base = parseTime(lastReadAt);
-  if (!base) {
-    unreadDividerMid.value = null;
-    scrollToBottom({ smooth: false });
-    return;
-  }
-
-  const hasAnyReadInLoaded = () =>
-      items.value.some((m) => {
-        const ct = parseTime(m.createdAt);
-        return ct != null && ct <= base;
-      });
-
-  // 최대 10페이지까지만(무한루프 방지)
-  let guard = 0;
-  while (!hasAnyReadInLoaded() && hasNext.value && !loading.value && guard < 10) {
-    guard++;
-    await loadMore(); // 기존 함수 그대로 사용 (prepend + 스크롤 유지)
-    await nextTick();
-  }
-
-  // 2) divider mid 계산
-  const mid = computeUnreadDividerMid(lastReadAt);
-  unreadDividerMid.value = mid;
-
-  // 3) unread가 있으면 그 위치로, 없으면 맨 아래로
-  await nextTick();
-
-  if (mid) {
-    const el = getScrollerEl()?.querySelector(`[data-mid="${mid}"]`);
-    if (el?.scrollIntoView) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  } else {
-    scrollToBottom({ smooth: false });
-  }
-}
-
-function onPinRemindHighlight(e) {
-  const cid = e?.detail?.conversationId;
-  if (!cid) return;
-
-  // 현재 보고 있는 대화방만 하이라이트
-  if (String(cid) !== String(conversationId.value)) return;
-
-  isPinnedHighlight.value = true;
-  setTimeout(() => (isPinnedHighlight.value = false), 800);
-}
-
-onMounted(() => {
-  detectTouchUi();
-  window.addEventListener('resize', detectTouchUi);
-
-  window.addEventListener("pin-remind-highlight", onPinRemindHighlight);
-});
-watch(() => route.query, async () => {
-  const { fromSearch, targetMid, targetPinId, targetCapsuleId } = await syncSearchFocusFromRoute();
-  if (!fromSearch) return;
-  await nextTick();
-  if (targetMid) await ensureMessageVisible(targetMid, 8);
-  if (targetPinId) await focusPinFromSearch(targetPinId);
-  if (targetCapsuleId) await focusCapsuleFromSearch(targetCapsuleId);
-}, { deep: true });
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', detectTouchUi);
-
-  window.removeEventListener("pin-remind-highlight", onPinRemindHighlight);
-});
 const myId = computed(() => auth.me?.id || null);
 
-const currentConversation = computed(() => {
-  const cid = conversationId.value;
-  return (convStore.items || []).find((c) => String(c.conversationId) === String(cid)) || null;
+const {
+  currentConversation,
+  isGroupConversation,
+  peer,
+  peerName,
+  peerHandle,
+  hasPeer,
+  peerInitial,
+  peerSubtitle,
+  openPeerProfile,
+} = useConversationHeaderInfo({
+  computed,
+  router,
+  conversationId,
+  convStore,
 });
-
-const isGroupConversation = computed(() => {
-  return String(currentConversation.value?.conversationType || "DIRECT").toUpperCase() === "GROUP";
-});
-
-/** 상대(목록 데이터 기반) */
-const peer = computed(() => {
-  return currentConversation.value?.peerUser || null;
-});
-
-const peerName = computed(() => {
-  if (isGroupConversation.value) {
-    return currentConversation.value?.conversationTitle || "그룹 대화";
-  }
-  return peer.value?.nickname || peer.value?.name || "대화";
-});
-const peerHandle = computed(() => {
-  if (isGroupConversation.value) {
-    const count = currentConversation.value?.memberCount;
-    return count ? `멤버 ${count}명` : "그룹 정보";
-  }
-  return peer.value?.handle || "";
-});
-const hasPeer = computed(() => {
-  if (isGroupConversation.value) return true;
-  return !!peer.value;
-});
-
-function peerInitial() {
-  if (isGroupConversation.value) return "G";
-  const s = String(peer.value?.nickname || peer.value?.name || peer.value?.handle || "").trim();
-  return s ? s[0].toUpperCase() : "U";
-}
-function openPeerProfile() {
-  if (isGroupConversation.value) return router.push({ name: "conversation-group-manage", params: { conversationId: conversationId.value } });
-  const h = peer.value?.handle;
-  const id = peer.value?.userId || peer.value?.id;
-  if (h) return router.push(`/u/${h}`);
-  if (id) return router.push(`/u/id/${id}`);
-}
 
 
 /** ====== DM 잠금 ====== */
-const lockEnabled = ref(false);
-const unlocked = ref(false);
-const lockGatePw = ref("");
-
-const lockModalOpen = ref(false);
-const lockModalMode = ref("set"); // set | disable
-const lockPw1 = ref("");
-const lockPw2 = ref("");
-
-function tokenKey() {
-  return `conv_unlock_${conversationId.value}`;
-}
-function getSavedToken() {
-  try {
-    return sessionStorage.getItem(tokenKey()) || "";
-  } catch {
-    return "";
-  }
-}
-const unlockToken = ref("");
-function syncUnlockToken() {
-  unlockToken.value = getSavedToken();
-}
-function saveToken(token) {
-  const next = String(token || "").trim();
-  try {
-    sessionStorage.setItem(tokenKey(), next);
-  } catch {}
-  unlockToken.value = next;
-}
-function clearToken() {
-  try {
-    sessionStorage.removeItem(tokenKey());
-  } catch {}
-  unlockToken.value = "";
-}
-
-const canViewConversation = computed(() => {
-  if (!lockEnabled.value) return true;
-  return !!unlocked.value;
+const {
+  lockEnabled,
+  unlocked,
+  lockGatePw,
+  lockModalOpen,
+  lockModalMode,
+  lockPw1,
+  lockPw2,
+  unlockToken,
+  clearToken,
+  canViewConversation,
+  refreshLockState,
+  handleUnlockGate,
+  openLockModal,
+  closeLockModal,
+  submitLockModal,
+} = useConversationLockAccess({
+  conversationId,
+  router,
+  toast,
+  loadSessions,
+  loadPins,
 });
-
-watch(conversationId, () => {
-  syncUnlockToken();
-}, { immediate: true });
-
-async function refreshLockState() {
-  try {
-    const res = await getConversationLock(conversationId.value);
-    lockEnabled.value = !!res?.enabled;
-
-    if (!lockEnabled.value) {
-      unlocked.value = true;
-      return;
-    }
-    syncUnlockToken();
-    unlocked.value = !!unlockToken.value;
-  } catch {
-    lockEnabled.value = false;
-    unlocked.value = true;
-    clearToken();
-  }
-}
-
-async function handleUnlockGate() {
-  const pw = String(lockGatePw.value || "").trim();
-  if (!pw) return;
-
-  try {
-    // ⚠️ 기존 프로젝트 시그니처 유지: issueUnlockToken(conversationId, pw)
-    const res = await issueUnlockToken(conversationId.value, pw);
-    if (!res?.token) throw new Error("no token");
-    saveToken(res.token);
-    lockGatePw.value = "";
-    unlocked.value = true;
-
-    await loadFirst();
-    await loadSessions();
-    await loadPins();
-  } catch (e) {
-    toast.error?.("잠금 해제 실패", e?.response?.data?.message || "비밀번호가 올바르지 않습니다.");
-  }
-}
-
-function openLockModal(mode) {
-  lockModalMode.value = mode;
-  lockPw1.value = "";
-  lockPw2.value = "";
-  lockModalOpen.value = true;
-}
-function closeLockModal() {
-  lockModalOpen.value = false;
-  lockPw1.value = "";
-  lockPw2.value = "";
-}
-
-async function submitLockModal() {
-  if (lockModalMode.value === "set") {
-    const p1 = String(lockPw1.value || "").trim();
-    const p2 = String(lockPw2.value || "").trim();
-
-    if (p1.length < 4) {
-      toast.error?.("설정 실패", "비밀번호는 최소 4자 이상으로 설정해 주세요.");
-      return;
-    }
-    if (p1 !== p2) {
-      toast.error?.("설정 실패", "비밀번호가 일치하지 않습니다.");
-      return;
-    }
-
-    try {
-      // ⚠️ 기존 프로젝트 시그니처 유지: setConversationLock(conversationId, pw)
-      await setConversationLock(conversationId.value, p1);
-      clearToken();
-      lockEnabled.value = true;
-      unlocked.value = false;
-      toast.success?.("완료", "이 DM은 잠금 상태가 됐어요.");
-      closeLockModal();
-    } catch (e) {
-      toast.error?.("설정 실패", e?.response?.data?.message || "잠금 설정에 실패했습니다.");
-    }
-    return;
-  }
-
-  const pw = String(lockPw1.value || "").trim();
-  if (!pw) {
-    toast.error?.("해제 실패", "비밀번호를 입력해 주세요.");
-    return;
-  }
-
-  try {
-    // ⚠️ 기존 프로젝트 시그니처 유지: disableConversationLock(conversationId, pw)
-    await disableConversationLock(conversationId.value, pw);
-    lockEnabled.value = false;
-    unlocked.value = true;
-    clearToken();
-    toast.success?.("완료", "잠금을 해제했습니다.");
-    closeLockModal();
-
-    await loadPins();
-  } catch (e) {
-    toast.error?.("해제 실패", e?.response?.data?.message || "비밀번호가 올바르지 않습니다.");
-  }
-}
-
-/** ====== Pins (Pinned) ====== */
-// ✅ NEW: PIN_REMIND 배지
-const hasPinRemindBadge = computed(() => pinsStore.hasRemindBadge?.(conversationId.value));
-
-function clearPinRemindBadge() {
-  pinsStore.clearRemindBadge?.(conversationId.value);
-}
-
-const pins = computed(() => pinsStore.getPins(conversationId.value));
-const showPinned = computed(() => {
-  const arr = pins.value;
-  return canViewConversation.value && Array.isArray(arr) && arr.length > 0;
-});
-
-
-function pinActivityStorageKey(cid) {
-  return `reallife:pinActivity:${cid || ""}`;
-}
-
-function loadPinActivityFromStorage(cid) {
-  try {
-    const raw = sessionStorage.getItem(pinActivityStorageKey(cid));
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-const pinActivity = ref([]);
-
-function syncPinActivity(cid = conversationId.value) {
-  pinActivity.value = loadPinActivityFromStorage(cid).slice(0, 6);
-}
-
-function savePinActivity(cid = conversationId.value) {
-  try {
-    sessionStorage.setItem(pinActivityStorageKey(cid), JSON.stringify(pinActivity.value.slice(0, 6)));
-  } catch {}
-}
-
-function rememberPinAction(action, pin) {
-  const entry = {
-    id: `${action}-${pin?.pinId || Date.now()}-${Date.now()}`,
-    action,
-    pinId: pin?.pinId || null,
-    title: pin?.title || pinKindMeta(pin).label,
-    type: classifyPin(pin),
-    placeText: pin?.placeText || "",
-    startAt: pin?.startAt || "",
-    at: new Date().toISOString(),
-  };
-  pinActivity.value = [entry, ...pinActivity.value.filter((x) => String(x.pinId) !== String(entry.pinId))].slice(0, 6);
-  savePinActivity();
-}
-
-watch(conversationId, () => {
-  syncPinActivity();
-  if (canViewConversation.value) loadSessions();
-}, { immediate: true });
-
-
-const dockVisibleSummary = computed(() => {
-  const list = Array.isArray(dockActivePinsToShow.value) ? dockActivePinsToShow.value.filter((x) => !x?.__placeholder) : [];
-  return {
-    total: list.length,
-    hidden: Math.max(0, list.length - 4),
-    hasMany: list.length > 4,
-  };
-});
-
-const dockStatusSummary = computed(() => {
-  const now = Date.now();
-  const list = Array.isArray(pins.value) ? pins.value : [];
-  let overdue = 0;
-  let upcoming = 0;
-  let todoReady = 0;
-  let placeSaved = 0;
-  list.forEach((p) => {
-    const kind = classifyPin(p);
-    const ts = p?.startAt ? new Date(p.startAt).getTime() : 0;
-    if (kind === "PROMISE") {
-      if (ts && ts < now) overdue += 1;
-      else upcoming += 1;
-      return;
-    }
-    if (kind === "TODO") {
-      todoReady += 1;
-      return;
-    }
-    if (kind === "PLACE") placeSaved += 1;
-  });
-  return { overdue, upcoming, todoReady, placeSaved };
-});
-
-const upcomingReminderPins = computed(() => {
-  const now = Date.now();
-  return (Array.isArray(pins.value) ? pins.value : [])
-    .filter((p) => p?.remindAt)
-    .map((p) => ({ pin: p, ts: new Date(p.remindAt).getTime() }))
-    .filter((x) => x.ts && x.ts >= now)
-    .sort((a, b) => a.ts - b.ts)
-    .map((x) => x.pin);
-});
-
-const nextReminderPin = computed(() => upcomingReminderPins.value[0] || null);
-const reminderDueSoonCount = computed(() => {
-  const limit = Date.now() + 1000 * 60 * 60 * 24;
-  return upcomingReminderPins.value.filter((p) => {
-    const ts = p?.remindAt ? new Date(p.remindAt).getTime() : 0;
-    return ts && ts <= limit;
-  }).length;
-});
-
-const reminderTodayCount = computed(() => {
-  const now = new Date();
-  return upcomingReminderPins.value.filter((p) => {
-    const ts = p?.remindAt ? new Date(p.remindAt) : null;
-    if (!ts || Number.isNaN(ts.getTime())) return false;
-    return ts.getFullYear() === now.getFullYear()
-      && ts.getMonth() === now.getMonth()
-      && ts.getDate() === now.getDate();
-  }).length;
-});
-
-function reminderTimeText(pin) {
-  const remind = pin?.remindAt ? new Date(pin.remindAt).getTime() : 0;
-  if (!remind) return '리마인드 없음';
-  const startText = pin?.startAt ? ` · 일정 ${pinTimeText(pin)}` : '';
-  return `${String(pin.remindAt).replace('T', ' ').slice(0, 16)}${startText}`;
-}
-
-function openReminderPins(pin) {
-  if (!conversationId.value) return;
-  const q = pin?.pinId ? `?pinId=${encodeURIComponent(String(pin.pinId))}` : '';
-  router.push(`/inbox/conversations/${encodeURIComponent(String(conversationId.value))}/pins${q}`);
-}
-
-const recentPinActivity = computed(() => pinActivity.value.slice(0, 4));
-
-function pinActivityLabel(item) {
-  if (item?.action === "DONE") return "완료";
-  if (item?.action === "CANCELED") return "취소";
-  return "숨김";
-}
-
-function pinActivityTone(item) {
-  if (item?.action === "DONE") return "done";
-  if (item?.action === "CANCELED") return "cancel";
-  return "hide";
-}
-
-function pinActivityMeta(item) {
-  const when = item?.startAt ? pinTimeText(item) : "방금 처리";
-  const place = item?.placeText ? ` · ${item.placeText}` : "";
-  return `${when}${place}`;
-}
-
-const timelinePrimaryMeta = computed(() => {
-  if (dockTimelineSummary.value.nextLabel) return dockTimelineSummary.value.nextLabel;
-  if (dockStatusSummary.value.overdue) return `시간 지난 액션 ${dockStatusSummary.value.overdue}개`;
-  if (dockStatusSummary.value.todoReady) return `바로 체크 가능한 할 일 ${dockStatusSummary.value.todoReady}개`;
-  if (dockStatusSummary.value.placeSaved) return `기억해둔 장소 ${dockStatusSummary.value.placeSaved}개`;
-  return '새 액션이 생기면 여기서 바로 이어갈 수 있어요';
-});
-
-const timelinePriorityReason = computed(() => {
-  if (dockStatusSummary.value.overdue) {
-    return {
-      title: `시간 지난 액션 ${dockStatusSummary.value.overdue}개`,
-      description: '약속 시간이나 처리 시점을 다시 확인해 지금 대화를 놓치지 않게 정리하세요.',
-    };
-  }
-  if (reminderDueSoonCount.value) {
-    return {
-      title: `24시간 내 리마인드 ${reminderDueSoonCount.value}개`,
-      description: '곧 울릴 리마인드를 미리 보고, 필요하면 시간이나 내용을 바로 다듬는 흐름이 좋아요.',
-    };
-  }
-  if (dockStatusSummary.value.todoReady) {
-    return {
-      title: `바로 할 일 ${dockStatusSummary.value.todoReady}개`,
-      description: '짧게 끝낼 수 있는 할 일을 먼저 처리하면 대화 흐름이 훨씬 가벼워져요.',
-    };
-  }
-  return {
-    title: '저장된 액션 흐름 유지 중',
-    description: '약속, 할 일, 장소가 정리돼 있어서 지금은 필요한 카드만 빠르게 훑으면 돼요.',
-  };
-});
-
-const timelineActionPath = computed(() => {
-  if (dockStatusSummary.value.overdue) {
-    return {
-      title: '카드에서 시간/상태 먼저 수정',
-      description: '아래 액션 카드에서 수정이나 완료 처리를 바로 눌러 흐름을 정리할 수 있어요.',
-    };
-  }
-  if (nextReminderPin.value) {
-    return {
-      title: '리마인더 카드에서 바로 확인',
-      description: '다음 리마인더와 오늘 예정 수를 보고 필요한 액션으로 바로 이동하면 돼요.',
-    };
-  }
-  return {
-    title: '아래 액션 카드에서 바로 처리',
-    description: '수정, 완료, 취소, 피드 공유를 카드 안에서 바로 이어갈 수 있게 정리돼 있어요.',
-  };
-});
-
-function pinPrimarySummary(pin) {
-  const kind = classifyPin(pin);
-  const state = pinTimelineState(pin);
-  if (kind === 'PROMISE') {
-    if (pin?.startAt) return `${state.label} · ${pinTimeText(pin)}`;
-    return '시간을 정하면 약속 흐름이 더 선명해져요';
-  }
-  if (kind === 'TODO') {
-    return pin?.remindAt ? `리마인드 예정 · ${reminderTimeText(pin)}` : '체크 전 상태예요';
-  }
-  return pin?.placeText ? `${pin.placeText} 저장됨` : '다음에 다시 꺼낼 장소예요';
-}
-
-function pinSecondarySummary(pin) {
-  const kind = classifyPin(pin);
-  if (kind === 'PROMISE') {
-    return pin?.placeText ? '장소와 시간을 확인한 뒤 완료 또는 일정 조정' : '시간과 장소를 보강해 약속 맥락 완성';
-  }
-  if (kind === 'TODO') {
-    return pin?.startAt ? '시간에 맞춰 처리하거나 완료로 정리' : '완료 처리하거나 필요하면 리마인드 추가';
-  }
-  return pin?.remindAt ? '리마인드 시점 전에 다시 확인' : '필요하면 메모를 덧붙여 공유하기';
-}
-
-function pinCtaHint(pin) {
-  const kind = classifyPin(pin);
-  if (kind === 'PROMISE') return '시간 변경, 완료 처리, 피드 공유까지 한 카드에서 이어갈 수 있어요';
-  if (kind === 'TODO') return '할 일은 완료 처리와 리마인드 정리가 가장 빠른 다음 액션이에요';
-  return '장소는 수정 후 공유해 두면 나중에 다시 찾기 쉬워져요';
-}
-
-
-function pinTimelineEvents(pin) {
-  const events = [];
-  if (pin?.createdAt) {
-    events.push({
-      key: `created-${pin.pinId || pin.id || ''}`,
-      time: pin.createdAt,
-      label: '액션 생성',
-      tone: 'create',
-    });
-  }
-
-  const status = String(pin?.status || '').toUpperCase();
-  if (status === 'DONE' && pin?.updatedAt) {
-    events.push({
-      key: `done-${pin.pinId || pin.id || ''}`,
-      time: pin.updatedAt,
-      label: '완료 처리',
-      tone: 'done',
-    });
-  } else if ((status === 'CANCELED' || status === 'CANCELLED') && pin?.updatedAt) {
-    events.push({
-      key: `cancel-${pin.pinId || pin.id || ''}`,
-      time: pin.updatedAt,
-      label: '취소 처리',
-      tone: 'cancel',
-    });
-  }
-
-  return events
-    .filter((event) => event.time)
-    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-}
-
-function pinTimelineTimeText(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).replace('T', ' ').slice(0, 16);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${hh}:${mi}`;
-}
-
-async function loadPins() {
-  if (!conversationId.value) return;
-  if (!canViewConversation.value) return;
-  await pinsStore.refresh(conversationId.value, { size: 10 });
-}
-
-// pin action modal
-const pinModalOpen = ref(false);
-const pinModalAction = ref("DONE"); // DONE | CANCELED | DISMISSED
-const pinModalPin = ref(null);
-const pinActionLoading = ref(false);
-
-function openPinActionModal(action, pin) {
-  pinModalAction.value = action;
-  pinModalPin.value = pin;
-  pinModalOpen.value = true;
-  if (useDockSheet.value) {
-    dockOpen.value = false;
-  }
-}
-function closePinActionModal() {
-  pinModalOpen.value = false;
-  pinModalPin.value = null;
-}
-
-const pinModalTitle = computed(() => {
-  if (pinModalAction.value === "DONE") return "✅ 핀 완료";
-  if (pinModalAction.value === "CANCELED") return "❌ 핀 취소";
-  return "🙈 핀 숨김";
-});
-const pinModalSubtitle = computed(() => {
-  if (pinModalAction.value === "DONE") return "이 핀을 완료 처리할까요? (대화방 전체에 적용)";
-  if (pinModalAction.value === "CANCELED") return "이 핀을 취소 처리할까요? (대화방 전체에 적용)";
-  return "이 핀을 내 화면에서 숨길까요? (상대방은 그대로 보일 수 있어요)";
-});
-const pinModalConfirmText = computed(() => {
-  if (pinModalAction.value === "DONE") return "완료 처리";
-  if (pinModalAction.value === "CANCELED") return "취소 처리";
-  return "숨김 처리";
-});
-const pinModalConfirmVariant = computed(() => {
-  if (pinModalAction.value === "DONE") return "primary";
-  if (pinModalAction.value === "CANCELED") return "danger";
-  return "ghost";
-});
-
-function pinTimeText(pin) {
-  const s = pin?.startAt ? String(pin.startAt) : "";
-  if (!s) return "미정";
-  // ISO yyyy-mm-ddThh:mm -> yyyy-mm-dd hh:mm
-  return s.replace("T", " ").slice(0, 16);
-}
-
-async function confirmPinAction() {
-  const p = pinModalPin.value;
-  if (!p?.pinId) return;
-
-  pinActionLoading.value = true;
-  try {
-    if (pinModalAction.value === "DONE") await pinDone(p.pinId);
-    else if (pinModalAction.value === "CANCELED") await pinCancel(p.pinId);
-    else await pinDismiss(p.pinId);
-
-    rememberPinAction(pinModalAction.value, p);
-    pinsStore.removePin(conversationId.value, p.pinId);
-    closePinActionModal();
-  } catch (e) {
-    toast.error?.("처리 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
-  } finally {
-    pinActionLoading.value = false;
-  }
-}
-
-// pin edit (title / time / place)
-const pinEditOpen = ref(false);
-const pinEditPin = ref(null);
-
-const pinEditTitle = ref("");
-const pinEditPlaceText = ref("");
-const pinEditStartAtLocal = ref(""); // datetime-local용 "YYYY-MM-DDTHH:mm"
-
-const pinEditRemindMinutes = ref(60);
-
-const REMIND_OPTIONS = [
-  { label: "5분 전", value: 5 },
-  { label: "10분 전", value: 10 },
-  { label: "30분 전", value: 30 },
-  { label: "1시간 전", value: 60 },
-];
-
-function guessRemindMinutesFromPin(pin) {
-  try {
-    const s = pin?.startAt ? Date.parse(pin.startAt) : NaN;
-    const r = pin?.remindAt ? Date.parse(pin.remindAt) : NaN;
-    const diff = Math.round((s - r) / 60000);
-    if ([5, 10, 30, 60].includes(diff)) return diff;
-  } catch {}
-  return 60;
-}
-
-const pinEditLoading = ref(false);
-
-function toLocalInput(dt) {
-  if (!dt) return "";
-  const s = String(dt);
-  if (s.includes("T")) return s.slice(0, 16);
-  // "YYYY-MM-DD HH:mm" -> "YYYY-MM-DDTHH:mm"
-  if (s.length >= 16) return s.slice(0, 10) + "T" + s.slice(11, 16);
-  return "";
-}
-function fromLocalInput(v) {
-  // "YYYY-MM-DDTHH:mm" -> "YYYY-MM-DDTHH:mm:00"
-  if (!v) return null;
-  return v.length === 16 ? `${v}:00` : v;
-}
-
-
-function feedShareTextForPin(pin) {
-  const meta = pinKindMeta(pin);
-  const title = String(pin?.title || meta.label || "액션").trim();
-  const time = pin?.startAt ? pinTimeText(pin) : "";
-  const place = String(pin?.placeText || "").trim();
-  const remind = pin?.remindAt ? reminderTimeText(pin) : "";
-
-  return [
-    `${meta.emoji} ${title}`,
-    time ? `🕒 ${time}` : "",
-    place ? `📍 ${place}` : "",
-    remind && remind !== "리마인드 없음" ? `⏰ ${remind}` : "",
-    "",
-    "#RealLife",
-  ]
-      .filter((line, idx, arr) => {
-        if (line) return true;
-        return idx === arr.length - 2; // 해시태그 위 한 줄 띄우기용 빈 줄만 유지
-      })
-      .join("\n");
-}
-
-function feedShareMetaForPin(pin) {
-  const meta = pinKindMeta(pin);
-  const title = String(pin?.title || meta.label || "액션").trim();
-  const time = pin?.startAt ? pinTimeText(pin) : "시간 미정";
-  const place = String(pin?.placeText || "장소 미정").trim();
-  const remind = pin?.remindAt ? reminderTimeText(pin) : "리마인드 없음";
-
-  const chips = [
-    time ? `🕒 ${time}` : "",
-    place ? `📍 ${place}` : "",
-    remind && remind !== "리마인드 없음" ? `⏰ ${remind}` : "",
-  ].filter(Boolean);
-
-  return {
-    badge: "액션 공유",
-    title,
-    subtitle: [meta.label, place !== "장소 미정" ? place : ""].filter(Boolean).join(" · "),
-    description: [time, place].filter(Boolean).join(" · "),
-    state: remind && remind !== "리마인드 없음" ? "리마인더 설정됨" : meta.label,
-    status: remind && remind !== "리마인드 없음" ? remind : meta.label,
-
-    kind: meta.label,
-    emoji: meta.emoji,
-
-    time,
-    place,
-    remindAt: remind && remind !== "리마인드 없음" ? remind : "",
-    chips,
-  };
-}
-
-function sharePinToFeed(pin) {
-  try {
-    sessionStorage.setItem("reallife:feedShareDraft", JSON.stringify({
-      content: feedShareTextForPin(pin),
-      visibility: "ALL",
-      source: "action-pin",
-      pinId: pin?.pinId || null,
-      sourceMeta: feedShareMetaForPin(pin),
-    }));
-    if (useDockSheet.value) {
-      dockOpen.value = false;
-    }
-    toast.success?.("피드 공유 준비", "홈 작성창으로 바로 이동해요.");
-    router.push({ path: "/home", query: { compose: "1" } });
-  } catch {
-    toast.error?.("공유 준비 실패", "잠시 후 다시 시도해 주세요.");
-  }
-}
-
-function sharePinActivityToFeed(item) {
-  const pin = item?.pin || item?.rawPin || item;
-  if (!pin) {
-    toast.error?.("공유 준비 실패", "공유할 액션 정보를 찾지 못했어요.");
-    return;
-  }
-  sharePinToFeed(pin);
-}
-
-function openPinEdit(pin) {
-  pinEditPin.value = pin;
-
-  pinEditTitle.value = pin?.title || "";
-  pinEditPlaceText.value = pin?.placeText || "";
-  pinEditStartAtLocal.value = toLocalInput(pin?.startAt || "");
-  pinEditRemindMinutes.value = guessRemindMinutesFromPin(pin);
-
-  pinEditOpen.value = true;
-  if (useDockSheet.value) {
-    dockOpen.value = false;
-  }
-}
-function closePinEdit() {
-  if (pinEditLoading.value) return;
-  pinEditOpen.value = false;
-  pinEditPin.value = null;
-  pinEditTitle.value = "";
-  pinEditPlaceText.value = "";
-  pinEditStartAtLocal.value = "";
-  pinEditRemindMinutes.value = 60;
-}
-
-async function submitPinEdit() {
-  const p = pinEditPin.value;
-  if (!p?.pinId) return;
-
-  pinEditLoading.value = true;
-  try {
-    await pinUpdate(p.pinId, {
-      title: pinEditTitle.value.trim() ? pinEditTitle.value.trim() : null,
-      placeText: pinEditPlaceText.value.trim() ? pinEditPlaceText.value.trim() : null,
-      startAt: fromLocalInput(pinEditStartAtLocal.value), // null이면 일정 변경 없음
-      remindMinutes: pinEditRemindMinutes.value, // ✅ NEW
-    });
-
-    await loadPins();
-    toast.success?.("저장 완료", "핀 정보를 업데이트했습니다.");
-    closePinEdit();
-  } catch (e) {
-    toast.error?.("저장 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
-  } finally {
-    pinEditLoading.value = false;
-  }
-}
-
-/** ====== 메시지 영역 ====== */
-const loading = ref(false);
-const error = ref("");
-
-const items = ref([]);
-const editingMid = ref(null);      // 현재 편집 중 messageId (string)
-const editingText = ref("");       // 편집 텍스트
-const savingEdit = ref(false);     // 저장중 플래그
-
-const nextCursor = ref(null);
-const hasNext = ref(false);
-
-const scrollerRef = ref(null);
-function getScrollerEl() {
-  return scrollerRef.value?.getElement?.() || scrollerRef.value?.$el || scrollerRef.value || null;
-}
-const newMsgCount = ref(0);
-
-// ✅ 메시지 시간 라벨 자동 갱신용 tick
-const nowTick = ref(Date.now());
-let _msgTimeTimer = null;
-let _msgTimeTimer2 = null;
-
-const pageRef = ref(null);
-const composerRef = ref(null);
-
-const flashMid = ref("");
-const messageDepthEnabled = ref(true);
-const focusedDepthMid = ref("");
-const depthPeel = ref(0);
-
-
-function messageElementSelector(messageId) {
-  if (messageId == null) return "";
-  try {
-    return `[data-mid="${CSS.escape(String(messageId))}"]`;
-  } catch {
-    return `[data-mid="${String(messageId)}"]`;
-  }
-}
-
-function updateMessageDepthFocus() {
-  const el = getScrollerEl();
-  if (!el) return;
-  const nodes = Array.from(el.querySelectorAll('[data-mid]'));
-  if (!nodes.length) {
-    focusedDepthMid.value = '';
-    depthPeel.value = 0;
-    return;
-  }
-  const rect = el.getBoundingClientRect();
-  const center = rect.top + rect.height * 0.46;
-  let best = null;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (const node of nodes) {
-    const r = node.getBoundingClientRect();
-    const nodeCenter = r.top + r.height / 2;
-    const dist = Math.abs(nodeCenter - center);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = node;
-    }
-  }
-  focusedDepthMid.value = best?.getAttribute('data-mid') || '';
-  const maxTravel = Math.max(rect.height * 0.5, 1);
-  depthPeel.value = Math.max(0, Math.min(1, bestDist / maxTravel));
-}
-
-function focusDepthMessage(messageId, { smooth = true } = {}) {
-  const selector = messageElementSelector(messageId);
-  if (!selector) return;
-  const target = getScrollerEl()?.querySelector(selector) || document.querySelector(selector);
-  if (!target?.scrollIntoView) return;
-  target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' });
-  focusedDepthMid.value = String(messageId);
-  target.classList.add('depthSpotPulse');
-  setTimeout(() => target.classList.remove('depthSpotPulse'), 1600);
-}
-
-function messageDepthRank(index) {
-  const focusId = String(focusedDepthMid.value || '');
-  if (!messageDepthEnabled.value || !focusId) return 'flat';
-  const focusIndex = items.value.findIndex((item) => String(item?.messageId || '') === focusId);
-  if (focusIndex < 0) return 'flat';
-  const delta = index - focusIndex;
-  const distance = Math.abs(delta);
-  if (distance === 0) return 'focus';
-  if (distance === 1) return delta < 0 ? 'near-prev' : 'near-next';
-  if (distance === 2) return delta < 0 ? 'mid-prev' : 'mid-next';
-  return delta < 0 ? 'far-prev' : 'far-next';
-}
-
-function messageDepthStyle(index) {
-  if (!messageDepthEnabled.value) return {};
-  const rank = messageDepthRank(index);
-  const peel = depthPeel.value;
-  const styles = {
-    focus: { '--depth-scale': '1', '--depth-blur': '0px', '--depth-opacity': '1', '--depth-y': '0px', '--depth-z': '0px' },
-    'near-prev': { '--depth-scale': '0.999', '--depth-blur': `${0.08 + peel * 0.18}px`, '--depth-opacity': `${0.992 - peel * 0.01}`, '--depth-y': '-1px', '--depth-z': '-1px' },
-    'near-next': { '--depth-scale': '0.999', '--depth-blur': `${0.08 + peel * 0.18}px`, '--depth-opacity': `${0.992 - peel * 0.01}`, '--depth-y': '1px', '--depth-z': '-1px' },
-    'mid-prev': { '--depth-scale': '0.996', '--depth-blur': `${0.18 + peel * 0.26}px`, '--depth-opacity': `${0.976 - peel * 0.02}`, '--depth-y': '-2px', '--depth-z': '-3px' },
-    'mid-next': { '--depth-scale': '0.996', '--depth-blur': `${0.18 + peel * 0.26}px`, '--depth-opacity': `${0.978 - peel * 0.02}`, '--depth-y': '2px', '--depth-z': '-3px' },
-    'far-prev': { '--depth-scale': '0.992', '--depth-blur': `${0.3 + peel * 0.32}px`, '--depth-opacity': `${0.95 - peel * 0.025}`, '--depth-y': '-3px', '--depth-z': '-5px' },
-    'far-next': { '--depth-scale': '0.992', '--depth-blur': `${0.3 + peel * 0.32}px`, '--depth-opacity': `${0.954 - peel * 0.025}`, '--depth-y': '3px', '--depth-z': '-5px' },
-    flat: { '--depth-scale': '1', '--depth-blur': '0px', '--depth-opacity': '1', '--depth-y': '0px', '--depth-z': '0px' },
-  };
-  const result = styles[rank] || styles.flat;
-  if (rank === 'near-prev' || rank === 'near-next') result['--depth-overlap'] = '0px';
-  else if (rank === 'mid-prev' || rank === 'mid-next') result['--depth-overlap'] = '1px';
-  else if (rank === 'far-prev' || rank === 'far-next') result['--depth-overlap'] = '1px';
-  else result['--depth-overlap'] = '0px';
-  return result;
-}
-
-
-function syncComposerHeightVar() {
-  const pageEl = pageRef.value;
-  const composerEl = composerRef.value;
-  if (!pageEl || !composerEl) return;
-
-  const h = Math.ceil(composerEl.getBoundingClientRect().height || 0);
-  // ✅ CSS에서 쓰는 --composer-h 값을 실제 높이로 동기화
-  pageEl.style.setProperty("--composer-h", `${h}px`);
-}
-
-function hasMessage(messageId) {
-  if (!messageId) return false;
-  return items.value.some((m) => String(m.messageId) === String(messageId));
-}
-function normalizeMessages(arr) {
-  if (!Array.isArray(arr)) return [];
-  return [...arr].reverse();
-}
-function getScrollAnchor(el) {
-  // 현재 화면에서 "제일 위에 걸쳐있는 메시지"를 앵커로 잡는다
-  const nodes = el.querySelectorAll("[data-mid]");
-  if (!nodes.length) return null;
-
-  const top = el.getBoundingClientRect().top;
-  let best = null;
-  let bestDist = Infinity;
-
-  for (const n of nodes) {
-    const r = n.getBoundingClientRect();
-    // scroller 안에 있는 메시지들 중, top에 가장 가까운 걸 선택
-    const dist = Math.abs(r.top - top);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = n;
-    }
-  }
-
-  if (!best) return null;
-  return { mid: best.getAttribute("data-mid"), topOffset: best.getBoundingClientRect().top - top };
-}
-
-function restoreScrollAnchor(el, anchor) {
-  if (!anchor?.mid) return;
-  const node = el.querySelector(`[data-mid="${CSS.escape(anchor.mid)}"]`);
-  if (!node) return;
-
-  const top = el.getBoundingClientRect().top;
-  const nowOffset = node.getBoundingClientRect().top - top;
-  el.scrollTop += (nowOffset - anchor.topOffset);
-}
-
-function scrollToBottom({ smooth = false } = {}) {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = getScrollerEl();
-        if (!el) return;
-
-        if (smooth) {
-          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-        } else {
-          el.scrollTop = el.scrollHeight;
-        }
-      });
-    });
-  });
-}
-function isNearBottom() {
-  const el = getScrollerEl();
-  if (!el) return true;
-  return el.scrollHeight - (el.scrollTop + el.clientHeight) < 160;
-}
-
-function isMineMessage(m) {
-  if (!myId.value) return false;
-  return String(m?.senderId) === String(myId.value);
-}
-
-function startEdit(m) {
-  if (!m) return;
-  if (!isMineMessage(m)) return;
-  editingMid.value = String(m.messageId);
-  editingText.value = (m.content ?? "").toString();
-}
-
-function cancelEdit() {
-  editingMid.value = null;
-  editingText.value = "";
-}
-
-async function saveEdit(m) {
-  if (!m) return;
-  if (!isMineMessage(m)) return;
-
-  const mid = String(m.messageId);
-  const nextText = (editingText.value ?? "").toString().trim();
-
-  if (!nextText) {
-    toast.error?.("수정 실패", "내용을 입력해 주세요.");
-    return;
-  }
-
-  // (선택) 길이 제한(백엔드 5000 기준)
-  if (nextText.length > 5000) {
-    toast.error?.("수정 실패", "최대 5000자까지 입력할 수 있어요.");
-    return;
-  }
-
-  // optimistic update 준비
-  const idx = items.value.findIndex(x => String(x.messageId) === mid);
-  const prev = idx >= 0 ? { ...items.value[idx] } : null;
-
-  savingEdit.value = true;
-  try {
-    // optimistic 반영(내 화면 즉시)
-    if (idx >= 0) {
-      items.value[idx] = {
-        ...items.value[idx],
-        content: nextText,
-        editedAt: new Date().toISOString(), // 임시 (서버 응답으로 덮임)
-      };
-    }
-
-    const res = await updateMessage(conversationId.value, mid, nextText);
-
-    // 서버 응답으로 확정
-    if (idx >= 0) {
-      items.value[idx] = {
-        ...items.value[idx],
-        content: res?.content ?? nextText,
-        editedAt: res?.editedAt ?? items.value[idx].editedAt,
-      };
-    }
-
-    cancelEdit();
-  } catch (e) {
-    // 실패 시 롤백
-    if (idx >= 0 && prev) items.value[idx] = prev;
-
-    const msg =
-        e?.response?.data?.message ||
-        (e?.response?.status ? `요청 실패 (status=${e.response.status})` : "네트워크 오류");
-    toast.error?.("수정 실패", msg);
-  } finally {
-    savingEdit.value = false;
-  }
-}
-
-async function copyMessage(m) {
-  if (!m) return;
-  closeMsgMenu();
-  await navigator.clipboard.writeText(m.content || "");
-  toast?.success?.("복사됨", "메시지를 클립보드에 복사했어요.");
-}
-
-// 기존 startEdit을 그대로 쓰되, 메뉴에서 누르면 메뉴를 닫게만 보강
-
-// ✅ Touch-friendly message actions (mobile/app)
-// WebView 환경에서 hover 판정이 불안정하므로, 모바일에서는 메시지 탭/롱프레스로 메뉴를 연다.
-const isTouchUi = ref(false);
-const _lpTimer = ref(null);
-const _lastTouch = ref({ x: 0, y: 0, el: null });
-
-function detectTouchUi() {
-  try {
-    const mq = window.matchMedia && window.matchMedia("(pointer: coarse)");
-    isTouchUi.value = !!mq?.matches;
-  } catch {
-    isTouchUi.value = false;
-  }
-}
-
-function onBubbleTouchStart(e, m) {
-  if (!isTouchUi.value) return;
-  const t = e?.target;
-  if (t?.closest?.("button, a, textarea, input, select, .hoverActions")) return;
-
-  const touch = e?.touches?.[0];
-  if (touch) {
-    _lastTouch.value = { x: touch.clientX, y: touch.clientY, el: e.currentTarget };
-  } else {
-    _lastTouch.value = { x: 0, y: 0, el: e.currentTarget };
-  }
-
-  clearTimeout(_lpTimer.value);
-  _lpTimer.value = setTimeout(() => {
-    openMsgMenu({ currentTarget: _lastTouch.value.el, clientX: _lastTouch.value.x, clientY: _lastTouch.value.y }, m);
-  }, 420);
-}
-
-function onBubbleTouchEnd() {
-  clearTimeout(_lpTimer.value);
-  _lpTimer.value = null;
-}
-
-function onBubbleClick(e, m) {
-  focusedDepthMid.value = String(m?.messageId || '');
-  if (!isTouchUi.value) return;
-  const t = e?.target;
-  if (t?.closest?.("button, a, textarea, input, select, .hoverActions")) return;
-  openMsgMenu(e, m);
-}
-
-function startEditFromMenu(m) {
-  if (!m) return;
-  closeMsgMenu();
-  startEdit(m);
-}
-
-function toggleCandidatesFromMenu(m) {
-  if (!m) return;
-  closeMsgMenu();
-  openSuggestionsDock(m);
-}
-
-const lastMyMessageId = computed(() => {
-  // items는 오래된 -> 최신 순서
-  for (let i = items.value.length - 1; i >= 0; i--) {
-    const m = items.value[i];
-    if (isMineMessage(m)) return String(m.messageId);
-  }
-  return null;
-});
-
-// 1:1 전용 "읽음" 라벨
-function getReadLabel(m) {
-  if (!isMineMessage(m)) return "";
-  if (!lastMyMessageId.value) return "";
-  if (String(m.messageId) !== String(lastMyMessageId.value)) return "";
-
-  const myMsgTime = parseTime(m.createdAt);
-  if (myMsgTime == null) return "";
-
-  // readReceipts에서 "나(myId)"가 아닌 상대 1명을 찾음
-  const peerItem = (readReceipts.value || []).find(
-      (x) => String(x.userId) !== String(myId.value)
-  );
-  const peerReadAt = peerItem?.lastReadAt;
-  const peerTime = parseTime(peerReadAt);
-
-  if (peerTime == null) return "";
-  return peerTime >= myMsgTime ? "읽음" : "";
-}
-
-function messageTimeText(m) {
-  const raw = m?.createdAt ? String(m.createdAt) : "";
-  if (!raw) return "";
-
-  // ✅ createdAt 포맷 유연하게 처리 (ISO / "YYYY-MM-DD HH:mm:ss" 모두)
-  const iso = raw.includes("T") ? raw : raw.replace(" ", "T");
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return raw.replace("T", " ").slice(11, 16); // fallback hh:mm
-
-  const now = nowTick.value;
-  const diffMin = Math.floor((now - t) / 60000);
-
-  if (diffMin < 1) return "방금";
-  if (diffMin < 60) return `${diffMin}분 전`;
-
-  // 60분 이상이면 기존처럼 hh:mm
-  return iso.replace("T", " ").slice(11, 16);
-}
-
-// ✅ 메시지 그룹핑(같은 sender + 5분 이내면 같은 그룹)
-function isSameSender(a, b) {
-  const sa = a?.senderId;
-  const sb = b?.senderId;
-  if (sa == null || sb == null) return false;
-  return String(sa) === String(sb);
-}
-
-function minutesBetween(a, b) {
-  const ta = Date.parse(String(a?.createdAt || "").replace(" ", "T"));
-  const tb = Date.parse(String(b?.createdAt || "").replace(" ", "T"));
-  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 9999;
-  return Math.abs(tb - ta) / 60000;
-}
-
-// 현재 메시지가 "이전 메시지"와 같은 그룹인지
-function isGroupWithPrev(idx) {
-  if (idx <= 0) return false;
-  const cur = items.value[idx];
-  const prev = items.value[idx - 1];
-  if (!cur || !prev) return false;
-  if (!isSameSender(cur, prev)) return false;
-  return minutesBetween(prev, cur) <= 5;
-}
-
-// 현재 메시지가 "다음 메시지"와 같은 그룹인지
-function isGroupWithNext(idx) {
-  if (idx < 0 || idx >= items.value.length - 1) return false;
-  const cur = items.value[idx];
-  const next = items.value[idx + 1];
-  if (!cur || !next) return false;
-  if (!isSameSender(cur, next)) return false;
-  return minutesBetween(cur, next) <= 5;
-}
-
-let _readTouchTimer = null;
-function touchReadDebounced() {
-  if (_readTouchTimer) clearTimeout(_readTouchTimer);
-  _readTouchTimer = setTimeout(async () => {
-    try {
-      await markConversationRead(conversationId.value);
-    } catch {}
-  }, 350); // 너무 잦지 않게
-}
-
-function appendIncomingMessage(payload) {
-  if (!payload?.messageId) return;
-  if (hasMessage(payload.messageId)) return;
-
-  // ✅ 핵심: “지금 사용자가 바닥 근처를 보고 있나?”
-  const shouldAutoScroll = isNearBottom();
-
-  // ✅ 1) 일단 메시지는 append
-  items.value.push(payload);
-
-  // pinCandidates 렌더로 높이가 늘 수 있어 1번 더 보정 필요
-  const hasCandidates =
-      Array.isArray(payload?.pinCandidates) && payload.pinCandidates.length > 0;
-
-  // ✅ 2) 바닥 근처면: 기존처럼 하단 유지 (배너 리셋)
-  if (shouldAutoScroll) {
-    newMsgCount.value = 0;
-    scrollToBottom({ smooth: true });
-
-    if (hasCandidates) {
-      nextTick(() => scrollToBottom({ smooth: true }));
-    }
-
-    // ✅ NEW: 바닥에서 새 메시지를 받은 경우 = 사실상 읽음 처리
-    touchReadDebounced();
-  }
-  // ✅ 3) 바닥이 아니면: 자동 스크롤 금지 + 배너 카운트 증가
-  else {
-    newMsgCount.value = (newMsgCount.value || 0) + 1;
-  }
-}
-
-function onScroll() {
-  const el = getScrollerEl();
-  if (!el) return;
-  updateMessageDepthFocus();
-
-  if (el.scrollTop < 12) {
-    if (hasNext.value && !loading.value) loadMore();
-  }
-
-  if (isNearBottom() && newMsgCount.value > 0) {
-    newMsgCount.value = 0;
-  }
-
-  // ✅ unread divider 자동 제거: 바닥 근처까지 내려오면 '읽지 않은 메시지' 라인 제거
-  if (isNearBottom() && unreadDividerMid.value) {
-    unreadDividerMid.value = null;
-  }
-}
-
-async function ensureSessionOrRedirect() {
-  if (auth.me?.id) return true;
-  try {
-    await auth.ensureSession();
-    return !!auth.me?.id;
-  } catch {
-    router.replace("/login");
-    return false;
-  }
-}
-
-async function loadFirst({ keepScroll = false } = {}) {
-  if (!conversationId.value || conversationId.value === "undefined" || conversationId.value === "null") {
-    error.value = "대화방 ID가 없습니다. 대화 목록에서 다시 들어와 주세요.";
-    return;
-  }
-  if (!canViewConversation.value) return;
-
-  loading.value = true;
-  error.value = "";
-
-  const prevScrollHeight = getScrollerEl()?.scrollHeight ?? 0;
-
-  // ✅ fetch 끝난 뒤 어떤 스크롤을 할지 "예약"
-  let shouldScrollToBottom = !keepScroll;
-  let shouldKeepScroll = keepScroll;
-
-  // ✅ NEW: 첫 unread 이동 예약
-  let shouldJumpToUnread = false;
-  let initialLastReadAt = null;
-
-  // ✅ NEW: keepScroll(=loadMore 등)일 때는 unread 이동 안 함
-  if (!keepScroll) {
-    try {
-      const rs = await fetchConversationReadState(conversationId.value);
-      initialLastReadAt = rs?.lastReadAt ?? null;
-
-      // lastReadAt이 있으면 “맨 아래 자동 스크롤” 대신 unread로 이동할 거라 예약
-      if (initialLastReadAt) {
-        shouldScrollToBottom = false;
-        shouldJumpToUnread = true;
-      }
-    } catch {
-      initialLastReadAt = null;
-      shouldJumpToUnread = false;
-    }
-  }
-
-  try {
-    const res = await fetchMessages({
-      conversationId: conversationId.value,
-      size: 20,
-      unlockToken: lockEnabled.value ? unlockToken.value : null,
-    });
-
-    items.value = normalizeMessages(res.items);
-    nextCursor.value = res.nextCursor ?? null;
-    hasNext.value = !!res.hasNext;
-
-    // ✅ NEW: (읽음표시용) 대화방 멤버들의 lastReadAt 목록 로드
-    // - 최초 진입/대화방 변경 시에만 로드 (keepScroll=loadMore 때는 스킵)
-    if (!keepScroll) {
-      let initialReadReceipts = [];
-      try {
-        const rr = await fetchConversationReadReceipts(conversationId.value);
-        initialReadReceipts = rr?.items || [];
-      } catch {
-        initialReadReceipts = [];
-      }
-      readReceipts.value = initialReadReceipts;
-    }
-
-    // ✅ (중요) unread 기준값은 markRead "이전"에 받은 initialLastReadAt을 사용해야 함
-    // ✅ 따라서 markRead는 기존처럼 실행해도 됨
-    await markConversationRead(conversationId.value);
-    convStore.markRead?.(conversationId.value);
-    convStore.setActiveConversation?.(conversationId.value);
-    convStore.softSyncSoon?.();
-
-  } catch (e) {
-    const msg = e?.response?.data?.message || "메시지를 불러오지 못했습니다.";
-    error.value = msg;
-
-    if (e?.response?.status === 423) {
-      lockEnabled.value = true;
-      unlocked.value = false;
-      clearToken();
-    }
-
-    // 에러면 스크롤 예약 취소
-    shouldScrollToBottom = false;
-    shouldKeepScroll = false;
-    shouldJumpToUnread = false;
-    unreadDividerMid.value = null;
-  } finally {
-    loading.value = false;
-
-    // ✅ DOM 렌더 + 레이아웃 확정 이후 스크롤 맞춤
-    nextTick(() => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(async () => {
-          const el = getScrollerEl();
-          if (!el) return;
-
-          // 1) keepScroll(=더보기 prepend 보정)
-          if (shouldKeepScroll) {
-            const newHeight = el.scrollHeight;
-            el.scrollTop += newHeight - prevScrollHeight;
-            return;
-          }
-
-          // 2) 첫 unread로 이동(최초 진입에서만)
-          if (shouldJumpToUnread && initialLastReadAt) {
-            // divider + 스크롤까지 처리
-            await jumpToFirstUnread(initialLastReadAt);
-            return;
-          }
-
-          // 3) 기본: 맨 아래로
-          if (shouldScrollToBottom) {
-            el.scrollTop = el.scrollHeight;
-          }
-        });
-      });
-    });
-  }
-}
-
-async function loadMore() {
-  if (!hasNext.value || !nextCursor.value) return;
-  if (!canViewConversation.value) return;
-
-  const el = getScrollerEl();
-  const anchor = el ? getScrollAnchor(el) : null;
-
-  const res = await fetchMessages({
-    conversationId: conversationId.value,
-    size: 20,
-    cursor: nextCursor.value,
-    unlockToken: lockEnabled.value ? unlockToken.value : null,
-  });
-
-  items.value = [...normalizeMessages(res.items), ...items.value];
-  nextCursor.value = res.nextCursor ?? null;
-  hasNext.value = !!res.hasNext;
-
-  nextTick(() => {
-    const el2 = getScrollerEl();
-    if (!el2) return;
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        restoreScrollAnchor(el2, anchor);
-      });
-    });
-  });
-}
-
-function makeTempId() {
-  return `tmp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-function removeMessageById(id) {
-  const idx = items.value.findIndex((x) => String(x?.messageId) === String(id));
-  if (idx >= 0) items.value.splice(idx, 1);
-}
-
-function replaceMessageById(id, nextMsg) {
-  const idx = items.value.findIndex((x) => String(x?.messageId) === String(id));
-  if (idx >= 0) {
-    // ✅ temp 메시지를 서버 메시지로 교체
-    items.value.splice(idx, 1, { ...nextMsg });
-  } else {
-    // 혹시 temp가 이미 없어졌으면(예: 다른 로직) 그냥 추가
-    items.value.push({ ...nextMsg });
-  }
-}
-
-function upsertServerMessage(tempId, serverMsg) {
-  const mid = serverMsg?.messageId;
-  if (!mid) {
-    // messageId가 없다면 안전하게 temp를 실패로 처리하는 편이 낫다
-    return;
-  }
-
-  // ✅ 이미 SSE로 같은 messageId가 들어와 있으면 temp는 제거만 한다 (중복 방지)
-  if (hasMessage(mid)) {
-    removeMessageById(tempId);
-    return;
-  }
-
-  // ✅ SSE로 아직 안 들어왔으면 temp를 서버 메시지로 교체
-  replaceMessageById(tempId, { ...serverMsg });
-}
 
 const {
   content,
@@ -2716,14 +432,14 @@ const {
   unlockToken,
   clearToken,
   convStore,
-  items,
+  items: computed(() => items.value),
   newMsgCount,
   scrollToBottom,
   syncComposerHeightVar,
-  openSuggestionsDock,
-  triggerDockPulse,
-  hasMessage,
-  upsertServerMessage,
+  openSuggestionsDock: (...args) => openSuggestionsDock(...args),
+  triggerDockPulse: (...args) => triggerDockPulse(...args),
+  hasMessage: (...args) => hasMessage(...args),
+  upsertServerMessage: (...args) => upsertServerMessage(...args),
 });
 
 const {
@@ -2739,298 +455,325 @@ const {
   openCapsuleModal,
   closeCapsuleModal,
   createTimeCapsuleFromDraft,
-} = useConversationCapsules({
-  conversationId,
-  content,
-  attachedFiles,
-  attachmentUploading,
-  attachmentProgress,
-  attachmentError,
-  clearAttachments,
-  uploadFiles,
-  uploadFilesDetailed,
-  sendMessage,
-  lockEnabled,
-  unlocked,
-  unlockToken,
+} = useConversationCapsuleFlow({
+  getConversationId: () => conversationId.value,
+  getContentRef: () => content,
+  getAttachedFilesRef: () => attachedFiles,
+  getAttachmentUploadingRef: () => attachmentUploading,
+  getAttachmentProgressRef: () => attachmentProgress,
+  getAttachmentErrorRef: () => attachmentError,
+  clearAttachments: () => clearAttachments,
+  uploadFiles: () => uploadFiles,
+  sendMessage: () => sendMessage,
+  getLockEnabledRef: () => lockEnabled,
+  getUnlockedRef: () => unlocked,
+  getUnlockTokenRef: () => unlockToken,
   toast,
-  pendingAction,
-  pendingActionPrimed,
-  primePendingAction,
-  bumpPendingHighlight,
+  getPendingActionRef: () => pendingAction,
+  getPendingActionPrimedRef: () => pendingActionPrimed,
+  primePendingAction: () => primePendingAction,
+  bumpPendingHighlight: () => bumpPendingHighlight,
+});
+
+/** ====== Pins (Pinned) ====== */
+// ✅ NEW: PIN_REMIND 배지
+function clearPinRemindBadge() {
+  pinsStore.clearRemindBadge?.(conversationId.value);
+}
+
+const showPinned = computed(() => {
+  const arr = pins.value;
+  return canViewConversation.value && Array.isArray(arr) && arr.length > 0;
+});
+
+
+const {
+  pinModalOpen,
+  pinModalAction,
+  pinModalPin,
+  pinActionLoading,
+  pinModalTitle,
+  pinModalSubtitle,
+  pinModalConfirmText,
+  pinModalConfirmVariant,
+  pinEditOpen,
+  pinEditTitle,
+  pinEditPlaceText,
+  pinEditStartAtLocal,
+  pinEditRemindMinutes,
+  pinEditLoading,
+  REMIND_OPTIONS,
+  pinTimeText,
+  pinTimelineTimeText,
+  openPinActionModal,
+  closePinActionModal,
+  confirmPinAction,
+  sharePinToFeed,
+  sharePinActivityToFeed,
+  openPinEdit,
+  closePinEdit,
+  submitPinEdit,
+} = useConversationPinUi({
+  ref,
+  computed,
+  router,
+  toast,
+  conversationId,
+  pinsStore,
+  loadPins,
+  pinDone,
+  pinCancel,
+  pinDismiss,
+  pinUpdate,
+  rememberPinAction,
+  pinKindMeta,
+  reminderTimeText,
+  useDockSheet,
+  dockOpen,
+});
+
+/** ====== 메시지 영역 ====== */
+const {
+  loading,
+  error,
+  items,
+  editingMid,
+  editingText,
+  savingEdit,
+  nextCursor,
+  hasNext,
+  normalizeMessages,
+  hasMessage,
+  appendIncomingMessage,
+  upsertServerMessage,
+  isMineMessage,
+  startEdit,
+  cancelEdit,
+  saveEdit,
+  loadFirst,
+  loadMore,
+} = useConversationMessageListFlow({
+  ref,
+  toast,
+  conversationId,
+  myId,
+  lockEnabled,
+  unlockToken,
+  scrollToBottom,
+  updateMessageDepthFocus: (...args) => updateMessageDepthFocus(...args),
+});
+
+const visibleMessages = computed(() => items.value || []);
+
+function sessionMessageMeta(message) {
+  if (!message?.metadataJson || typeof message.metadataJson !== "string") return null;
+  try { return JSON.parse(message.metadataJson); } catch { return null; }
+}
+
+function isSessionMessage(message) {
+  const type = String(message?.type || "").toUpperCase();
+  return type === "SESSION" || sessionMessageMeta(message)?.kind === "playback-session";
+}
+
+function messageHasAttachment(message) {
+  return Array.isArray(message?.attachments) && message.attachments.length > 0;
+}
+
+function messageHasActionCandidate(message) {
+  return Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0;
+}
+
+const stagePool = computed(() => (items.value || []).filter((message) => isSessionMessage(message) || messageHasAttachment(message) || messageHasActionCandidate(message) || (searchFocusMid.value && String(searchFocusMid.value) === String(message?.messageId || ""))));
+const stageFilteredMessages = computed(() => {
+  const source = stagePool.value;
+  if (stageSheetTab.value === "sessions") return source.filter((message) => isSessionMessage(message));
+  if (stageSheetTab.value === "actions") return source.filter((message) => messageHasActionCandidate(message));
+  if (stageSheetTab.value === "media") return source.filter((message) => messageHasAttachment(message));
+  return source;
+});
+const stageRailCards = computed(() => stageFilteredMessages.value.slice(-3).reverse());
+const spotlightMessage = computed(() => stageFilteredMessages.value.length ? stageFilteredMessages.value[stageFilteredMessages.value.length - 1] : null);
+const stageStats = computed(() => ({
+  total: stagePool.value.length,
+  sessions: stagePool.value.filter((message) => isSessionMessage(message)).length,
+  actions: stagePool.value.filter((message) => messageHasActionCandidate(message)).length,
+  media: stagePool.value.filter((message) => messageHasAttachment(message)).length,
+}));
+const stageSheetTabs = computed(() => ([
+  { key: "overview", label: "개요", count: stageStats.value.total },
+  { key: "sessions", label: "세션", count: stageStats.value.sessions },
+  { key: "actions", label: "액션", count: stageStats.value.actions },
+  { key: "media", label: "미디어", count: stageStats.value.media },
+]));
+const stageSheetSessions = computed(() => stagePool.value.filter((message) => isSessionMessage(message)).slice().reverse());
+const stageSheetActions = computed(() => stagePool.value.filter((message) => messageHasActionCandidate(message)).slice().reverse());
+const stageSheetMedia = computed(() => stagePool.value.filter((message) => messageHasAttachment(message)).slice().reverse());
+
+function openStageSheet(tab = "overview") {
+  stageSheetTab.value = tab;
+  stageDeckOpen.value = true;
+}
+
+function updateMessageDepthFocus() {}
+function messageDepthStyle() { return {}; }
+
+function getReadLabel(message) {
+  const senderId = String(message?.senderId || "");
+  if (!senderId) return "";
+  const seen = (readReceipts.value || []).filter((row) => String(row?.userId || "") !== senderId && row?.lastReadAt && new Date(row.lastReadAt).getTime() >= new Date(message?.createdAt || 0).getTime());
+  return seen.length ? `읽음 ${seen.length}` : "";
+}
+
+function messageTimeText(message) {
+  const raw = String(message?.createdAt || "").replace(" ", "T");
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+const {
+  hasMessageTools,
+  candidateToggleLabel,
+  messageUtilitySummary,
+  isGroupWithPrev,
+  isGroupWithNext,
+  shouldShowMessageMeta,
+} = useConversationMessageMeta({
+  items,
+  isMineMessage,
+  isCandidatesOpen,
+  messageHasAttachment,
+  getReadLabel,
 });
 
 const {
-  menu,
-  closeMsgMenu,
-  openMsgMenu,
-} = useMessageContextMenu();
-
-async function retrySend(m) {
-  if (!m || m._status !== "failed") return;
-
-  if (!canViewConversation.value) {
-    toast.error?.("재시도 실패", "잠금이 해제되어야 전송할 수 있어요.");
-    return;
-  }
-
-  // ✅ 핵심: 재시도 메시지도 내 메시지로 고정
-  m.senderId = myId.value;
-
-  m._status = "sending";
-
-  try {
-    const msg = await sendMessage({
-      conversationId: conversationId.value,
-      content: m.content,
-      attachmentIds: [],
-      unlockToken: lockEnabled.value && unlocked.value ? unlockToken.value : null,
-    });
-
-    upsertServerMessage(m.messageId, msg);
-
-    newMsgCount.value = 0;
-    scrollToBottom({ smooth: true });
-  } catch (e) {
-    const status = e?.response?.status;
-    const serverMsg = e?.response?.data?.message;
-
-    if (status === 401) {
-      toast.error?.("재시도 실패", "로그인이 만료됐어요. 다시 로그인해 주세요.");
-    } else if (status === 423) {
-      lockEnabled.value = true;
-      unlocked.value = false;
-      clearToken();
-      toast.error?.("재시도 실패", "이 대화는 잠금 상태입니다. 먼저 잠금을 해제하세요.");
-    } else {
-      toast.error?.("재시도 실패", serverMsg || (status ? `요청 실패 (status=${status})` : "네트워크 오류"));
-    }
-
-    m._status = "failed";
-  }
-}
-
-function jumpToNewest() {
-  newMsgCount.value = 0;
-  unreadDividerMid.value = null; // ✅ 추가
-  scrollToBottom({ smooth: true });
-}
-
-/** ====== 저장됨 배지(2초) ====== */
-const savedBadgeByMessageId = ref({});
-const savedBadgeTimers = new Map();
-
-function isSavedBadgeOn(messageId) {
-  const key = String(messageId || "");
-  return !!savedBadgeByMessageId.value[key];
-}
-function showSavedBadge(messageId) {
-  const key = String(messageId || "");
-  if (!key) return;
-
-  const prev = savedBadgeTimers.get(key);
-  if (prev) clearTimeout(prev);
-
-  savedBadgeByMessageId.value[key] = true;
-
-  const t = setTimeout(() => {
-    delete savedBadgeByMessageId.value[key];
-    savedBadgeTimers.delete(key);
-  }, 2000);
-
-  savedBadgeTimers.set(key, t);
-}
-
-/** ====== 핀 후보 confirm (중복 포함) ====== */
-// ✅ messageId별 confirm busy (같은 메시지 연타만 막기)
-const confirmBusyByMessageId = ref({}); // { [messageId]: true }
-
-function isConfirmBusy(messageId) {
-  const key = String(messageId || "");
-  return !!confirmBusyByMessageId.value[key];
-}
-
-function setConfirmBusy(messageId, v) {
-  const key = String(messageId || "");
-  if (!key) return;
-  if (v) confirmBusyByMessageId.value[key] = true;
-  else delete confirmBusyByMessageId.value[key];
-}
-
-async function onConfirmCandidate(message, payload) {
-  if (!conversationId.value) return;
-  if (!message?.messageId) return;
-  if (isConfirmBusy(message.messageId)) return;
-  setConfirmBusy(message.messageId, true);
-  // v2.5: 제안 카드 '이동' 애니메이션
-const _cid = payload?.candidateId ?? payload?.id ?? null;
-if (_cid) savingCandidateId.value = String(_cid);
-
-// ✅ v2.9: capture source rect + ghost html (enqueue after created)
-let flyDraft = null; // { fromRect, html, fromStyle, meta }
-if (_cid) {
-  const srcEl = document.querySelector(`[data-cid="${String(_cid)}"]`);
-  const srcRect = rectOf(srcEl);
-  const cs = srcEl ? window.getComputedStyle(srcEl) : null;
-  const fromStyle = cs ? {
-    borderRadius: cs.borderRadius,
-    boxShadow: cs.boxShadow,
-    background: cs.background,
-  } : null;
-
-  if (srcRect) {
-    const title = payload?.overrideTitle || payload?.title || "액션";
-    const time = formatCandidateTime(payload);
-    const place = safeText(payload?.placeName || payload?.place || payload?.location || payload?.where || "");
-    const type = classifyCandidate(payload); // PROMISE | TODO | PLACE | OTHER
-    flyDraft = {
-      fromRect: srcRect,
-      fromStyle,
-      html: makeCandidateGhostHtml(payload, title),
-      meta: { title, time, place, type },
-    };
-  }
-}
-  try {
-    const created = await confirmPinFromMessage({
-      conversationId: conversationId.value,
-      messageId: message.messageId,
-      overrideTitle: payload?.overrideTitle ?? null,
-      overrideStartAt: payload?.overrideStartAt ?? null,
-      overridePlaceText: payload?.overridePlaceText ?? null,
-      overrideRemindMinutes:
-        payload && Object.prototype.hasOwnProperty.call(payload, "overrideRemindMinutes")
-          ? payload.overrideRemindMinutes
-          : 60, // 0(없음)도 그대로 전달
-    });
-
-    if (created?.pinId) {
-      pinsStore.appendPin(conversationId.value, created);
-
-      triggerDockPulse();
-
-      // ✅ v2.5: Dock에 "방금 이동" 애니메이션(제안 → 액션)
-      dockJustMovedPinId.value = String(created.pinId);
-      setTimeout(() => {
-        if (dockJustMovedPinId.value === String(created.pinId)) dockJustMovedPinId.value = null;
-      }, 900);
-
-      toast.success?.("핀 생성", "Pinned에 저장했어요.");
-      await nextTick();
-      if (flyDraft) enqueueDockToActiveFly({ ...flyDraft, createdPinId: created.pinId });
-      showSavedBadge(message.messageId);
-    }
-
-    if (Array.isArray(message.pinCandidates)) message.pinCandidates = [];
-  } catch (e) {
-    const code = e?.response?.data?.code;
-    if (code === "PIN_ALREADY_SAVED") {
-      toast.success?.("이미 저장됨", "이미 Pinned에 저장된 메시지예요.");
-      showSavedBadge(message.messageId);
-      if (Array.isArray(message.pinCandidates)) message.pinCandidates = [];
-      return;
-    }
-    toast.error?.("핀 생성 실패", e?.response?.data?.message || "잠시 후 다시 시도해주세요.");
-  } finally {
-    savingCandidateId.value = null;
-    setConfirmBusy(message.messageId, false);
-  }
-}
-
-async function scrollAndFlashMessage(mid) {
-  if (!mid) return false;
-  await nextTick();
-
-  const el = document.querySelector(`[data-mid="${mid}"]`);
-  if (!el) return false;
-
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-  flashMid.value = String(mid);
-  setTimeout(() => {
-    if (flashMid.value === String(mid)) flashMid.value = "";
-  }, 2000);
-
-  return true;
-}
-
-// ✅ mid가 안 보이면, 더 로드하면서 찾기(최대 N번)
-async function ensureMessageVisible(mid, maxTries = 5) {
-  for (let i = 0; i < maxTries; i++) {
-    const ok = await scrollAndFlashMessage(mid);
-    if (ok) return true;
-
-    // 🔻 여기만 너 프로젝트의 "이전 메시지 로드" 함수명에 맞춰 바꿔줘
-    // 예시: await loadMoreOlder();
-    if (typeof loadMore === "function") {
-      await loadMore();     // 너 코드에 맞는 함수로 교체 필요
-    } else if (typeof loadPrev === "function") {
-      await loadPrev();
-    } else {
-      return false;
-    }
-  }
-  return false;
-}
-
-function onDismissCandidate(message, candidate) {
-  if (!message) return;
-  if (!Array.isArray(message.pinCandidates)) return;
-
-  message.pinCandidates = message.pinCandidates.filter(
-      (c) => String(c?.candidateId) !== String(candidate?.candidateId)
-  );
-}
-
-// ✅ 템플릿에서 화살표 제거용 wrapper
-function confirmCandidate(m, cand) {
-  onConfirmCandidate(m, cand);
-}
-function dismissCandidate(m, cand) {
-  onDismissCandidate(m, cand);
-}
-
-/** ====== SSE ====== */
-let offEvent = null;
-let offStatus = null;
-let _wasConnected = false;
-
-async function syncTailAfterReconnect() {
-  try {
-    // 1) 최근 20개 다시 가져와서 merge
-    const res = await fetchMessages({
-      conversationId: conversationId.value,
-      size: 20,
-      unlockToken: lockEnabled.value ? unlockToken.value : null,
-    });
-
-    const incoming = normalizeMessages(res.items || []);
-    // 기존 items에 없는 것만 추가
-    for (const m of incoming) {
-      if (!hasMessage(m.messageId)) items.value.push(m);
-    }
-
-    // 2) 내가 바닥에 있으면 스크롤 유지 + 읽음 처리
-    if (isNearBottom()) {
-      scrollToBottom({ smooth: false });
-      touchReadDebounced();
-    }
-
-    // 3) readReceipts도 한 번 갱신(선택이지만 추천)
-    try {
-      const rr = await fetchConversationReadReceipts(conversationId.value);
-      readReceipts.value = rr?.items || [];
-    } catch {}
-  } catch {}
-}
-
-watch(() => items.value.length, async () => {
-  await nextTick();
-  updateMessageDepthFocus();
+  messageShellClass,
+  messageBubbleClass,
+  messageBodyClass,
+  messageSessionBlockClass,
+  shouldShowMessageEyebrow,
+  messageEyebrowLabel,
+  messageEyebrowHint,
+  hasMessageAttachmentBlock,
+  hasMessageSendState,
+  shouldRenderMessageFooter,
+  messageMetaRowClass,
+  messageFooterClass,
+} = useConversationMessageVisuals({
+  messageDepthEnabled,
+  focusedDepthMid,
+  messageStageMode,
+  stageDeckOpen,
+  messageDepthRank: () => "flat",
+  isMineMessage,
+  isGroupWithPrev,
+  isGroupWithNext,
+  isStageCandidate: (message) => stagePool.value.some((item) => String(item?.messageId || "") === String(message?.messageId || "")),
+  sessionForMessage,
+  flashMid,
+  searchFocusMid,
 });
 
-watch(() => messageStageMode.value, async () => {
-  await nextTick();
-  updateMessageDepthFocus();
+let touchReadTimer = null;
+function touchReadDebounced() {
+  clearTimeout(touchReadTimer);
+  touchReadTimer = setTimeout(async () => {
+    if (!conversationId.value || !canViewConversation.value) return;
+    try { await markConversationRead(conversationId.value); } catch {}
+  }, 180);
+}
+
+function onScroll() {
+  if (isNearBottom()) {
+    newMsgCount.value = 0;
+    touchReadDebounced();
+  }
+}
+
+async function ensureSessionOrRedirect() {
+  return ensureSessionOrRedirectGuard(router);
+}
+
+const commandDeckTabs = computed(() => ([
+  { key: "search", label: "검색", badge: visibleMessages.value.length || 0 },
+  { key: "actions", label: "액션", badge: suggestionCount.value || 0 },
+  { key: "capsules", label: "캡슐", badge: capsuleItems.value?.length || 0 },
+  { key: "sessions", label: "세션", badge: activeSessions.value?.length || recentSessions.value?.length || 0 },
+]));
+
+const {
+  isTouchUi,
+  detectTouchUi,
+  onBubbleTouchStart,
+  onBubbleTouchEnd,
+  onBubbleClick,
+  copyMessage,
+  startEditFromMenu,
+  toggleCandidatesFromMenu,
+  retrySend,
+  isSavedBadgeOn,
+  isConfirmBusy,
+  savingCandidateId,
+  confirmCandidate,
+  dismissCandidate,
+} = useConversationMessageActions({
+  conversationId,
+  items,
+  closeMsgMenu,
+  openMsgMenu,
+  startEdit,
+  openSuggestionsDock,
+  toast,
+  sendMessage,
+  canViewConversation,
+  myId,
+  lockEnabled,
+  unlocked,
+  unlockToken,
+  clearToken,
+  upsertServerMessage,
+  newMsgCount,
+  scrollToBottom,
+  pinsStore,
+  triggerDockPulse,
+  nextTick,
+  confirmPinFromMessage,
+  rectOf,
+  formatCandidateTime,
+  safeText,
+  classifyCandidate,
+  makeCandidateGhostHtml,
+  enqueueDockToActiveFly,
+  dockJustMovedPinId,
+  onBubbleFocus: (message) => {
+    focusedDepthMid.value = String(message?.messageId || "");
+  },
+});
+
+const { setupRealtimeTail, cleanupRealtimeTail } = useConversationRealtimeTail({
+  sse,
+  conversationId,
+  lockEnabled,
+  unlockToken,
+  items,
+  readReceipts,
+  editingMid,
+  fetchRecentMessages: async () => await fetchMessages({
+    conversationId: conversationId.value,
+    size: 20,
+    unlockToken: lockEnabled.value ? unlockToken.value : null,
+  }),
+  fetchReadReceipts: async () => await import("@/api/conversations").then(({ fetchConversationReadReceipts }) => fetchConversationReadReceipts(conversationId.value)),
+  normalizeMessages,
+  hasMessage,
+  appendIncomingMessage,
+  isNearBottom,
+  scrollToBottom,
+  touchReadDebounced,
+  handleSessionSse,
+  buildSessionMessageFromSession,
+  cancelEdit,
+  pinsStore,
 });
 
 watch(() => commandDeckOpen.value, async (open) => {
@@ -3039,205 +782,45 @@ watch(() => commandDeckOpen.value, async (open) => {
   updateMessageDepthFocus();
 });
 
-onMounted(async () => {
-  const ok = await ensureSessionOrRedirect();
-  if (!ok) return;
 
-  convStore.setActiveConversation?.(conversationId.value);
-
-  await refreshLockState();
-  if (canViewConversation.value) {
-    await loadFirst();
-    await loadSessions();
-    await loadPins();
-  }
-
-  // ✅ v3.6 Bridge: 댓글에서 만든 pending action을 이 대화 입력창에 자동 준비
-  loadPendingAction();
-  // ✅ ConversationsView에서 특정 대화방을 '가져오기' 대상으로 찍어둔 경우에만 강조
-  let targetOk = true;
-  try {
-    const t = sessionStorage.getItem("reallife:pendingActionTargetConversationId");
-    if (t && String(t) !== String(conversationId.value)) targetOk = false;
-  } catch {}
-  if (canViewConversation.value && pendingAction.value) {
-    primePendingAction(true);
-    if (targetOk) {
-      bumpPendingHighlight();
-      try { sessionStorage.removeItem("reallife:pendingActionTargetConversationId"); } catch {}
-    }
-  }
-
-  // ✅ 알림/검색으로 진입한 경우: 읽음 처리 + 대상 위치로 스크롤
-  const notiId = route.query?.notiId ? String(route.query.notiId) : "";
-  const fromNoti = route.query?.fromNoti ? String(route.query.fromNoti) === "1" : false;
-  const { fromSearch, targetMid, targetPinId, targetCapsuleId } = await syncSearchFocusFromRoute();
-
-  if (notiId) {
-    try {
-      await readNotification(notiId);
-      await notificationsStore.refresh?.();
-    } catch {}
-  }
-
-  await nextTick();
-
-  if (getScrollerEl()) getScrollerEl().addEventListener("scroll", onScroll);
-
-  // ✅ composer 높이 실측 → CSS 변수 동기화
-  syncComposerHeightVar();
-  syncMobileViewport();
-
-  // ✅ (알림 진입) mid가 있으면 그 메시지로, 없으면 마지막 메시지로
-  if (fromNoti) {
-    if (targetMid) {
-      await ensureMessageVisible(targetMid, 6);
-    } else {
-      const last = items.value?.length ? items.value[items.value.length - 1] : null;
-      const lastMid = last?.messageId;
-      if (lastMid) await scrollAndFlashMessage(lastMid, { block: "end" });
-    }
-  }
-
-  if (fromSearch) {
-    if (targetMid) await ensureMessageVisible(targetMid, 8);
-    if (targetPinId) await focusPinFromSearch(targetPinId);
-    if (targetCapsuleId) await focusCapsuleFromSearch(targetCapsuleId);
-  }
-
-  // ✅ 화면 크기/주소창 변화/키보드 등으로 높이 달라질 때 다시 측정
-  window.addEventListener("resize", syncComposerHeightVar);
-  window.addEventListener("resize", syncMobileViewport);
-
-  offEvent = sse.onEvent((evt) => {
-    const type = evt?.type;
-    const payload = evt?.data;
-    if (!type) return;
-    if (type === "playback-session-created") {
-      const sessionMessage = buildSessionMessageFromSession(payload);
-      if (sessionMessage && !hasMessage(sessionMessage.messageId)) appendIncomingMessage(sessionMessage);
-    }
-    if (handleSessionSse(type, payload)) return;
-
-    if (type === "message-created") {
-      if (String(payload?.conversationId) !== String(conversationId.value)) return;
-
-      const mid = payload?.messageId;
-      if (mid && hasMessage(mid)) return;
-
-      appendIncomingMessage({
-        messageId: payload.messageId,
-        conversationId: payload.conversationId,
-        senderId: payload.senderId,
-        content: payload.content,
-        createdAt: payload.createdAt,
-        attachments: payload.attachments || [],
-        pinCandidates: payload.pinCandidates || [],
-      });
-
-      return;
-    }
-
-    if (type === "message-updated") {
-      if (String(payload?.conversationId) !== String(conversationId.value)) return;
-
-      const mid = String(payload?.messageId || "");
-      if (!mid) return;
-
-      const idx = items.value.findIndex(m => String(m.messageId) === mid);
-      if (idx >= 0) {
-        items.value[idx] = {
-          ...items.value[idx],
-          content: payload?.content ?? items.value[idx].content,
-          editedAt: payload?.editedAt ?? items.value[idx].editedAt,
-        };
-      }
-
-      // 내가 편집 중인 메시지가 서버에서 업데이트되면 편집모드 종료(충돌 방지)
-      if (editingMid.value && String(editingMid.value) === mid) {
-        cancelEdit();
-      }
-
-      return;
-    }
-
-    if (type === "conversation-read") {
-      if (String(payload?.conversationId) !== String(conversationId.value)) return;
-
-      const uid = String(payload?.userId || "");
-      const at = payload?.lastReadAt || null;
-      if (!uid) return;
-
-      const arr = [...(readReceipts.value || [])];
-      const idx = arr.findIndex((x) => String(x.userId) === uid);
-
-      // ✅ NEW: 더 과거 lastReadAt이 들어오면 무시 (읽음이 뒤로 가는 것 방지)
-      if (idx >= 0) {
-        const cur = arr[idx]?.lastReadAt;
-        if (cur && at) {
-          const curT = parseTime(cur);
-          const newT = parseTime(at);
-          if (curT != null && newT != null && newT < curT) return;
-        }
-      }
-
-      if (idx >= 0) arr[idx] = { ...arr[idx], lastReadAt: at };
-      else arr.push({ userId: uid, lastReadAt: at });
-
-      readReceipts.value = arr;
-      return;
-    }
-
-    if (type === "pin-created") {
-      if (payload) pinsStore.ingestPinCreated?.(payload);
-      return;
-    }
-
-    if (type === "pin-updated") {
-      if (payload) pinsStore.ingestPinUpdated?.(payload);
-      return;
-    }
-  });
-
-  offStatus = sse.onStatus(({ connected }) => {
-    // false -> true 로 바뀌는 순간만
-    if (connected && !_wasConnected) {
-      syncTailAfterReconnect();
-    }
-    _wasConnected = connected;
-  });
-
-  // ✅ 분 경계에 맞춰 갱신(방금/1분 전 자연스럽게)
-  const delay = 60000 - (Date.now() % 60000);
-  _msgTimeTimer = setTimeout(() => {
-    nowTick.value = Date.now();
-    _msgTimeTimer2 = setInterval(() => {
-      nowTick.value = Date.now();
-    }, 60000);
-  }, delay);
+useConversationBootFlow({
+  route,
+  nextTick,
+  nowTick,
+  conversationId,
+  convStore,
+  items,
+  canViewConversation,
+  pendingAction,
+  loadPendingAction,
+  primePendingAction,
+  bumpPendingHighlight,
+  refreshLockState,
+  loadFirst,
+  loadSessions,
+  loadPins,
+  ensureSessionOrRedirect,
+  syncSearchFocusFromRoute,
+  ensureMessageVisible,
+  focusPinFromSearch,
+  focusCapsuleFromSearch,
+  getScrollerEl,
+  onScroll,
+  syncComposerHeightVar,
+  syncMobileViewport,
+  setupRealtimeTail,
+  cleanupRealtimeTail,
+  detectTouchUi,
+  onPinRemindHighlight,
+  readNotification,
+  notificationsStore,
+  scrollAndFlashMessage,
+  setUiModeExploreSearch: () => {
+    uiMode.value = 'explore';
+    exploreTab.value = 'search';
+  },
 });
 
-onBeforeUnmount(() => {
-  window.removeEventListener("resize", syncComposerHeightVar); // ✅ 추가
-  window.removeEventListener("resize", syncMobileViewport);
-
-  if (getScrollerEl()) getScrollerEl().removeEventListener("scroll", onScroll);
-  if (offEvent) offEvent();
-  if (offStatus) offStatus();
-  offStatus = null;
-
-  convStore.setActiveConversation?.(null);
-
-  for (const t of savedBadgeTimers.values()) clearTimeout(t);
-  savedBadgeTimers.clear();
-
-  if (_msgTimeTimer) clearTimeout(_msgTimeTimer);
-  if (_msgTimeTimer2) clearInterval(_msgTimeTimer2);
-  if (_readTouchTimer) clearTimeout(_readTouchTimer);
-  _msgTimeTimer = null;
-  _msgTimeTimer2 = null;
-  _readTouchTimer = null;
-});
 </script>
 
 <template>
@@ -3249,8 +832,7 @@ onBeforeUnmount(() => {
         <div class="peerAva" aria-hidden="true">{{ peerInitial() }}</div>
         <div class="peerMeta">
           <div class="peerName">{{ peerName }}</div>
-          <div class="peerHandle" v-if="peerHandle">{{ isGroupConversation ? peerHandle : `@${peerHandle}` }}</div>
-          <div class="peerHandle" v-else>{{ isGroupConversation ? "그룹 정보" : "프로필" }}</div>
+          <div class="peerHandle">{{ peerSubtitle }}</div>
         </div>
       </button>
 
@@ -3582,7 +1164,7 @@ onBeforeUnmount(() => {
   </Teleport>
 </template>
 
-<style scoped>
+<style>
 /* =========================
    핵심: 화면 고정 레이아웃
    ========================= */
@@ -9584,7 +7166,6 @@ onBeforeUnmount(() => {
   }
 }
 
-</style>
 
 
 /* stage-11 compact rhythm */
@@ -9610,3 +7191,5 @@ onBeforeUnmount(() => {
   .messageStageSheetTabs__tab{min-height:30px;padding:0 9px}
   .messageStageSheetCard{padding:10px 11px;border-radius:14px}
 }
+
+</style>
