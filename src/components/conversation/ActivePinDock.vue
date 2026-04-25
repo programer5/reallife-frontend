@@ -310,3 +310,99 @@ function emitDismiss(candidate) {
   .dockSuggestionList :deep(.wrap){margin-top:0}
 }
 </style>
+
+<style scoped>
+/* Stable action dock layout inside the Lens sheet. This block intentionally
+   wins over the older global ConversationDetailView overrides. */
+.dockWrapInline{
+  display:flex !important;
+  flex-direction:column !important;
+  width:100% !important;
+  height:100% !important;
+  min-height:0 !important;
+  gap:10px !important;
+  overflow:hidden !important;
+}
+.dockBarInline{
+  flex:0 0 auto !important;
+  display:grid !important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto !important;
+  gap:8px !important;
+  align-items:center !important;
+  width:100% !important;
+  min-height:38px !important;
+  margin:0 !important;
+  padding:0 !important;
+  background:transparent !important;
+  border:0 !important;
+  overflow:visible !important;
+}
+.dockBarInline .dockSpacer{display:none !important;}
+.dockBarInline .dockTab,
+.dockBarInline .dockMore{
+  appearance:none !important;
+  -webkit-appearance:none !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:6px !important;
+  width:100% !important;
+  min-width:0 !important;
+  height:38px !important;
+  min-height:38px !important;
+  max-height:38px !important;
+  padding:0 10px !important;
+  border-radius:14px !important;
+  line-height:1 !important;
+  white-space:nowrap !important;
+  box-sizing:border-box !important;
+}
+.dockBarInline .dockMore{width:auto !important;min-width:54px !important;}
+.dockPanelInline{
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  height:auto !important;
+  max-height:none !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding:0 2px calc(10px + env(safe-area-inset-bottom, 0px)) 0 !important;
+  -webkit-overflow-scrolling:touch !important;
+}
+.dockFilterBar{
+  display:flex !important;
+  flex-direction:row !important;
+  flex-wrap:nowrap !important;
+  gap:8px !important;
+  align-items:center !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  margin:0 0 8px !important;
+  padding:0 0 2px !important;
+  scrollbar-width:none !important;
+}
+.dockFilterBar::-webkit-scrollbar{display:none !important;}
+.dockPill{
+  flex:0 0 auto !important;
+  height:34px !important;
+  min-height:34px !important;
+  max-height:34px !important;
+  white-space:nowrap !important;
+}
+.dockActiveList,
+.dockSuggestionList{
+  display:grid !important;
+  grid-template-columns:1fr !important;
+  align-content:start !important;
+  gap:8px !important;
+  min-height:0 !important;
+  padding-bottom:8px !important;
+}
+@media (max-width:720px){
+  .dockWrapInline{gap:8px !important;}
+  .dockBarInline{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 58px !important;gap:6px !important;}
+  .dockBarInline .dockTab,
+  .dockBarInline .dockMore{height:36px !important;min-height:36px !important;max-height:36px !important;padding:0 8px !important;font-size:11px !important;}
+  .dockPill{height:32px !important;min-height:32px !important;max-height:32px !important;padding:0 9px !important;font-size:10.5px !important;}
+  .dockPillText{display:none !important;}
+}
+</style>

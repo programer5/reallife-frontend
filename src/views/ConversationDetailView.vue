@@ -7501,3 +7501,198 @@ useConversationBootFlow({
 }
 
 </style>
+
+<style>
+/* =========================
+   FINAL OVERRIDE: command lens / stage sheet stable layout
+   - Keep the sheet centered on desktop and inside the phone viewport on mobile.
+   - Stop tab buttons from stretching into vertical columns.
+   ========================= */
+.commandDeckBackdrop,
+.messageStageSheetBackdrop{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:var(--z-sheet-backdrop, 1000) !important;
+  display:flex !important;
+  align-items:flex-end !important;
+  justify-content:center !important;
+  padding:0 12px !important;
+  background:rgba(4,8,18,.72) !important;
+  backdrop-filter:blur(10px) !important;
+  overflow:hidden !important;
+}
+
+.commandDeck,
+.messageStageSheet{
+  position:relative !important;
+  left:auto !important;
+  right:auto !important;
+  bottom:auto !important;
+  transform:none !important;
+  width:min(430px, 100%) !important;
+  max-width:min(430px, calc(100vw - 24px)) !important;
+  min-width:0 !important;
+  height:min(82dvh, 760px) !important;
+  min-height:min(560px, 82dvh) !important;
+  max-height:min(82dvh, 760px) !important;
+  margin:0 auto !important;
+  padding:12px 12px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+  display:grid !important;
+  grid-template-rows:auto auto minmax(0, 1fr) !important;
+  gap:10px !important;
+  border-radius:22px 22px 0 0 !important;
+  overflow:hidden !important;
+  box-sizing:border-box !important;
+}
+
+.commandDeck__head,
+.messageStageSheet__head{
+  position:relative !important;
+  display:grid !important;
+  grid-template-columns:minmax(0, 1fr) auto !important;
+  align-items:start !important;
+  gap:10px !important;
+  margin:0 !important;
+  padding:0 !important;
+  background:transparent !important;
+  border:0 !important;
+  min-width:0 !important;
+}
+
+.commandDeck__head > div,
+.messageStageSheet__head > div{min-width:0 !important;}
+.commandDeck__eyebrow,
+.messageStageSheet__eyebrow{font-size:10px !important;line-height:1.1 !important;opacity:.72 !important;}
+.commandDeck__head strong,
+.messageStageSheet__head strong,
+.commandDeck__title,
+.messageStageSheet__title{
+  display:block !important;
+  min-width:0 !important;
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
+  font-size:20px !important;
+  line-height:1.25 !important;
+}
+.commandDeck__hint,
+.messageStageSheet__hint{display:none !important;}
+
+.commandDeck__close,
+.messageStageSheet__close{
+  appearance:none !important;
+  -webkit-appearance:none !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  flex:0 0 auto !important;
+  align-self:start !important;
+  width:40px !important;
+  min-width:40px !important;
+  height:40px !important;
+  min-height:40px !important;
+  padding:0 !important;
+  border-radius:999px !important;
+  border:1px solid rgba(255,255,255,.14) !important;
+  background:rgba(255,255,255,.08) !important;
+  color:#fff !important;
+  font-size:18px !important;
+  font-weight:800 !important;
+  line-height:1 !important;
+  box-shadow:0 10px 24px rgba(0,0,0,.22) !important;
+}
+
+.commandDeck__tabs,
+.messageStageSheetTabs{
+  position:relative !important;
+  top:auto !important;
+  z-index:auto !important;
+  display:flex !important;
+  flex-direction:row !important;
+  align-items:center !important;
+  justify-content:flex-start !important;
+  flex-wrap:nowrap !important;
+  gap:8px !important;
+  width:100% !important;
+  min-width:0 !important;
+  min-height:38px !important;
+  max-height:42px !important;
+  margin:0 !important;
+  padding:0 0 2px !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  background:transparent !important;
+  border:0 !important;
+  scrollbar-width:none !important;
+  box-sizing:border-box !important;
+}
+.commandDeck__tabs::-webkit-scrollbar,
+.messageStageSheetTabs::-webkit-scrollbar{display:none !important;}
+
+.commandDeck__tab,
+.messageStageSheetTabs__tab{
+  appearance:none !important;
+  -webkit-appearance:none !important;
+  flex:0 0 auto !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:6px !important;
+  width:auto !important;
+  min-width:42px !important;
+  max-width:none !important;
+  height:36px !important;
+  min-height:36px !important;
+  max-height:36px !important;
+  padding:0 12px !important;
+  border-radius:13px !important;
+  line-height:1 !important;
+  white-space:nowrap !important;
+  box-sizing:border-box !important;
+}
+.commandDeck__tab small,
+.messageStageSheetTabs__tab small{display:none !important;}
+
+.commandDeck__panel,
+.messageStageSheetBody{
+  min-width:0 !important;
+  min-height:0 !important;
+  height:100% !important;
+  max-height:none !important;
+  display:block !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding:0 2px calc(6px + env(safe-area-inset-bottom, 0px)) 0 !important;
+  overscroll-behavior:contain !important;
+  -webkit-overflow-scrolling:touch !important;
+}
+
+.commandDeck__panel--actions{display:flex !important;flex-direction:column !important;}
+.commandDeck__panel--actions > .dockWrapInline{flex:1 1 auto !important;min-height:0 !important;height:100% !important;}
+
+@media (min-width:721px){
+  .commandDeckBackdrop,
+  .messageStageSheetBackdrop{padding:0 20px !important;}
+  .commandDeck,
+  .messageStageSheet{
+    width:min(520px, calc(100vw - 40px)) !important;
+    max-width:520px !important;
+    height:min(78dvh, 720px) !important;
+    min-height:520px !important;
+    max-height:min(78dvh, 720px) !important;
+  }
+}
+
+@media (max-width:720px){
+  .commandDeckBackdrop,
+  .messageStageSheetBackdrop{padding:0 !important;}
+  .commandDeck,
+  .messageStageSheet{
+    width:100vw !important;
+    max-width:100vw !important;
+    height:min(82dvh, calc(100dvh - 72px)) !important;
+    min-height:min(520px, calc(100dvh - 72px)) !important;
+    max-height:min(82dvh, calc(100dvh - 72px)) !important;
+  }
+}
+</style>
