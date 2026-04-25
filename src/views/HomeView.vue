@@ -10,7 +10,6 @@ import RlButton from "../components/ui/RlButton.vue";
 import PostComposer from "../components/PostComposer.vue";
 import FeedPostCard from "../components/feed/FeedPostCard.vue";
 import AsyncStatePanel from "../components/ui/AsyncStatePanel.vue";
-import HomeTodayWidgetPanel from "../components/home/HomeTodayWidgetPanel.vue";
 
 const toast = useToastStore();
 const router = useRouter();
@@ -362,86 +361,22 @@ onBeforeUnmount(() => {
   <div class="page">
     <div v-if="relayNotice" class="relayNotice cardSurface">🔔 {{ relayNotice.source || "대화" }}에서 이어진 액션이 피드에 반영됐어요 · {{ relayNotice.title || "새 액션" }}</div>
 
-    <section class="desktopHero cardSurface">
-      <div class="heroCopyBlock">
-        <div class="heroEyebrow">TODAY · REALIFE FLOW</div>
-        <h1 class="heroTitle">오늘의 흐름을 보고, 바로 행동으로 이어지는 홈</h1>
-        <p class="heroBody">{{ heroCopy }}</p>
-        <div class="heroGuideChips">
-          <span class="guideChip">댓글 → 액션</span>
-          <span class="guideChip">액션 → 대화</span>
-          <span class="guideChip">대화 → 실제 삶</span>
-        </div>
+    <section class="homeControl cardSurface">
+      <div class="modeRail" role="tablist" aria-label="피드 필터">
+        <button class="modePill" :class="{ on: viewMode === 'FOLLOWING' }" type="button" @click="onSwitchMode('FOLLOWING')">팔로잉</button>
+        <button class="modePill" :class="{ on: viewMode === 'FOR_YOU' }" type="button" @click="onSwitchMode('FOR_YOU')">추천</button>
+        <button class="modePill modePill--muted" type="button" @click="onNearbyClick">근처</button>
       </div>
-
-      <div class="heroActionBlock">
-        <div class="overviewTitle">지금 이어질 수 있는 흐름</div>
-        <div class="overviewSub">{{ syncLabel }}</div>
-        <div class="overviewStats">
-          <div class="statPill"><span class="statValue">{{ feedSummary.total }}</span><span class="statLabel">게시글</span></div>
-          <div class="statPill"><span class="statValue">{{ feedSummary.commented }}</span><span class="statLabel">댓글 있는 글</span></div>
-          <div class="statPill"><span class="statValue">{{ feedSummary.actionReady }}</span><span class="statLabel">행동 가능 흐름</span></div>
-        </div>
-        <div class="heroActions">
-          <RlButton class="toolbarBtn" size="sm" variant="soft" @click="loadFirst" :loading="loading">새로고침</RlButton>
-          <button class="composerShortcut composerShortcut--desktop" type="button" @click="openComposer">
-            <span class="composerShortcut__plus">+</span>
-            <span>오늘의 순간 공유하기</span>
-          </button>
-        </div>
+      <div class="homeControl__actions">
+        <RlButton class="toolbarBtn" size="sm" variant="soft" @click="loadFirst" :loading="loading">↻</RlButton>
+        <button class="composerShortcut composerShortcut--desktop" type="button" @click="openComposer">
+          <span class="composerShortcut__plus">+</span>
+          <span>공유</span>
+        </button>
       </div>
     </section>
 
-    <div class="desktopToolbar cardSurface">
-      <div class="modeRailWrap">
-        <div class="modeRail" role="tablist" aria-label="피드 필터">
-          <button class="modePill" :class="{ on: viewMode === 'FOLLOWING' }" type="button" @click="onSwitchMode('FOLLOWING')">팔로잉</button>
-          <button class="modePill" :class="{ on: viewMode === 'FOR_YOU' }" type="button" @click="onSwitchMode('FOR_YOU')">추천</button>
-          <button class="modePill modePill--muted" type="button" @click="onNearbyClick">근처 · 준비중</button>
-        </div>
-        <div class="modeMeta">{{ modeMeta }}</div>
-      </div>
-      <div class="desktopToolbarHint">지금 바로 댓글과 액션으로 이어질 수 있는 흐름을 먼저 보여줘요.</div>
-    </div>
 
-    <div class="mobileToolbar">
-      <div class="toolbarTop">
-        <div class="brandBlock"><div class="brandTitle">RealLife</div><div class="brandSub">Life Stream</div></div>
-        <div class="actionCluster">
-          <RlButton class="toolbarBtn" size="sm" variant="soft" @click="loadFirst" :loading="loading">새로고침</RlButton>
-          <RlButton class="toolbarBtn toolbarBtn--primary" size="sm" variant="primary" @click="openComposer">작성</RlButton>
-        </div>
-      </div>
-      <div class="toolbarBottom">
-        <div class="modeRailWrap">
-          <div class="modeRail" role="tablist" aria-label="피드 필터">
-            <button class="modePill" :class="{ on: viewMode === 'FOLLOWING' }" type="button" @click="onSwitchMode('FOLLOWING')">팔로잉</button>
-            <button class="modePill" :class="{ on: viewMode === 'FOR_YOU' }" type="button" @click="onSwitchMode('FOR_YOU')">추천</button>
-            <button class="modePill modePill--muted" type="button" @click="onNearbyClick">근처 · 준비중</button>
-          </div>
-          <div class="modeMeta">{{ modeMeta }}</div>
-        </div>
-        <button class="composerShortcut" type="button" @click="openComposer"><span class="composerShortcut__plus">+</span><span>오늘의 순간 공유하기</span></button>
-      </div>
-    </div>
-
-    <HomeTodayWidgetPanel />
-
-    <section v-if="!loading && !error && displayedItems.length && homeFlowCards.length" class="flowInsightGrid">
-      <button
-        v-for="entry in homeFlowCards"
-        :key="entry.key"
-        class="flowInsightCard cardSurface"
-        :class="`flowInsightCard--${entry.tone}`"
-        type="button"
-        @click="entry.action()"
-      >
-        <div class="flowInsightCard__eyebrow">{{ entry.eyebrow }}</div>
-        <div class="flowInsightCard__title">{{ entry.title }}</div>
-        <div class="flowInsightCard__body">{{ entry.body }}</div>
-        <div class="flowInsightCard__meta">{{ entry.meta }}</div>
-      </button>
-    </section>
 
     <button v-if="newPostCount > 0" class="newPostBanner" type="button" @click="reloadWithNewPosts">새 글 {{ newPostCount }}개 · 지금 보기</button>
 
@@ -485,15 +420,6 @@ onBeforeUnmount(() => {
     />
 
     <div v-else class="list">
-      <div class="feedTopSummary">
-        <div class="feedTopSummary__title">{{ viewMode === "FOR_YOU" ? "추천 흐름" : "팔로잉 흐름" }}</div>
-        <div class="feedTopSummary__sub">{{ viewMode === "FOR_YOU" ? "반응이 빠른 글과 액션 공유 흐름을 먼저 보여줘요." : "연결된 사람들의 최근 순간과 바로 이어질 수 있는 흐름을 보여줘요." }}</div>
-        <div class="feedFocusRow">
-          <div class="feedFocusPill"><span class="feedFocusPill__label">액션 공유</span><span class="feedFocusPill__value">{{ feedSummary.sharedAction }}</span></div>
-          <div class="feedFocusPill"><span class="feedFocusPill__label">대화 시작 가능</span><span class="feedFocusPill__value">{{ feedSummary.actionReady }}</span></div>
-          <div class="feedFocusPill"><span class="feedFocusPill__label">사진 포함</span><span class="feedFocusPill__value">{{ feedSummary.withImage }}</span></div>
-        </div>
-      </div>
       <div class="feedGrid">
         <FeedPostCard v-for="p in displayedItems" :key="p.postId" :post="p" @like="toggleLike" />
       </div>
@@ -508,7 +434,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.page{padding:20px 20px calc(96px + env(safe-area-inset-bottom));max-width:1480px;margin:0 auto;display:grid;gap:16px}
+.page{padding:20px 20px calc(96px + env(safe-area-inset-bottom));max-width:1320px;margin:0 auto;display:grid;gap:14px}
 .cardSurface{border:1px solid rgba(255,255,255,.10);border-radius:24px;background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));box-shadow:0 18px 46px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.04)}
 .relayNotice{padding:12px 16px;font-size:13px;font-weight:800;color:rgba(255,255,255,.92)}
 .desktopHero{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:stretch;padding:18px 20px}
@@ -518,6 +444,7 @@ onBeforeUnmount(() => {
 .heroBody{margin:0;font-size:14px;line-height:1.65;color:rgba(255,255,255,.74);max-width:60ch}
 .heroGuideChips{display:flex;gap:8px;flex-wrap:wrap}.guideChip{height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);display:inline-flex;align-items:center;font-size:12px;font-weight:800;color:rgba(255,255,255,.86)}
 .overviewTitle{font-size:13px;font-weight:900}.overviewSub{margin-top:4px;font-size:12px;color:rgba(255,255,255,.62)}.overviewStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.statPill{padding:14px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);display:grid;gap:6px}.statValue{font-size:20px;font-weight:950}.statLabel{font-size:11px;color:rgba(255,255,255,.64)}.heroActions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.homeControl{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px}.homeControl__actions{display:flex;align-items:center;gap:8px;margin-left:auto}.homeControl .modeRail{flex:1;min-width:0}.homeControl .modePill{min-height:34px;padding:0 13px;font-size:12px}.homeControl .composerShortcut{height:36px;padding:0 13px;font-size:12px}
 .desktopToolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:14px 18px}.desktopToolbarHint{font-size:13px;color:rgba(255,255,255,.68);text-align:right;max-width:32ch;justify-self:end}
 .mobileToolbar{display:none}.modeRailWrap{min-width:0;display:grid;gap:8px}.modeRail{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.modePill{min-height:38px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:rgba(255,255,255,.92);font-weight:800;font-size:13px;cursor:pointer;transition:transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease}.modePill:hover{transform:translateY(-1px);background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16)}.modePill.on{background:color-mix(in oklab, var(--accent) 18%, rgba(255,255,255,.08));border-color:color-mix(in oklab, var(--accent) 42%, rgba(255,255,255,.16));box-shadow:0 8px 24px rgba(27,44,95,.2)}.modePill--muted{opacity:.78}.modeMeta{min-height:18px;font-size:12px;color:rgba(255,255,255,.62);padding-left:2px}
 .composerShortcut{height:44px;padding:0 15px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(8,14,34,.42);color:rgba(255,255,255,.90);font-weight:800;font-size:13px;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:transform .18s ease,border-color .18s ease,background .18s ease}.composerShortcut:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.14);background:rgba(10,18,44,.52)}.composerShortcut--desktop{justify-content:center}.composerShortcut__plus{display:inline-flex;width:16px;justify-content:center;opacity:.82;font-weight:900}
@@ -527,6 +454,6 @@ onBeforeUnmount(() => {
 .feedGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}.feedGrid > *{align-self:start}
 .sentinel{display:grid;place-items:center;min-height:68px}.loadingMoreHint,.endHint{font-size:13px;color:rgba(255,255,255,.58)}
 .stateSkeletonWrap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.skeleton-card{padding:16px;border-radius:24px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.03);display:grid;gap:12px}.sk-head{display:flex;gap:10px;align-items:center}.sk-avatar{width:38px;height:38px;border-radius:999px;background:rgba(255,255,255,.08)}.sk-meta{display:grid;gap:6px;flex:1}.sk-line{height:12px;border-radius:999px;background:rgba(255,255,255,.08)}.sk-title{width:55%}.sk-sub{width:36%}.sk-media{height:180px;border-radius:18px;background:rgba(255,255,255,.08)}.short{width:60%}
-@media (max-width:1180px){.desktopHero{grid-template-columns:1fr}.desktopToolbar{display:none}.mobileToolbar{display:grid;gap:12px;padding:14px 16px;border-radius:24px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02))}.toolbarTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.toolbarBottom{display:grid;gap:12px}.brandBlock{display:grid;gap:4px}.brandTitle{font-size:24px;font-weight:950}.brandSub{font-size:12px;color:rgba(255,255,255,.62)}.actionCluster{display:flex;gap:8px;flex-wrap:wrap}.feedGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.flowInsightGrid{grid-template-columns:1fr 1fr}.stateSkeletonWrap{grid-template-columns:1fr 1fr}}
-@media (max-width:760px){.page{padding:14px 14px calc(96px + env(safe-area-inset-bottom))}.desktopHero{display:none}.feedGrid{grid-template-columns:1fr}.flowInsightGrid{grid-template-columns:1fr}.stateSkeletonWrap{grid-template-columns:1fr}.newPostBanner{top:72px}}
+@media (max-width:1180px){.feedGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.flowInsightGrid{grid-template-columns:1fr 1fr}.stateSkeletonWrap{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.page{padding:12px 12px calc(96px + env(safe-area-inset-bottom))}.homeControl{padding:10px;gap:8px;align-items:flex-start;flex-direction:column}.homeControl__actions{width:100%;margin-left:0}.homeControl__actions .toolbarBtn,.homeControl__actions .composerShortcut{flex:1;justify-content:center}.feedGrid{grid-template-columns:1fr}.flowInsightGrid{grid-template-columns:1fr}.stateSkeletonWrap{grid-template-columns:1fr}.newPostBanner{top:72px}}
 </style>

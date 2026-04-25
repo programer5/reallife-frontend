@@ -1,6 +1,6 @@
 <!-- src/components/feed/FeedPostCard.vue -->
 <script setup>
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useToastStore } from "../../stores/toast";
 import MediaLightbox from "../media/MediaLightbox.vue";
@@ -25,6 +25,20 @@ const mediaItems = computed(() => {
 const normalizedMediaItems = computed(() => normalizePostMediaItems(mediaItems.value).filter((m) => !!m.url && m.kind !== "file"));
 const images = computed(() => normalizedMediaItems.value.filter((m) => m.kind === "image").map((m) => m.url || m.thumbnailUrl).filter(Boolean));
 const firstVideo = computed(() => normalizedMediaItems.value.find((m) => m.kind === "video") || null);
+
+const warmedVideoUrls = new Set();
+function warmVideoPreview(url) {
+  if (!url || warmedVideoUrls.has(url)) return;
+  warmedVideoUrls.add(url);
+  try {
+    const video = document.createElement("video");
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.load();
+  } catch {}
+}
 
 const previewComments = computed(() => {
   const p = props.post || {};
@@ -127,6 +141,107 @@ function openVideoViewer(e) {
   const mediaIndex = normalizedMediaItems.value.findIndex((m) => m.kind === "video");
   openMediaViewerByIndex(mediaIndex >= 0 ? mediaIndex : 0, e);
 }
+
+const videoHeroRef = ref(null);
+const videoPreviewRef = ref(null);
+const videoPreviewPlaying = ref(false);
+const videoAutoPreviewing = ref(false);
+const videoHoverPreviewing = ref(false);
+const isVideoPreviewActive = computed(() => videoPreviewPlaying.value || videoAutoPreviewing.value || videoHoverPreviewing.value);
+let videoPreviewObserver = null;
+
+function syncVideoPreview() {
+  const video = videoPreviewRef.value;
+  if (!video) return;
+
+  const active = isVideoPreviewActive.value;
+  try {
+    video.muted = !videoPreviewPlaying.value;
+    video.controls = videoPreviewPlaying.value;
+    video.playsInline = true;
+
+    if (active) {
+      const playPromise = video.play?.();
+      if (playPromise && typeof playPromise.catch === "function") playPromise.catch(() => {});
+      return;
+    }
+
+    video.pause?.();
+    if (Number.isFinite(video.duration) && video.currentTime > 0.35) video.currentTime = 0.25;
+  } catch {}
+}
+
+function playVideoPreview(e) {
+  e?.stopPropagation?.();
+  videoPreviewPlaying.value = true;
+  videoAutoPreviewing.value = false;
+  videoHoverPreviewing.value = false;
+  nextTick(syncVideoPreview);
+}
+
+function setHoverPreview(active) {
+  if (videoPreviewPlaying.value) return;
+  videoHoverPreviewing.value = !!active;
+  nextTick(syncVideoPreview);
+}
+
+function primeVideoPreview(e) {
+  const video = e?.target || videoPreviewRef.value;
+  if (!video) return;
+  try {
+    if (Number.isFinite(video.duration) && video.duration > 0.35 && video.currentTime < 0.15) {
+      video.currentTime = 0.25;
+    }
+  } catch {}
+  syncVideoPreview();
+}
+
+function setupVideoAutoPreview() {
+  if (videoPreviewObserver) {
+    videoPreviewObserver.disconnect();
+    videoPreviewObserver = null;
+  }
+
+  const el = videoHeroRef.value;
+  if (!el || typeof IntersectionObserver === "undefined") return;
+
+  videoPreviewObserver = new IntersectionObserver((entries) => {
+    const visible = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.62);
+    if (videoPreviewPlaying.value) return;
+    videoAutoPreviewing.value = visible;
+    nextTick(syncVideoPreview);
+  }, { threshold: [0, 0.35, 0.62, 0.85] });
+
+  videoPreviewObserver.observe(el);
+}
+
+watch(firstVideo, (video) => {
+  warmVideoPreview(video?.url);
+  videoPreviewPlaying.value = false;
+  videoAutoPreviewing.value = false;
+  videoHoverPreviewing.value = false;
+  nextTick(() => {
+    setupVideoAutoPreview();
+    primeVideoPreview();
+  });
+}, { immediate: true });
+
+watch(isVideoPreviewActive, () => nextTick(syncVideoPreview));
+
+onMounted(() => {
+  setupVideoAutoPreview();
+});
+
+onBeforeUnmount(() => {
+  if (videoPreviewObserver) videoPreviewObserver.disconnect();
+});
+
+watch(() => props.post?.postId, () => {
+  videoPreviewPlaying.value = false;
+  videoAutoPreviewing.value = false;
+  videoHoverPreviewing.value = false;
+  slide.value = 0;
+});
 
 function onPointerDown(e) {
   if (!hasMany.value) return;
@@ -403,18 +518,44 @@ const detailActionLabel = computed(() => {
 
 <template>
   <article class="card" role="article" @click="openDetail">
-    <div v-if="firstVideo" class="videoHero" @click.stop="openVideoViewer">
+    <div
+        v-if="firstVideo"
+        ref="videoHeroRef"
+        class="videoHero"
+        :class="{ 'videoHero--playing': videoPreviewPlaying, 'videoHero--previewing': isVideoPreviewActive }"
+        @mouseenter="setHoverPreview(true)"
+        @mouseleave="setHoverPreview(false)"
+        @focusin="setHoverPreview(true)"
+        @focusout="setHoverPreview(false)"
+    >
       <video
+          ref="videoPreviewRef"
           class="videoHero__player"
-          @click.stop="openVideoViewer"
           :src="firstVideo?.url || ''"
           :poster="firstVideo?.thumbnailUrl || ''"
-          controls
+          :controls="videoPreviewPlaying"
+          :autoplay="isVideoPreviewActive"
+          :muted="!videoPreviewPlaying"
           playsinline
-          muted
-          preload="metadata"
+          preload="auto"
+          @loadedmetadata="primeVideoPreview"
+          @canplay="primeVideoPreview"
+          @click.stop="videoPreviewPlaying ? null : playVideoPreview($event)"
       ></video>
-      <div class="videoHero__badge">VIDEO</div>
+      <button
+          v-if="!isVideoPreviewActive"
+          class="videoHero__play"
+          type="button"
+          aria-label="영상 재생"
+          @click.stop="playVideoPreview"
+      >▶</button>
+      <button
+          class="videoHero__open"
+          type="button"
+          aria-label="영상 크게 보기"
+          @click.stop="openVideoViewer"
+      >⌕</button>
+      <div class="videoHero__badge">영상</div>
     </div>
 
     <div class="head">
@@ -486,7 +627,7 @@ const detailActionLabel = computed(() => {
     <section v-if="bodyLabel || bodyPreview" class="bodyCard" :class="{ 'bodyCard--share': actionShareMeta }">
       <div v-if="bodyLabel" class="bodyCard__label">{{ bodyLabel }}</div>
       <div v-if="bodyPreview" class="content">{{ bodyPreview }}</div>
-      <div v-else-if="actionShareMeta" class="bodyCard__empty">액션 카드만 간단하게 공유했어요. 댓글로 바로 이어가도 좋아요.</div>
+      <div v-else-if="actionShareMeta" class="bodyCard__empty">액션 공유</div>
     </section>
 
     <div
@@ -523,22 +664,6 @@ const detailActionLabel = computed(() => {
 
       <button v-if="visibleImages.length > 1" class="nav left" type="button" @click.stop="prevSlide" aria-label="이전">‹</button>
       <button v-if="visibleImages.length > 1" class="nav right" type="button" @click.stop="nextSlide" aria-label="다음">›</button>
-    </div>
-
-    <div class="flowBar">
-      <span class="flowDot"></span>
-      <span>{{ engagementStrip }}</span>
-    </div>
-
-    <div class="insightPanel">
-      <div class="insightLine">
-        <span class="insightLabel">지금 포인트</span>
-        <strong>{{ insightHeadline }}</strong>
-      </div>
-      <div class="insightLine">
-        <span class="insightLabel">이어가기</span>
-        <span class="insightText">{{ insightSubline }}</span>
-      </div>
     </div>
 
     <div v-if="previewComments.length" class="commentPreview" @click.stop="openDetail">
@@ -584,7 +709,7 @@ const detailActionLabel = computed(() => {
 
 <style scoped>
 .card{
-  min-height:372px;
+  min-height:0;
   display:flex;
   flex-direction:column;
   border: 1px solid rgba(255,255,255,.10);
@@ -815,8 +940,8 @@ const detailActionLabel = computed(() => {
   width: 100%;
   display:block;
   object-fit: cover;
-  aspect-ratio: 16 / 18;
-  max-height: 680px;
+  aspect-ratio: 1 / 1;
+  max-height: none;
   background: rgba(255,255,255,.04);
 }
 
@@ -898,20 +1023,37 @@ const detailActionLabel = computed(() => {
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.28);
+  background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
   isolation: isolate;
+  aspect-ratio: 1 / 1;
 }
 .videoHero__player{
   display:block;
   width:100%;
+  height:100%;
   max-width:100%;
-  aspect-ratio: 9 / 16;
-  max-height: min(68dvh, 640px);
+  aspect-ratio: 1 / 1;
+  max-height: none;
   object-fit: cover;
   background: #05070d;
 }
-.videoHero__badge{
+.videoHero:not(.videoHero--playing) .videoHero__player{
+  cursor: pointer;
+}
+.videoHero--previewing .videoHero__player{
+  filter: saturate(1.04) contrast(1.02);
+}
+.videoHero__badge,
+.videoHero__open,
+.videoHero__play{
   position:absolute;
+  z-index:2;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(0,0,0,.38);
+  color:rgba(255,255,255,.94);
+  backdrop-filter: blur(12px);
+}
+.videoHero__badge{
   left:10px;
   top:10px;
   min-height:28px;
@@ -919,13 +1061,54 @@ const detailActionLabel = computed(() => {
   display:inline-flex;
   align-items:center;
   border-radius:999px;
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(0,0,0,.34);
-  color:rgba(255,255,255,.94);
   font-size:11px;
   font-weight:900;
-  letter-spacing:.06em;
-  backdrop-filter: blur(12px);
+  letter-spacing:.04em;
+}
+.videoHero__open{
+  right:10px;
+  top:10px;
+  width:32px;
+  height:32px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:15px;
+  font-weight:950;
+  cursor:pointer;
+}
+.videoHero__play{
+  left:50%;
+  top:50%;
+  width:58px;
+  height:58px;
+  transform:translate(-50%, -50%);
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding-left:4px;
+  font-size:22px;
+  font-weight:950;
+  cursor:pointer;
+  box-shadow:0 16px 46px rgba(0,0,0,.36);
+}
+.videoHero::after{
+  content:"";
+  position:absolute;
+  inset:auto 0 0 0;
+  height:34%;
+  pointer-events:none;
+  background:linear-gradient(to top, rgba(0,0,0,.46), transparent);
+}
+.videoHero--playing::after,
+.videoHero--playing .videoHero__badge{
+  display:none;
+}
+.videoHero--previewing:not(.videoHero--playing) .videoHero__play{
+  opacity: 0;
+  pointer-events: none;
 }
 
 .flowBar{
@@ -1005,7 +1188,7 @@ const detailActionLabel = computed(() => {
 @keyframes bump{ 0%{ transform: scale(1); } 55%{ transform: scale(1.08); } 100%{ transform: scale(1); } }
 
 @media (max-width: 720px){
-  .img{ aspect-ratio: 1 / 1.05; }
+  .img{ aspect-ratio: 1 / 1; }
   .mediaTopMeta{ top: 8px; left: 8px; right: 8px; }
   .nav{ width: 38px; height: 38px; }
   .shareCard__top{ flex-wrap: wrap; }

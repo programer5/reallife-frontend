@@ -12,21 +12,6 @@
         </div>
       </div>
 
-      <nav class="desktopNav" aria-label="Primary">
-        <button class="navPill" :class="{ on: route.path.startsWith('/home') }" type="button" @click="router.push('/home')">
-          <span>Home</span>
-        </button>
-        <button class="navPill" :class="{ on: route.path.startsWith('/search') }" type="button" @click="router.push('/search')">
-          <span>Search</span>
-        </button>
-        <button class="navPill" :class="{ on: route.path.startsWith('/inbox') || route.path.startsWith('/conversations') }" type="button" @click="router.push('/inbox')">
-          <span>Connect</span>
-          <small v-if="totalUnread > 0">{{ unreadBadge }}</small>
-        </button>
-        <button class="navPill" :class="{ on: route.path.startsWith('/me') || route.path.startsWith('/u/') }" type="button" @click="router.push('/me')">
-          <span>Me</span>
-        </button>
-      </nav>
 
       <div class="right">
         <button class="helpEntry" :class="{ helpEntryActive: route.path.startsWith('/help') }" type="button" @click="goHelp" aria-label="이용 가이드 열기">
@@ -159,16 +144,10 @@ onMounted(() => {
   letter-spacing: .02em;
 }
 
-.desktopNav {
-  display: none;
-  align-items: center;
-  gap: 10px;
-}
-
-.navPill,
 .helpEntry,
 .inboxEntry {
   min-height: 40px;
+  padding: 0 12px;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,.08);
   background: rgba(255,255,255,.045);
@@ -176,18 +155,18 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 0 14px;
-  font-weight: 900;
+  gap: 6px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.navPill small {
-  font-size: 11px;
-  opacity: .9;
+.helpEntry svg,
+.inboxIcon svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
 }
 
-.navPill.on,
 .helpEntryActive,
 .inboxEntryActive {
   background: color-mix(in oklab, var(--accent) 16%, rgba(255,255,255,.05));
@@ -195,20 +174,18 @@ onMounted(() => {
 }
 
 .right {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-}
-
-.helpEntry svg,
-.inboxIcon svg {
-  width: 18px;
-  height: 18px;
+  min-width: 0;
 }
 
 .helpEntry span,
 .inboxText {
   font-size: 13px;
+  font-weight: 800;
 }
 
 .inboxEntry {
@@ -235,6 +212,7 @@ onMounted(() => {
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   font-size: 11px;
   font-weight: 900;
@@ -242,6 +220,7 @@ onMounted(() => {
   color: rgba(255,255,255,.68);
   border: 1px solid rgba(255,255,255,.08);
   background: rgba(255,255,255,.035);
+  white-space: nowrap;
 }
 
 .dot {
@@ -249,17 +228,12 @@ onMounted(() => {
   height: 8px;
   border-radius: 999px;
   background: rgba(255,255,255,.24);
+  flex: 0 0 auto;
 }
 
 .live[data-on="true"] .dot {
   background: #2ce0a2;
   box-shadow: 0 0 0 6px rgba(44,224,162,.12);
-}
-
-@media (min-width: 1024px) {
-  .desktopNav {
-    display: flex;
-  }
 }
 
 @media (max-width: 720px) {
@@ -278,17 +252,49 @@ onMounted(() => {
     font-size: 16px;
   }
 
-  .helpEntry span,
-  .inboxText,
-  .live {
-    display: none;
+  .right {
+    gap: 6px;
   }
 
   .helpEntry,
   .inboxEntry,
   .live {
-    min-width: 40px;
-    padding: 0 10px;
+    min-height: 36px;
+    padding: 0 9px;
+  }
+
+  .helpEntry span,
+  .inboxText {
+    font-size: 12px;
+  }
+
+  .live {
+    font-size: 10px;
+    padding: 0 9px;
+  }
+}
+
+@media (max-width: 380px) {
+  .helpEntry,
+  .inboxEntry,
+  .live {
+    width: 38px;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0;
+  }
+
+  .helpEntry span,
+  .inboxText {
+    display: none;
+  }
+
+  .live {
+    font-size: 0;
+  }
+
+  .live .dot {
+    margin: 0;
   }
 }
 </style>

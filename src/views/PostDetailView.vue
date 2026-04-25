@@ -30,6 +30,7 @@ const comments = ref([]);
 const commentsNextCursor = ref(null);
 const commentsHasNext = ref(false);
 const commentsMoreLoading = ref(false);
+const commentsRefreshing = ref(false);
 const sentinelRef = ref(null);
 let io = null;
 const sortMode = ref("LATEST");
@@ -167,9 +168,8 @@ const flowHintText = computed(() => {
 
 const commentsSectionTitle = computed(() => detailShareMeta.value ? "이 액션에서 이어진 대화" : "댓글");
 const commentsSectionSub = computed(() => {
-  const total = Number(post.value?.commentCount ?? 0);
-  if (detailShareMeta.value) return `총 ${total}개 · 루트 ${rootCommentCount}개 · 공유된 액션을 중심으로 대화가 이어져요`;
-  return `총 ${total}개 · 루트 ${rootCommentCount}개`;
+  const total = Number(post.value?.commentCount ?? comments.value.length ?? 0);
+  return `총 ${total}개`;
 });
 
 const commentTree = computed(() => {
@@ -340,8 +340,10 @@ async function onDeletePost() {
   }
 }
 
-async function loadCommentsFirst() {
-  commentsLoading.value = true;
+async function loadCommentsFirst(options = {}) {
+  const silent = !!options.silent;
+  if (silent) commentsRefreshing.value = true;
+  else commentsLoading.value = true;
   commentsError.value = "";
   try {
     const res = await fetchComments({ postId: postId.value, size: 20, sort: sortMode.value });
@@ -352,8 +354,14 @@ async function loadCommentsFirst() {
   } catch (e) {
     commentsError.value = e?.response?.data?.message || "댓글을 불러오지 못했습니다.";
   } finally {
-    commentsLoading.value = false;
+    if (silent) commentsRefreshing.value = false;
+    else commentsLoading.value = false;
   }
+}
+
+function changeSortMode(mode) {
+  if (sortMode.value === mode || commentsRefreshing.value) return;
+  sortMode.value = mode;
 }
 
 async function loadCommentsMore() {
@@ -574,7 +582,7 @@ onBeforeUnmount(() => {
   clearTimeout(longPressTimer);
 });
 watch(() => route.params.postId, () => load());
-watch(sortMode, () => loadCommentsFirst());
+watch(sortMode, () => loadCommentsFirst({ silent: comments.value.length > 0 }));
 </script>
 
 <template>
@@ -594,7 +602,6 @@ watch(sortMode, () => loadCommentsFirst());
       v-if="loading"
       icon="⏳"
       title="게시글을 준비하는 중이에요"
-      description="본문, 이미지, 댓글 액션 흐름을 준비하고 있어요."
       tone="loading"
       :show-actions="false"
     />
@@ -634,9 +641,6 @@ watch(sortMode, () => loadCommentsFirst());
           </div>
         </div>
 
-        <div class="scanRow">
-          <span v-for="chip in detailInsightChips" :key="chip" class="scanChip">{{ chip }}</span>
-        </div>
 
         <section v-if="detailShareMeta" class="shareCard">
           <div class="shareCard__top">
@@ -713,34 +717,33 @@ watch(sortMode, () => loadCommentsFirst());
             <span>{{ post.likeCount ?? 0 }}</span>
           </button>
           <button class="pill btn" type="button" @click="focusComposer">💬 {{ post.commentCount ?? 0 }}</button>
-          <div class="flowHint">{{ flowHintText }}</div>
         </div>
       </section>
 
-      <section class="card comments" id="commentsTop">
+      <section class="card comments" :class="{ refreshing: commentsRefreshing }" id="commentsTop">
         <div class="cHead">
           <div>
             <div class="cTitle">{{ commentsSectionTitle }}</div>
             <div class="cSub">{{ commentsSectionSub }}</div>
           </div>
           <div class="cControls">
-            <button class="seg" :class="{ on: sortMode==='LATEST' }" @click="sortMode='LATEST'">최신</button>
-            <button class="seg" :class="{ on: sortMode==='POPULAR' }" @click="sortMode='POPULAR'">인기</button>
+            <button class="seg" :class="{ on: sortMode==='LATEST' }" :disabled="commentsRefreshing" @click="changeSortMode('LATEST')">최신</button>
+            <button class="seg" :class="{ on: sortMode==='POPULAR' }" :disabled="commentsRefreshing" @click="changeSortMode('POPULAR')">인기</button>
           </div>
+          <span v-if="commentsRefreshing" class="sortBusy">정렬 중…</span>
         </div>
 
         <button v-if="newCommentsCount>0" class="newBadge" type="button" @click="refreshNewComments">새 댓글 {{ newCommentsCount }}개</button>
 
-        <AsyncStatePanel v-if="commentsLoading" icon="💬" title="댓글을 불러오는 중이에요" description="여기서 시작된 대화가 액션으로 이어질 수 있어요." tone="loading" :show-actions="false" />
+        <AsyncStatePanel v-if="commentsLoading" icon="💬" title="댓글을 불러오는 중이에요" tone="loading" :show-actions="false" />
         <div v-else-if="commentsError" class="cState err">{{ commentsError }}</div>
         <AsyncStatePanel v-else-if="commentsError" icon="⚠️" title="댓글을 불러오지 못했어요" :description="commentsError" tone="danger" primary-label="다시 시도" secondary-label="본문만 보기" @primary="() => loadComments({ reset: true })" @secondary="() => {}" />
 
         <div v-else-if="comments.length === 0" class="emptyCommentCard">
           <div class="emptyTitle">{{ detailShareMeta ? "이 액션의 첫 반응을 남겨보세요 ✨" : "첫 댓글로 흐름을 시작해보세요 ✨" }}</div>
-          <div class="emptySub">{{ detailShareMeta ? "공유된 액션에 바로 맥락을 더하면 대화와 실제 행동으로 이어지기 더 쉬워져요." : "여기서 시작된 대화가 약속, 할일, 장소 액션으로 이어질 수 있어요." }}</div>
         </div>
 
-        <TransitionGroup v-else name="c" tag="div" class="cList">
+        <div v-else class="cList">
           <article
             v-for="node in commentTree"
             :key="node.item.commentId"
@@ -794,7 +797,7 @@ watch(sortMode, () => loadCommentsFirst());
               </div>
             </div>
           </article>
-        </TransitionGroup>
+        </div>
 
         <div ref="sentinelRef" class="cSentinel">
           <div v-if="commentsMoreLoading" class="cMoreHint">불러오는 중…</div>
@@ -837,13 +840,12 @@ watch(sortMode, () => loadCommentsFirst());
             id="commentComposerInput"
             v-model="newComment"
             class="cInput"
-            placeholder="댓글을 입력하세요… (Enter 전송 / Shift+Enter 줄바꿈)"
+            placeholder="댓글을 입력하세요…"
             maxlength="300"
             rows="1"
             @keydown="onComposerKeydown($event, submitComment)"
             @input="onComposerInput"
           />
-          <div class="composerHint">@멘션 가능 · 댓글 → 액션 → 대화방 Dock 연결</div>
         </div>
         <button class="cBtn" type="button" @click="submitComment" :disabled="commentBusy">{{ commentBusy ? "…" : "등록" }}</button>
       </div>
@@ -905,20 +907,21 @@ watch(sortMode, () => loadCommentsFirst());
 .dot{opacity:.55}
 .content{font-size:14px;line-height:1.58;white-space:pre-wrap;color:rgba(255,255,255,.96)}
 .videoList{margin-top:12px;display:grid;gap:10px}
-.videoPlayer{display:block;width:100%;max-height:70vh;border-radius:18px;background:#000}
+.videoPlayer{display:block;width:100%;max-height:70vh;border-radius:18px;background:#000;object-fit:contain}
 .media{margin-top:12px;display:grid;gap:10px}
 .media--double{margin-top:14px}
 .heroShot,.gridShot,.shot{border:0;background:transparent;padding:0;cursor:pointer}
-.heroShot{width:100%;aspect-ratio:16/10;border-radius:22px;overflow:hidden;border:1px solid var(--border);box-shadow:0 14px 30px rgba(0,0,0,.18)}
-.heroShot img,.gridShot img{width:100%;height:100%;object-fit:cover;display:block}
+.heroShot{width:100%;border-radius:22px;overflow:hidden;border:1px solid var(--border);box-shadow:0 14px 30px rgba(0,0,0,.18);background:rgba(0,0,0,.18)}
+.heroShot img{width:100%;height:auto;max-height:min(72vh,720px);object-fit:contain;display:block;margin:0 auto}
+.gridShot img{width:100%;height:100%;object-fit:contain;display:block;background:rgba(0,0,0,.18)}
 .doubleGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.gridShot{width:100%;aspect-ratio:5/6;border-radius:22px;overflow:hidden;border:1px solid color-mix(in oklab,var(--border) 88%, rgba(255,255,255,.08));box-shadow:0 14px 30px rgba(0,0,0,.16)}
+.gridShot{width:100%;aspect-ratio:4/3;border-radius:22px;overflow:hidden;border:1px solid color-mix(in oklab,var(--border) 88%, rgba(255,255,255,.08));box-shadow:0 14px 30px rgba(0,0,0,.16);background:rgba(0,0,0,.18)}
 .carousel{position:relative}
 .track{display:flex;gap:10px;overflow:auto;scroll-snap-type:x mandatory;padding-bottom:2px}
 .track::-webkit-scrollbar{height:6px}
 .track::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}
 .shot{border:0;background:transparent;padding:0;width:min(540px,86vw);aspect-ratio:4/3;border-radius:20px;overflow:hidden;border:1px solid var(--border);scroll-snap-align:start;box-shadow:0 14px 30px rgba(0,0,0,.18)}
-.shot img{width:100%;height:100%;object-fit:cover;display:block}
+.shot img{width:100%;height:100%;object-fit:contain;display:block;background:rgba(0,0,0,.18)}
 .nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);backdrop-filter:blur(10px);color:rgba(255,255,255,.9);font-size:22px;cursor:pointer}
 .nav.left{left:8px}.nav.right{right:8px}
 
@@ -1026,11 +1029,14 @@ watch(sortMode, () => loadCommentsFirst());
 .pill.btn.on{border-color:color-mix(in oklab,var(--danger) 45%,var(--border));color:var(--text)}
 .flowHint{margin-left:auto;font-size:11.5px;color:rgba(255,255,255,.72);padding:7px 11px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10)}
 .comments{padding-bottom:94px;display:grid;gap:12px;background:linear-gradient(180deg, rgba(255,255,255,.032), rgba(255,255,255,.015)), color-mix(in oklab,var(--surface) 95%, rgba(8,12,26,.92))}
+.comments.refreshing .cList{opacity:.72;pointer-events:none}
+.sortBusy{font-size:11px;color:var(--muted);font-weight:800;white-space:nowrap}
 .cHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:2px}
 .cTitle{font-weight:950;font-size:16px}
 .cSub{font-size:12px;color:var(--muted);margin-top:3px}
 .cControls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .seg{height:34px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.9);font-weight:900;cursor:pointer}
+.seg:disabled{opacity:.62;cursor:wait}
 .seg.on{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.18)}
 .newBadge{height:36px;width:fit-content;padding:0 13px;border-radius:999px;border:1px solid color-mix(in oklab,var(--accent) 38%, rgba(255,255,255,.12));background:color-mix(in oklab,var(--accent) 12%, rgba(255,255,255,.04));color:rgba(255,255,255,.96);font-weight:950;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.16)}
 .cState{font-size:13px;color:var(--muted);text-align:center;padding:10px 0}
@@ -1090,6 +1096,7 @@ watch(sortMode, () => loadCommentsFirst());
   .flowHint{width:100%;margin-left:0}
   .doubleGrid{grid-template-columns:1fr}
   .gridShot{aspect-ratio:4/3}
+  .heroShot img{max-height:none}
 }
 @media (min-width:1280px){
   .composerInner{grid-template-columns:minmax(0,1fr) auto;align-items:center}
