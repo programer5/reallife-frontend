@@ -1,6 +1,6 @@
 <!-- src/views/ConversationDetailView.vue -->
 <script setup>
-import { computed, ref, nextTick, watch} from "vue";
+import { computed, ref, nextTick, watch } from "vue";
 import { ensureSessionOrRedirect as ensureSessionOrRedirectGuard } from "@/lib/authGuard";
 import { useRoute, useRouter } from "vue-router";
 import RlButton from "@/components/ui/RlButton.vue";
@@ -161,6 +161,24 @@ const {
   dockMode,
   dockOpen,
 });
+
+function sessionMessageMeta(message) {
+  if (!message?.metadataJson || typeof message.metadataJson !== "string") return null;
+  try { return JSON.parse(message.metadataJson); } catch { return null; }
+}
+
+function isSessionMessage(message) {
+  const type = String(message?.type || "").toUpperCase();
+  return type === "SESSION" || sessionMessageMeta(message)?.kind === "playback-session";
+}
+
+function messageHasAttachment(message) {
+  return Array.isArray(message?.attachments) && message.attachments.length > 0;
+}
+
+function messageHasActionCandidate(message) {
+  return Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0;
+}
 
 const {
   sessions,
@@ -564,24 +582,6 @@ const {
 });
 
 const visibleMessages = computed(() => items.value || []);
-
-function sessionMessageMeta(message) {
-  if (!message?.metadataJson || typeof message.metadataJson !== "string") return null;
-  try { return JSON.parse(message.metadataJson); } catch { return null; }
-}
-
-function isSessionMessage(message) {
-  const type = String(message?.type || "").toUpperCase();
-  return type === "SESSION" || sessionMessageMeta(message)?.kind === "playback-session";
-}
-
-function messageHasAttachment(message) {
-  return Array.isArray(message?.attachments) && message.attachments.length > 0;
-}
-
-function messageHasActionCandidate(message) {
-  return Array.isArray(message?.pinCandidates) && message.pinCandidates.length > 0;
-}
 
 const stagePool = computed(() => (items.value || []).filter((message) => isSessionMessage(message) || messageHasAttachment(message) || messageHasActionCandidate(message) || (searchFocusMid.value && String(searchFocusMid.value) === String(message?.messageId || ""))));
 const stageFilteredMessages = computed(() => {
