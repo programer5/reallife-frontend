@@ -64,6 +64,33 @@ const kindIcon = computed(() => {
   return "📅";
 });
 
+const REMIND_OPTIONS = [
+  { value: 0, label: "없음" },
+  { value: 5, label: "5분" },
+  { value: 10, label: "10분" },
+  { value: 30, label: "30분" },
+  { value: 60, label: "1시간" },
+];
+const REMIND_QUICK = REMIND_OPTIONS.filter((o) => [10, 30, 60].includes(o.value));
+const REMIND_STORAGE_KEY = "reallife.pin.remindMinutes";
+
+function readLastRemind() {
+  try {
+    const raw = window.localStorage.getItem(REMIND_STORAGE_KEY);
+    const n = Number(raw);
+    return [0, 5, 10, 30, 60].includes(n) ? n : 30;
+  } catch {
+    return 30;
+  }
+}
+
+function writeLastRemind(value) {
+  try {
+    window.localStorage.setItem(REMIND_STORAGE_KEY, String(value));
+  } catch {}
+}
+
+const remindMinutes = ref(readLastRemind());
 
 watch(
     () => remindMinutes.value,
@@ -139,7 +166,12 @@ watch(
 </script>
 
 <template>
-  <div class="wrap" :data-kind="candidateKind" :data-compact="props.compact ? 'true' : 'false'">
+  <div
+    class="wrap"
+    :data-kind="candidateKind"
+    :data-compact="props.compact ? 'true' : 'false'"
+    :data-cid="candidate?.candidateId || candidate?.id || null"
+  >
     <div class="top">
       <div class="titleRow">
         <div class="titleWrap">

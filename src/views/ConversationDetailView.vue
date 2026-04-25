@@ -1054,8 +1054,17 @@ useConversationBootFlow({
               :active-count="activeCount"
               :active-filter="activeFilter"
               :active-counts="activeCounts"
+              :active-pins="dockActivePinsToShow"
+              :pin-kind-meta="pinKindMeta"
+              :pin-primary-summary="pinPrimarySummary"
+              :source-message="dockSourceMsg"
+              :candidates="sortedDockCandidates"
+              :saving-candidate-id="savingCandidateId"
+              :is-confirm-busy="isConfirmBusy"
               @update:dock-mode="(value) => { dockMode = value; dockOpen = true; }"
               @update:active-filter="(value) => { activeFilter = value; }"
+              @confirm-candidate="({ message, payload }) => confirmCandidate(message, payload)"
+              @dismiss-candidate="({ message, candidate }) => dismissCandidate(message, candidate)"
               @open-all="() => { clearPinRemindBadge(); router.push(`/inbox/conversations/${conversationId}/pins`); closeCommandDeck(); }"
             />
           </section>
@@ -7190,6 +7199,305 @@ useConversationBootFlow({
   .commandDeck__tab small{display:none}
   .messageStageSheetTabs__tab{min-height:30px;padding:0 9px}
   .messageStageSheetCard{padding:10px 11px;border-radius:14px}
+}
+
+
+/* =========================
+   hotfix: action deck vertical tab recovery
+   ========================= */
+.commandDeck__tabs{
+  display:flex !important;
+  flex-direction:row !important;
+  align-items:center !important;
+  justify-content:flex-start !important;
+  flex-wrap:nowrap !important;
+  gap:6px !important;
+  height:auto !important;
+  min-height:0 !important;
+  max-height:38px !important;
+  margin:0 0 8px !important;
+  padding:0 2px 4px !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  background:transparent !important;
+  border:0 !important;
+  scrollbar-width:none !important;
+}
+.commandDeck__tabs::-webkit-scrollbar{display:none !important;}
+.commandDeck__tab{
+  flex:0 0 auto !important;
+  align-self:center !important;
+  width:auto !important;
+  min-width:54px !important;
+  height:34px !important;
+  min-height:34px !important;
+  max-height:34px !important;
+  padding:0 10px !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+}
+.commandDeck__panel--actions{
+  display:flex !important;
+  flex-direction:column !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+.commandDeck__panel--actions .dockWrapInline{
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+.commandDeck__panel--actions .dockPanelInline{
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 18px) !important;
+}
+@media (max-width:720px){
+  .commandDeck{
+    display:flex !important;
+    flex-direction:column !important;
+    height:min(78dvh, 720px) !important;
+    min-height:0 !important;
+    max-height:min(78dvh, 720px) !important;
+  }
+  .commandDeck__head{
+    flex:0 0 auto !important;
+    position:static !important;
+    margin:0 0 8px !important;
+    padding:0 !important;
+    background:transparent !important;
+    border:0 !important;
+  }
+  .commandDeck__tabs{
+    flex:0 0 auto !important;
+    align-items:center !important;
+    max-height:36px !important;
+    margin:0 0 8px !important;
+    padding:0 0 2px !important;
+  }
+  .commandDeck__panel{
+    flex:1 1 auto !important;
+    min-height:0 !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    padding:0 !important;
+  }
+  .commandDeck__tab small{display:none !important;}
+}
+
+
+/* =========================
+   FINAL: centered mobile sheet and readable deck tabs
+   - Teleported Lens/Stage sheets were escaping the phone frame on desktop/device preview.
+   - Keep the sheet centered and constrain it to the app width.
+   - Force tab bars back to compact horizontal chips.
+   ========================= */
+.commandDeckBackdrop,
+.messageStageSheetBackdrop{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:var(--z-sheet-backdrop, 100160) !important;
+  display:flex !important;
+  align-items:flex-end !important;
+  justify-content:center !important;
+  padding:0 !important;
+  background:rgba(4,8,18,.72) !important;
+  backdrop-filter:blur(12px) !important;
+  overflow:hidden !important;
+}
+
+.commandDeck,
+.messageStageSheet{
+  position:relative !important;
+  left:auto !important;
+  right:auto !important;
+  bottom:auto !important;
+  z-index:var(--z-sheet, 100170) !important;
+  width:min(100vw, 430px) !important;
+  max-width:430px !important;
+  min-width:0 !important;
+  height:min(82dvh, 760px) !important;
+  min-height:0 !important;
+  max-height:min(82dvh, 760px) !important;
+  margin:0 auto !important;
+  padding:12px 12px calc(env(safe-area-inset-bottom, 0px) + 14px) !important;
+  display:grid !important;
+  grid-template-rows:auto auto minmax(0, 1fr) !important;
+  gap:10px !important;
+  border-radius:22px 22px 0 0 !important;
+  border:1px solid rgba(255,255,255,.08) !important;
+  background:linear-gradient(180deg, rgba(8,13,29,.985), rgba(6,10,20,.99)) !important;
+  box-shadow:0 -24px 56px rgba(0,0,0,.42) !important;
+  overflow:hidden !important;
+}
+
+.commandDeck__head,
+.messageStageSheet__head{
+  position:static !important;
+  display:grid !important;
+  grid-template-columns:minmax(0, 1fr) auto !important;
+  align-items:start !important;
+  gap:10px !important;
+  margin:0 !important;
+  padding:0 !important;
+  background:transparent !important;
+  border:0 !important;
+  box-shadow:none !important;
+}
+.commandDeck__head > div,
+.messageStageSheet__head > div{min-width:0 !important;}
+.commandDeck__eyebrow{font-size:10px !important;line-height:1.1 !important;letter-spacing:.12em !important;color:rgba(226,232,255,.62) !important;}
+.commandDeck__head strong,
+.messageStageSheet__head strong{font-size:20px !important;line-height:1.2 !important;}
+.commandDeck__close,
+.messageStageSheet__close{
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  width:40px !important;
+  min-width:40px !important;
+  height:40px !important;
+  min-height:40px !important;
+  padding:0 !important;
+  border-radius:999px !important;
+  border:1px solid rgba(255,255,255,.14) !important;
+  background:rgba(255,255,255,.08) !important;
+  color:#fff !important;
+  font-size:16px !important;
+  line-height:1 !important;
+  box-shadow:none !important;
+}
+
+.commandDeck__tabs,
+.messageStageSheetTabs{
+  position:static !important;
+  display:flex !important;
+  flex-direction:row !important;
+  align-items:center !important;
+  justify-content:flex-start !important;
+  flex-wrap:nowrap !important;
+  gap:6px !important;
+  width:100% !important;
+  height:auto !important;
+  min-height:34px !important;
+  max-height:38px !important;
+  margin:0 !important;
+  padding:0 0 2px !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  background:transparent !important;
+  border:0 !important;
+  scrollbar-width:none !important;
+  -webkit-overflow-scrolling:touch !important;
+}
+.commandDeck__tabs::-webkit-scrollbar,
+.messageStageSheetTabs::-webkit-scrollbar{display:none !important;}
+.commandDeck__tab,
+.messageStageSheetTabs__tab{
+  flex:0 0 auto !important;
+  align-self:center !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:5px !important;
+  width:auto !important;
+  min-width:46px !important;
+  max-width:none !important;
+  height:34px !important;
+  min-height:34px !important;
+  max-height:34px !important;
+  padding:0 10px !important;
+  border-radius:12px !important;
+  white-space:nowrap !important;
+  writing-mode:horizontal-tb !important;
+}
+.commandDeck__tab small,
+.messageStageSheetTabs__tab small{display:none !important;}
+
+.commandDeck__panel,
+.messageStageSheetBody{
+  min-height:0 !important;
+  height:auto !important;
+  display:block !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding:0 2px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+  overscroll-behavior:contain !important;
+  -webkit-overflow-scrolling:touch !important;
+}
+.commandDeck__panel--actions{
+  display:flex !important;
+  flex-direction:column !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+.commandDeck__panel--actions .dockWrapInline{
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+.commandDeck__panel--actions .dockPanelInline{
+  flex:1 1 auto !important;
+  min-height:0 !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  padding:0 0 calc(env(safe-area-inset-bottom, 0px) + 18px) !important;
+}
+.commandDeck__panel--actions .dockBarInline{
+  flex:0 0 auto !important;
+  display:grid !important;
+  grid-template-columns:1fr 1fr auto !important;
+  gap:6px !important;
+  margin:0 0 8px !important;
+}
+.commandDeck__panel--actions .dockTab,
+.commandDeck__panel--actions .dockMore{
+  min-height:34px !important;
+  height:34px !important;
+  padding:0 10px !important;
+  border-radius:12px !important;
+  font-size:11px !important;
+}
+.commandDeck__panel--actions .dockFilterBar{
+  display:flex !important;
+  flex-wrap:nowrap !important;
+  gap:6px !important;
+  overflow-x:auto !important;
+  overflow-y:hidden !important;
+  margin:0 0 8px !important;
+  padding:0 0 2px !important;
+  scrollbar-width:none !important;
+}
+.commandDeck__panel--actions .dockFilterBar::-webkit-scrollbar{display:none !important;}
+.commandDeck__panel--actions .dockActiveList,
+.commandDeck__panel--actions .dockSuggestionList,
+.messageStageSheetMiniStack{
+  display:grid !important;
+  grid-template-columns:1fr !important;
+  gap:10px !important;
+}
+
+@media (min-width:721px){
+  .commandDeck,
+  .messageStageSheet{
+    width:min(720px, calc(100vw - 32px)) !important;
+    max-width:720px !important;
+    height:min(78dvh, 760px) !important;
+    max-height:min(78dvh, 760px) !important;
+  }
+}
+
+@media (max-width:720px){
+  .commandDeck,
+  .messageStageSheet{
+    width:min(100vw, 430px) !important;
+    max-width:430px !important;
+    height:min(82dvh, 760px) !important;
+    max-height:min(82dvh, 760px) !important;
+  }
 }
 
 </style>

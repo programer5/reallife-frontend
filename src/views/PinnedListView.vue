@@ -31,6 +31,7 @@ const onlyHasPlace = ref(false);
 const onlyHasTime = ref(false);
 
 const sortKey = ref("CREATED_DESC"); // CREATED_DESC | CREATED_ASC | START_ASC | START_DESC | TITLE_ASC
+const sortMenuOpen = ref(false);
 
 const sortOptions = [
   { value: "CREATED_DESC", label: "최신 저장순" },
@@ -46,9 +47,16 @@ function resetFilters() {
   onlyHasPlace.value = false;
   onlyHasTime.value = false;
   sortKey.value = "CREATED_DESC";
+  sortMenuOpen.value = false;
 
-  // 선택: 사용자가 "초기화 됐다"를 체감하게 포커스 이동
   nextTick(() => document.querySelector(".search")?.focus());
+}
+
+const currentSortLabel = computed(() => sortOptions.find((o) => o.value === sortKey.value)?.label || "최신 저장순");
+
+function selectSort(value) {
+  sortKey.value = value;
+  sortMenuOpen.value = false;
 }
 
 const availableStatuses = computed(() => {
@@ -271,7 +279,7 @@ function fmtRemind(pin) {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" @click="sortMenuOpen = false">
     <div class="container">
       <div class="topbar">
         <RlButton size="sm" variant="soft" @click="router.back()">←</RlButton>
@@ -291,11 +299,30 @@ function fmtRemind(pin) {
               placeholder="제목/장소 검색…"
               autocomplete="off"
           />
-          <select class="select" v-model="sortKey">
-            <option v-for="o in sortOptions" :key="o.value" :value="o.value">
-              {{ o.label }}
-            </option>
-          </select>
+          <div class="sortMenu" :class="{ open: sortMenuOpen }">
+            <button
+                class="sortButton"
+                type="button"
+                :aria-expanded="sortMenuOpen ? 'true' : 'false'"
+                aria-label="정렬 선택"
+                @click.stop="sortMenuOpen = !sortMenuOpen"
+            >
+              <span>{{ currentSortLabel }}</span>
+              <span class="sortChevron">{{ sortMenuOpen ? '▴' : '▾' }}</span>
+            </button>
+            <div v-if="sortMenuOpen" class="sortOptions" @click.stop>
+              <button
+                  v-for="o in sortOptions"
+                  :key="o.value"
+                  type="button"
+                  class="sortOption"
+                  :class="{ on: sortKey === o.value }"
+                  @click="selectSort(o.value)"
+              >
+                {{ o.label }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="chips">
@@ -485,13 +512,71 @@ function fmtRemind(pin) {
   outline: none;
 }
 
-.select {
+.sortMenu {
+  position: relative;
+  flex: 0 0 132px;
+  z-index: 4;
+}
+
+.sortButton {
+  width: 100%;
   height: 42px;
   border-radius: 14px;
   border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
   background: color-mix(in oklab, var(--surface) 92%, transparent);
   color: var(--text);
   padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.sortButton span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sortChevron {
+  flex: 0 0 auto;
+  opacity: .8;
+}
+
+.sortOptions {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(190px, 70vw);
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 16, 30, .98);
+  box-shadow: 0 18px 40px rgba(0,0,0,.34);
+  backdrop-filter: blur(14px);
+  display: grid;
+  gap: 4px;
+}
+
+.sortOption {
+  min-height: 34px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(255,255,255,.86);
+  text-align: left;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sortOption.on,
+.sortOption:hover {
+  background: rgba(126,154,255,.18);
+  color: #fff;
 }
 
 .chips {
