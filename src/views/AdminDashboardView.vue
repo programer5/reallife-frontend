@@ -618,6 +618,30 @@
               <strong>{{ fmtDateTime(normalizedDashboard.realtime.lastSseEventSentAt) }}</strong>
             </div>
             <div class="focusRow">
+              <span>최근 연결 등록</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.realtime.lastSseRegisteredAt) }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>최근 연결 해제</span>
+              <strong>{{ fmtDateTime(normalizedDashboard.realtime.lastSseDisconnectedAt) }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>SSE 실패 수</span>
+              <strong :data-status="normalizedDashboard.realtime.sseFailureCount > 0 ? 'DEGRADED' : normalizedDashboard.realtime.status">
+                {{ normalizedDashboard.realtime.sseFailureCount }}
+              </strong>
+            </div>
+            <div class="focusRow">
+              <span>최근 SSE 실패</span>
+              <strong :data-status="normalizedDashboard.realtime.lastSseFailureAt ? 'DOWN' : normalizedDashboard.realtime.status">
+                {{ fmtDateTime(normalizedDashboard.realtime.lastSseFailureAt) }}
+              </strong>
+            </div>
+            <div v-if="normalizedDashboard.realtime.lastSseFailureMessage" class="focusRow focusRow--stack">
+              <span>SSE 실패 메시지</span>
+              <strong>{{ normalizedDashboard.realtime.lastSseFailureMessage }}</strong>
+            </div>
+            <div class="focusRow">
               <span>health 체크 시각</span>
               <strong>{{ fmtDateTime(realtimeHealth?.serverTime || realtimeHealth?.checkedAt) }}</strong>
             </div>
@@ -648,6 +672,16 @@
             <div class="focusRow">
               <span>마지막 성공</span>
               <strong>{{ fmtDateTime(normalizedDashboard.reminder.lastSuccessAt) }}</strong>
+            </div>
+            <div class="focusRow">
+              <span>마지막 실패</span>
+              <strong :data-status="normalizedDashboard.reminder.lastFailureAt ? 'DOWN' : normalizedDashboard.reminder.status">
+                {{ fmtDateTime(normalizedDashboard.reminder.lastFailureAt) }}
+              </strong>
+            </div>
+            <div v-if="normalizedDashboard.reminder.lastFailureMessage" class="focusRow focusRow--stack">
+              <span>실패 메시지</span>
+              <strong>{{ normalizedDashboard.reminder.lastFailureMessage }}</strong>
             </div>
             <div class="focusRow">
               <span>최근 reminder 생성</span>
@@ -925,11 +959,21 @@ const normalizedDashboard = computed(() => {
           source.overview?.activeSseConnections ?? realtimeHealth.value?.activeSseConnections ?? 0,
       lastSseEventSentAt:
           source.health?.lastSseEventSentAt || realtimeHealth.value?.lastSseEventSentAt || null,
+      lastSseRegisteredAt: realtimeHealth.value?.lastSseRegisteredAt || null,
+      lastSseDisconnectedAt: realtimeHealth.value?.lastSseDisconnectedAt || null,
+      lastSseFailureAt:
+          source.health?.lastSseFailureAt || realtimeHealth.value?.lastSseFailureAt || null,
+      lastSseFailureMessage: realtimeHealth.value?.lastSseFailureMessage || "",
+      sseFailureCount: Number(source.health?.sseFailureCount ?? realtimeHealth.value?.sseFailureCount ?? 0),
     },
     reminder: {
       status: source.insights?.reminderHealth || reminderHealth.value?.status || "UNKNOWN",
       lastRunAt: source.health?.lastReminderRunAt || reminderHealth.value?.lastRunAt || null,
       lastSuccessAt: source.health?.lastReminderSuccessAt || reminderHealth.value?.lastSuccessAt || null,
+      lastFailureAt:
+          source.health?.lastReminderFailureAt || reminderHealth.value?.lastFailureAt || null,
+      lastFailureMessage: reminderHealth.value?.lastFailureMessage || "",
+      schedulerEnabled: reminderHealth.value?.schedulerEnabled ?? null,
     },
     totals: {
       users: source.totals?.users ?? 0,
@@ -2111,7 +2155,9 @@ strong[data-status="DOWN"]{
   display:grid;
   gap:12px;
 }
-.compactList .focusRow{ min-height:48px; }
+.compactList .focusRow--stack{align-items:flex-start;flex-direction:column}
+.focusRow--stack strong{width:100%;word-break:break-word;white-space:pre-wrap;text-align:left}
+.focusRow{ min-height:48px; }
 .focusRow,
 .typeCountRow{
   padding:12px 14px;
