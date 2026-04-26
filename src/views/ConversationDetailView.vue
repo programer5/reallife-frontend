@@ -24,6 +24,7 @@ import ConversationMessageMenuOverlay from "@/components/conversation/Conversati
 import ConversationLockModal from "@/components/conversation/ConversationLockModal.vue";
 import ConversationPinActionModal from "@/components/conversation/ConversationPinActionModal.vue";
 import ConversationPinEditModal from "@/components/conversation/ConversationPinEditModal.vue";
+import ConversationAiAssist from "@/components/conversation/ConversationAiAssist.vue";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -583,6 +584,37 @@ const {
 
 const visibleMessages = computed(() => items.value || []);
 
+const aiAssistMessage = computed(() => {
+  const source = [...(items.value || [])].reverse();
+  return (
+    source.find((message) => !isMineMessage(message) && String(message?.content || "").trim()) ||
+    source.find((message) => String(message?.content || "").trim()) ||
+    null
+  );
+});
+
+const aiAssistText = computed(() => String(aiAssistMessage.value?.content || "").trim());
+const aiAssistMessageId = computed(() => String(aiAssistMessage.value?.messageId || aiAssistMessage.value?.id || ""));
+
+function quickSendAiReply(reply) {
+  const text = String(reply || "").trim();
+  if (!text || sending.value) return;
+  content.value = text;
+  nextTick(() => {
+    syncComposerHeightVar();
+    onSend();
+  });
+}
+
+function handleAiActionDone(result) {
+  const message = result?.message || "액션을 처리했어요";
+  toast.success?.(message);
+  const targetUrl = String(result?.targetUrl || "");
+  if (targetUrl.startsWith("/")) {
+    router.push(targetUrl);
+  }
+}
+
 const stagePool = computed(() => (items.value || []).filter((message) => isSessionMessage(message) || messageHasAttachment(message) || messageHasActionCandidate(message) || (searchFocusMid.value && String(searchFocusMid.value) === String(message?.messageId || ""))));
 const stageFilteredMessages = computed(() => {
   const source = stagePool.value;
@@ -989,6 +1021,14 @@ useConversationBootFlow({
         @open-source="goPendingSource"
         @close="clearPendingAction"
       />
+
+    <ConversationAiAssist
+      :conversation-id="conversationId"
+      :message-id="aiAssistMessageId"
+      :source-text="aiAssistText"
+      @quick-send="quickSendAiReply"
+      @action-done="handleAiActionDone"
+    />
 
     <ConversationComposerShell
       v-model:content="content"
