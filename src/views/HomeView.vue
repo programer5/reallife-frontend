@@ -3,7 +3,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import sse from "../lib/sse";
-import { fetchFeed } from "../api/posts";
+import { fetchFeed, fetchNearbyFeed } from "../api/posts";
 import { likePost, unlikePost } from "../api/likes";
 import { useToastStore } from "../stores/toast";
 import RlButton from "../components/ui/RlButton.vue";
@@ -27,6 +27,9 @@ const composerOpen = ref(false);
 const composerDraft = ref(null);
 const relayNotice = ref(null);
 const viewMode = ref("FOLLOWING");
+const nearbyStatus = ref("idle");
+const nearbyCoords = ref(null);
+const nearbyError = ref("");
 const sentinelRef = ref(null);
 const newPostCount = ref(0);
 const lastSyncedAt = ref(0);
@@ -39,7 +42,7 @@ let offVisibility = null;
 const modeMeta = computed(() => {
   if (viewMode.value === "FOLLOWING") return "연결된 사람들의 최근 순간을 시간순으로 보여줘요.";
   if (viewMode.value === "FOR_YOU") return "댓글·좋아요 반응이 빠른 글을 앞쪽에 배치해 보여줘요.";
-  return "근처 흐름은 준비 중이에요.";
+  return nearbyStatus.value === "ready" ? nearbySummary.value : "내 위치 기준으로 가까운 흐름을 모아봐요.";
 });
 
 const heroCopy = computed(() => {
@@ -66,12 +69,89 @@ function engagementScore(post) {
   return like + comment * 2 + (hasActionShare ? 3 : 0);
 }
 
+function toNumberOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function getPostCoords(post) {
+  const candidates = [
+    [post?.latitude, post?.longitude],
+    [post?.lat, post?.lng],
+    [post?.location?.latitude, post?.location?.longitude],
+    [post?.location?.lat, post?.location?.lng],
+    [post?.sourceMeta?.latitude, post?.sourceMeta?.longitude],
+    [post?.sourceMeta?.lat, post?.sourceMeta?.lng],
+  ];
+  for (const [latRaw, lngRaw] of candidates) {
+    const lat = toNumberOrNull(latRaw);
+    const lng = toNumberOrNull(lngRaw);
+    if (lat !== null && lng !== null) return { lat, lng };
+  }
+  return null;
+}
+
+function distanceKm(a, b) {
+  if (!a || !b) return null;
+  const r = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return r * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function hasNearSignal(post) {
+  const text = [post?.content, post?.title, post?.placeText, post?.sourceMeta?.placeText, post?.sourceMeta?.place].filter(Boolean).join(" ");
+  return /(근처|동네|카페|공원|역|출구|거리|맛집|홍대|성수|강남|잠실|모란|분당|서울|부산|대구|인천|광주|대전|울산)/.test(text);
+}
+
+function nearSortValue(post) {
+  const coords = getPostCoords(post);
+  const dist = distanceKm(nearbyCoords.value, coords);
+  if (dist !== null) return dist;
+  return hasNearSignal(post) ? 999 : 9999;
+}
+
+const composerLocationHint = computed(() => {
+  if (viewMode.value !== "NEARBY" || nearbyStatus.value !== "ready" || !nearbyCoords.value) return null;
+  return {
+    latitude: nearbyCoords.value.lat,
+    longitude: nearbyCoords.value.lng,
+    placeName: "내 주변",
+  };
+});
+
+const nearbySummary = computed(() => {
+  if (nearbyStatus.value === "loading") return "현재 위치 확인 중";
+  if (nearbyStatus.value === "denied") return "위치 권한 필요";
+  if (nearbyStatus.value === "unsupported") return "브라우저 위치 미지원";
+  if (nearbyStatus.value === "ready") {
+    const withCoords = items.value.filter((p) => getPostCoords(p)).length;
+    const nearSignals = items.value.filter((p) => hasNearSignal(p)).length;
+    if (withCoords > 0) return `위치 글 ${withCoords}개를 가까운 순서로 정렬`;
+    if (nearSignals > 0) return `장소 힌트가 있는 글 ${nearSignals}개를 먼저 표시`;
+    return "위치 정보 없는 글은 최신순으로 표시";
+  }
+  return "위치 권한을 허용하면 가까운 흐름을 먼저 볼 수 있어요";
+});
+
 const displayedItems = computed(() => {
   const arr = [...items.value];
   if (viewMode.value === "FOR_YOU") {
     return arr.sort((a, b) => {
       const scoreDiff = engagementScore(b) - engagementScore(a);
       if (scoreDiff !== 0) return scoreDiff;
+      const bt = Date.parse(b?.createdAt || b?.createdDateTime || 0) || 0;
+      const at = Date.parse(a?.createdAt || a?.createdDateTime || 0) || 0;
+      return bt - at;
+    });
+  }
+  if (viewMode.value === "NEARBY") {
+    return arr.sort((a, b) => {
+      const nearDiff = nearSortValue(a) - nearSortValue(b);
+      if (nearDiff !== 0) return nearDiff;
       const bt = Date.parse(b?.createdAt || b?.createdDateTime || 0) || 0;
       const at = Date.parse(a?.createdAt || a?.createdDateTime || 0) || 0;
       return bt - at;
@@ -184,11 +264,22 @@ function normalizeFeedPayload(result) {
   };
 }
 
+async function fetchCurrentFeed({ size = 12, cursor = null } = {}) {
+  if (viewMode.value === "NEARBY" && nearbyStatus.value === "ready" && nearbyCoords.value) {
+    return fetchNearbyFeed({
+      lat: nearbyCoords.value.lat,
+      lng: nearbyCoords.value.lng,
+      size,
+    });
+  }
+  return fetchFeed({ size, cursor });
+}
+
 async function loadFirst({ silent = false } = {}) {
   if (!silent) loading.value = true;
   error.value = "";
   try {
-    const result = normalizeFeedPayload(await fetchFeed({ size: 12 }));
+    const result = normalizeFeedPayload(await fetchCurrentFeed({ size: 12 }));
     items.value = result.items;
     nextCursor.value = result.nextCursor;
     hasNext.value = result.hasNext;
@@ -207,7 +298,7 @@ async function loadMore() {
   if (loading.value || loadingMore.value || !hasNext.value || !nextCursor.value) return;
   loadingMore.value = true;
   try {
-    const result = normalizeFeedPayload(await fetchFeed({ size: 12, cursor: nextCursor.value }));
+    const result = normalizeFeedPayload(await fetchCurrentFeed({ size: 12, cursor: nextCursor.value }));
     const merged = [...items.value, ...result.items];
     const seen = new Set();
     items.value = merged.filter((it) => {
@@ -273,8 +364,43 @@ function onSwitchMode(mode) {
   viewMode.value = mode;
 }
 
+function requestNearbyLocation() {
+  viewMode.value = "NEARBY";
+  nearbyError.value = "";
+
+  if (!navigator?.geolocation) {
+    nearbyStatus.value = "unsupported";
+    toast.info?.("근처 사용 불가", "이 브라우저에서는 위치 기능을 사용할 수 없어요.");
+    return;
+  }
+
+  nearbyStatus.value = "loading";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      nearbyCoords.value = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      };
+      nearbyStatus.value = "ready";
+      toast.success?.("근처 흐름 켜짐", "가까운 힌트가 있는 글을 먼저 보여줄게요.");
+      loadFirst({ silent: false });
+    },
+    (err) => {
+      nearbyStatus.value = "denied";
+      nearbyError.value = err?.message || "위치 권한을 확인하지 못했어요.";
+      toast.error?.("위치 권한 필요", "브라우저에서 위치 권한을 허용하면 근처 흐름을 볼 수 있어요.");
+    },
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 1000 * 60 * 5 }
+  );
+}
+
 function onNearbyClick() {
-  toast.info?.("근처 흐름 준비 중", "근처 기반 흐름은 다음 단계에서 연결할 예정이에요.");
+  if (viewMode.value === "NEARBY" && nearbyStatus.value === "ready") {
+    loadFirst({ silent: true });
+    return;
+  }
+  requestNearbyLocation();
 }
 
 function reloadWithNewPosts() {
@@ -365,7 +491,7 @@ onBeforeUnmount(() => {
       <div class="modeRail" role="tablist" aria-label="피드 필터">
         <button class="modePill" :class="{ on: viewMode === 'FOLLOWING' }" type="button" @click="onSwitchMode('FOLLOWING')">팔로잉</button>
         <button class="modePill" :class="{ on: viewMode === 'FOR_YOU' }" type="button" @click="onSwitchMode('FOR_YOU')">추천</button>
-        <button class="modePill modePill--muted" type="button" @click="onNearbyClick">근처</button>
+        <button class="modePill modePill--near" :class="{ on: viewMode === 'NEARBY' }" type="button" @click="onNearbyClick">근처</button>
       </div>
       <div class="homeControl__actions">
         <RlButton class="toolbarBtn" size="sm" variant="soft" @click="loadFirst" :loading="loading">↻</RlButton>
@@ -376,7 +502,20 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-
+    <section v-if="viewMode === 'NEARBY'" class="nearbyPanel cardSurface" :data-state="nearbyStatus">
+      <div class="nearbyPanel__main">
+        <span class="nearbyPanel__icon">📍</span>
+        <div>
+          <div class="nearbyPanel__title">근처 흐름</div>
+          <div class="nearbyPanel__sub">{{ nearbySummary }}</div>
+        </div>
+      </div>
+      <div class="nearbyPanel__actions">
+        <span v-if="nearbyStatus === 'ready' && nearbyCoords?.accuracy" class="nearbyChip">오차 약 {{ Math.round(nearbyCoords.accuracy) }}m</span>
+        <span v-else-if="nearbyStatus === 'loading'" class="nearbyChip">확인 중</span>
+        <button class="nearbyRefresh" type="button" @click="requestNearbyLocation">위치 새로고침</button>
+      </div>
+    </section>
 
     <button v-if="newPostCount > 0" class="newPostBanner" type="button" @click="reloadWithNewPosts">새 글 {{ newPostCount }}개 · 지금 보기</button>
 
@@ -429,7 +568,13 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <PostComposer v-if="composerOpen" :initial-draft="composerDraft" @close="composerOpen = false" @created="onCreated" />
+    <PostComposer
+      v-if="composerOpen"
+      :initial-draft="composerDraft"
+      :location-hint="composerLocationHint"
+      @close="composerOpen = false"
+      @created="onCreated"
+    />
   </div>
 </template>
 
@@ -454,6 +599,19 @@ onBeforeUnmount(() => {
 .feedGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}.feedGrid > *{align-self:start}
 .sentinel{display:grid;place-items:center;min-height:68px}.loadingMoreHint,.endHint{font-size:13px;color:rgba(255,255,255,.58)}
 .stateSkeletonWrap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.skeleton-card{padding:16px;border-radius:24px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.03);display:grid;gap:12px}.sk-head{display:flex;gap:10px;align-items:center}.sk-avatar{width:38px;height:38px;border-radius:999px;background:rgba(255,255,255,.08)}.sk-meta{display:grid;gap:6px;flex:1}.sk-line{height:12px;border-radius:999px;background:rgba(255,255,255,.08)}.sk-title{width:55%}.sk-sub{width:36%}.sk-media{height:180px;border-radius:18px;background:rgba(255,255,255,.08)}.short{width:60%}
+.modePill--near.on{background:linear-gradient(180deg, rgba(72,210,164,.22), rgba(72,210,164,.09));border-color:rgba(72,210,164,.42);box-shadow:0 10px 26px rgba(36,190,142,.14)}
+.nearbyPanel{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:22px}
+.nearbyPanel[data-state="ready"]{border-color:rgba(72,210,164,.22);background:linear-gradient(180deg, rgba(72,210,164,.08), rgba(255,255,255,.02))}
+.nearbyPanel[data-state="loading"]{border-color:rgba(124,156,255,.22)}
+.nearbyPanel[data-state="denied"],.nearbyPanel[data-state="unsupported"]{border-color:rgba(255,180,90,.24)}
+.nearbyPanel__main{display:flex;align-items:center;gap:12px;min-width:0}
+.nearbyPanel__icon{width:36px;height:36px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);flex:0 0 auto}
+.nearbyPanel__title{font-size:14px;font-weight:950;color:rgba(255,255,255,.94)}
+.nearbyPanel__sub{margin-top:3px;font-size:12px;color:rgba(255,255,255,.64);line-height:1.45}
+.nearbyPanel__actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.nearbyChip,.nearbyRefresh{min-height:32px;padding:0 11px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.84);font-size:12px;font-weight:850;white-space:nowrap}
+.nearbyRefresh{cursor:pointer}
+.nearbyRefresh:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16)}
 @media (max-width:1180px){.feedGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.flowInsightGrid{grid-template-columns:1fr 1fr}.stateSkeletonWrap{grid-template-columns:1fr 1fr}}
-@media (max-width:760px){.page{padding:12px 12px calc(96px + env(safe-area-inset-bottom))}.homeControl{padding:10px;gap:8px;align-items:flex-start;flex-direction:column}.homeControl__actions{width:100%;margin-left:0}.homeControl__actions .toolbarBtn,.homeControl__actions .composerShortcut{flex:1;justify-content:center}.feedGrid{grid-template-columns:1fr}.flowInsightGrid{grid-template-columns:1fr}.stateSkeletonWrap{grid-template-columns:1fr}.newPostBanner{top:72px}}
+@media (max-width:760px){.page{padding:12px 12px calc(96px + env(safe-area-inset-bottom))}.homeControl{padding:10px;gap:8px;align-items:flex-start;flex-direction:column}.homeControl__actions{width:100%;margin-left:0}.homeControl__actions .toolbarBtn,.homeControl__actions .composerShortcut{flex:1;justify-content:center}.feedGrid{grid-template-columns:1fr}.flowInsightGrid{grid-template-columns:1fr}.stateSkeletonWrap{grid-template-columns:1fr}.newPostBanner{top:72px}.nearbyPanel{align-items:flex-start;flex-direction:column;padding:12px}.nearbyPanel__actions{width:100%;justify-content:space-between}.nearbyRefresh{flex:1}}
 </style>

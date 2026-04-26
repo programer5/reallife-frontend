@@ -125,6 +125,7 @@ import { createPost } from '../api/posts';
 const props = defineProps({
   initialDraft: { type: Object, default: null },
   sourceMeta: { type: Object, default: null },
+  locationHint: { type: Object, default: null },
 });
 
 const emit = defineEmits(['close', 'created']);
@@ -292,6 +293,9 @@ async function submit() {
       mediaFileIds: mediaFileIds || [],
       imageFileIds: mediaFileIds || [],
       imageUrls,
+      latitude: props.locationHint?.latitude ?? null,
+      longitude: props.locationHint?.longitude ?? null,
+      placeName: props.locationHint?.placeName ?? null,
     });
 
     toast.success?.('게시 완료', '새 게시글을 올렸어요.');
