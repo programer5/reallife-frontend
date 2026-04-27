@@ -25,6 +25,7 @@ import ConversationLockModal from "@/components/conversation/ConversationLockMod
 import ConversationPinActionModal from "@/components/conversation/ConversationPinActionModal.vue";
 import ConversationPinEditModal from "@/components/conversation/ConversationPinEditModal.vue";
 import ConversationAiAssist from "@/components/conversation/ConversationAiAssist.vue";
+import { executeConversationAiAction } from "@/api/conversationAi";
 
 import { fetchMessages, sendMessage } from "@/api/messages";
 import { markConversationRead } from "@/api/conversations";
@@ -596,14 +597,42 @@ const aiAssistMessage = computed(() => {
 const aiAssistText = computed(() => String(aiAssistMessage.value?.content || "").trim());
 const aiAssistMessageId = computed(() => String(aiAssistMessage.value?.messageId || aiAssistMessage.value?.id || ""));
 
-function quickSendAiReply(reply) {
+function shouldAutoReminderFromReply(text) {
+  const v = String(text || "").trim();
+  return /이따|나중|잠시 후|조금 이따|다시 얘기|답할게/.test(v);
+}
+
+async function quickSendAiReply(reply) {
   const text = String(reply || "").trim();
   if (!text || sending.value) return;
+  const autoReminder = shouldAutoReminderFromReply(text);
   content.value = text;
-  nextTick(() => {
-    syncComposerHeightVar();
-    onSend();
-  });
+  await nextTick();
+  syncComposerHeightVar();
+  await onSend();
+
+  if (autoReminder && conversationId.value) {
+    try {
+      const result = await executeConversationAiAction({
+        conversationId: conversationId.value,
+        messageId: aiAssistMessageId.value || null,
+        type: "reminder",
+        text,
+        payload: {
+          title: "이따 이어가기",
+          source: text,
+          remindMinutes: 30,
+        },
+      });
+      toast.success?.(result?.message || "이따 다시 볼 알림을 만들었어요");
+      if (result?.targetUrl?.startsWith?.("/")) {
+        // 화면을 강제로 밀지 않고 핀/알림 상태만 새로 받아온다.
+        loadPins?.();
+      }
+    } catch (e) {
+      toast.error?.("알림 생성에 실패했어요");
+    }
+  }
 }
 
 function handleAiActionDone(result) {
@@ -872,9 +901,10 @@ useConversationBootFlow({
         <RlButton
             size="sm"
             variant="soft"
+            :title="lockEnabled ? '잠금 해제' : '잠금 설정'"
             @click="lockEnabled ? openLockModal('disable') : openLockModal('set')"
         >
-          {{ lockEnabled ? "🔒 잠금 해제" : "🔓 잠금 설정" }}
+          {{ lockEnabled ? "🔒" : "🔓" }}
         </RlButton>
       </div>
     </div>
@@ -7734,5 +7764,76 @@ useConversationBootFlow({
     min-height:min(520px, calc(100dvh - 72px)) !important;
     max-height:min(82dvh, calc(100dvh - 72px)) !important;
   }
+}
+
+
+/* =========================
+   Conversation UX cleanup patch
+   - compact chat header
+   - stable bottom composer
+   ========================= */
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:70;
+  min-height:58px;
+  padding:8px 12px;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:center;
+  gap:8px;
+  border-bottom:1px solid color-mix(in oklab,var(--border) 84%,transparent);
+  background:color-mix(in oklab,var(--bg) 92%,transparent);
+  backdrop-filter:blur(16px);
+}
+.topbar .peer{
+  min-width:0;
+  min-height:44px;
+  padding:6px 8px;
+  border:0;
+  border-radius:14px;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  text-align:left;
+  cursor:pointer;
+}
+.topbar .peer:hover{background:rgba(255,255,255,.04)}
+.topbar .peerAva{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  font-weight:950;
+  color:#08111f;
+  background:linear-gradient(135deg,color-mix(in oklab,var(--accent) 70%,white),color-mix(in oklab,var(--success) 72%,white));
+}
+.topbar .peerMeta{min-width:0;display:grid;gap:1px}
+.topbar .peerName{font-size:15px;font-weight:950;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.topbar .peerHandle{font-size:11px;font-weight:800;line-height:1.15;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar .right{display:flex;align-items:center;gap:6px;justify-content:flex-end;min-width:0}
+.topbar .right :deep(button){min-width:38px;padding-inline:10px;border-radius:999px;white-space:nowrap}
+.composerWrap{
+  position:sticky;
+  bottom:0;
+  z-index:80;
+  padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+  max-width:760px;
+  margin:0 auto;
+  width:100%;
+  background:linear-gradient(180deg,rgba(10,16,30,.72),rgba(10,16,30,.96));
+  border-top:1px solid color-mix(in oklab,var(--border) 88%,transparent);
+  backdrop-filter:blur(16px);
+}
+@media (max-width:640px){
+  .topbar{min-height:56px;padding:7px 10px;gap:7px}
+  .topbar .peer{min-height:42px;padding:5px 7px}
+  .topbar .peerAva{width:32px;height:32px}
+  .topbar .peerName{font-size:14px}
+  .topbar .peerHandle{font-size:10px}
+  .composerWrap{padding:7px 9px calc(7px + env(safe-area-inset-bottom))}
 }
 </style>

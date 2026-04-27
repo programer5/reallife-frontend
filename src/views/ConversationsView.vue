@@ -298,13 +298,152 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.page{padding:18px 14px 90px;max-width:900px;margin:0 auto;display:grid;gap:12px}
-.rl-cardish{border:1px solid color-mix(in oklab,var(--border) 88%,transparent);background:color-mix(in oklab,var(--surface) 86%,transparent);box-shadow:0 14px 48px rgba(0,0,0,.22),0 1px 0 rgba(255,255,255,.05) inset;backdrop-filter:blur(14px)}
-.pendingBanner{display:flex;align-items:center;gap:12px;padding:12px;border-radius:20px}
-.pendingIcon{width:38px;height:38px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,.06);font-size:18px}
-.pendingBody{min-width:0;display:grid;gap:3px;flex:1}.pendingBody strong{font-size:14px}.pendingBody span,.pendingBody small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:12px}.pendingActions{display:flex;gap:8px}
-.topBar{border-radius:24px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px}.topBar h1{margin:0;font-size:26px;font-weight:950}.topBar p{margin:5px 0 0;color:var(--muted);font-size:13px}.topActions{display:flex;gap:8px;align-items:center}
-.conversationTabs{display:flex;gap:6px;padding:4px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}.conversationTabs button{flex:1;height:36px;border:0;border-radius:999px;padding:0 12px;background:transparent;color:var(--muted);font-weight:950;cursor:pointer}.conversationTabs button.active{background:color-mix(in oklab,var(--accent) 20%,rgba(255,255,255,.04));color:var(--text);box-shadow:0 0 0 1px color-mix(in oklab,var(--accent) 20%,transparent) inset}
-.conversationList{display:grid;gap:10px}.conversationItem{width:100%;border-radius:20px;padding:12px;display:grid;grid-template-columns:42px 1fr auto;gap:10px;align-items:center;text-align:left;cursor:pointer;transition:transform .14s ease,border-color .18s ease,background .18s ease}.conversationItem:hover{transform:translateY(-1px);border-color:color-mix(in oklab,var(--accent) 28%,var(--border));background:color-mix(in oklab,var(--surface) 82%,transparent)}.conversationItemUnread{border-color:color-mix(in oklab,var(--accent) 32%,var(--border))}.conversationItemTarget{border-color:color-mix(in oklab,var(--success) 34%,var(--border));box-shadow:0 0 0 1px color-mix(in oklab,var(--success) 16%,transparent) inset}.avatar{width:42px;height:42px;border-radius:50%;background:radial-gradient(15px 15px at 30% 30%,rgba(255,255,255,.22),transparent 60%),linear-gradient(135deg,color-mix(in oklab,var(--accent) 76%,white),color-mix(in oklab,var(--success) 68%,white))}.itemBody{min-width:0;display:grid;gap:5px}.itemTop{display:flex;align-items:center;justify-content:space-between;gap:10px}.nameWrap{display:flex;align-items:center;gap:7px;min-width:0}.nameWrap strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.groupBadge{font-size:10px;font-weight:950;color:color-mix(in oklab,var(--accent) 78%,white);border:1px solid color-mix(in oklab,var(--accent) 35%,transparent);padding:2px 6px;border-radius:999px}.time{font-size:12px;color:var(--muted);white-space:nowrap}.preview{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:13px}.activityBadge{min-width:26px;height:26px;padding:0 8px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:color-mix(in oklab,var(--accent) 72%,white);color:#0b1020;font-size:12px;font-weight:950}.more{display:grid;place-items:center;padding:8px 0 4px}.moreBtn{height:38px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:var(--text);font-weight:900}.end{font-size:12px;opacity:.65}
-@media (max-width:640px){.page{padding:14px 12px 90px}.topBar{padding:14px}.topBar h1{font-size:24px}.topActions :deep(button){min-width:38px;padding-inline:10px}.conversationTabs{width:100%}.conversationItem{grid-template-columns:40px 1fr auto;padding:11px}.avatar{width:40px;height:40px}}
+.page{
+  width:100%;
+  max-width:760px;
+  margin:0 auto;
+  padding:14px 12px 92px;
+  display:grid;
+  gap:12px;
+}
+.rl-cardish{
+  border:1px solid color-mix(in oklab,var(--border) 86%,transparent);
+  background:color-mix(in oklab,var(--surface) 88%,transparent);
+  box-shadow:0 12px 34px rgba(0,0,0,.18),0 1px 0 rgba(255,255,255,.04) inset;
+  backdrop-filter:blur(14px);
+}
+.pendingBanner{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px;
+  border-radius:18px;
+}
+.pendingIcon{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  background:rgba(255,255,255,.06);
+  font-size:17px;
+}
+.pendingBody{
+  min-width:0;
+  display:grid;
+  gap:2px;
+  flex:1;
+}
+.pendingBody strong{font-size:13px}
+.pendingBody span,.pendingBody small{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--muted);
+  font-size:12px;
+}
+.pendingActions{display:flex;gap:7px}
+.topBar{
+  min-height:0;
+  border-radius:22px;
+  padding:14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.topBar h1{
+  margin:0;
+  font-size:24px;
+  line-height:1;
+  font-weight:950;
+  letter-spacing:-.03em;
+}
+.topBar p{
+  margin:6px 0 0;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.35;
+}
+.topActions{display:flex;gap:7px;align-items:center;flex:0 0 auto}
+.conversationTabs{
+  height:42px;
+  display:flex;
+  gap:6px;
+  padding:4px;
+  border-radius:999px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  overflow:hidden;
+}
+.conversationTabs button{
+  flex:1;
+  height:34px;
+  border:0;
+  border-radius:999px;
+  padding:0 12px;
+  background:transparent;
+  color:var(--muted);
+  font-weight:950;
+  cursor:pointer;
+}
+.conversationTabs button.active{
+  background:color-mix(in oklab,var(--accent) 22%,rgba(255,255,255,.04));
+  color:var(--text);
+  box-shadow:0 0 0 1px color-mix(in oklab,var(--accent) 22%,transparent) inset;
+}
+.conversationList{
+  display:grid;
+  gap:10px;
+  min-height:0;
+}
+.conversationItem{
+  width:100%;
+  min-height:74px;
+  border-radius:20px;
+  padding:12px;
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr) auto;
+  gap:10px;
+  align-items:center;
+  text-align:left;
+  cursor:pointer;
+  transition:transform .14s ease,border-color .18s ease,background .18s ease;
+}
+.conversationItem:hover{
+  transform:translateY(-1px);
+  border-color:color-mix(in oklab,var(--accent) 28%,var(--border));
+  background:color-mix(in oklab,var(--surface) 82%,transparent);
+}
+.conversationItemUnread{border-color:color-mix(in oklab,var(--accent) 32%,var(--border))}
+.conversationItemTarget{border-color:color-mix(in oklab,var(--success) 34%,var(--border));box-shadow:0 0 0 1px color-mix(in oklab,var(--success) 16%,transparent) inset}
+.avatar{
+  width:42px;
+  height:42px;
+  border-radius:50%;
+  background:radial-gradient(15px 15px at 30% 30%,rgba(255,255,255,.22),transparent 60%),linear-gradient(135deg,color-mix(in oklab,var(--accent) 76%,white),color-mix(in oklab,var(--success) 68%,white));
+}
+.itemBody{min-width:0;display:grid;gap:5px}
+.itemTop{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.nameWrap{display:flex;align-items:center;gap:7px;min-width:0}
+.nameWrap strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.groupBadge{font-size:10px;font-weight:950;color:color-mix(in oklab,var(--accent) 78%,white);border:1px solid color-mix(in oklab,var(--accent) 35%,transparent);padding:2px 6px;border-radius:999px}
+.time{font-size:12px;color:var(--muted);white-space:nowrap}
+.preview{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:13px}
+.activityBadge{min-width:26px;height:26px;padding:0 8px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:color-mix(in oklab,var(--accent) 72%,white);color:#0b1020;font-size:12px;font-weight:950}
+.more{display:grid;place-items:center;padding:8px 0 4px}
+.moreBtn{height:38px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);color:var(--text);font-weight:900}
+.end{font-size:12px;opacity:.65}
+@media (max-width:640px){
+  .page{padding:12px 10px 88px;gap:10px}
+  .topBar{padding:12px;border-radius:20px}
+  .topBar h1{font-size:23px}
+  .topBar p{font-size:12px}
+  .topActions :deep(button){min-width:34px;padding-inline:9px}
+  .conversationTabs{height:40px}
+  .conversationTabs button{height:32px}
+  .conversationItem{grid-template-columns:40px minmax(0,1fr) auto;min-height:70px;padding:11px;border-radius:18px}
+  .avatar{width:40px;height:40px}
+}
 </style>
